@@ -78,6 +78,10 @@ $hashLines = foreach ($name in $hashFiles) {
 [System.IO.File]::WriteAllLines((Join-Path $dist 'SHA256SUMS.txt'), $hashLines, [System.Text.UTF8Encoding]::new($false))
 
 $pluginHash = (Get-FileHash -Algorithm SHA256 -LiteralPath $pluginPackage).Hash.ToLowerInvariant()
+[System.IO.File]::WriteAllText(
+    (Join-Path $dist 'log-analyzer-1.50-win-x64.zip.sha256'),
+    "$pluginHash  log-analyzer-1.50-win-x64.zip`n",
+    [System.Text.UTF8Encoding]::new($false))
 $catalogDirectory = Join-Path $dist 'marketplace'
 New-Item -ItemType Directory -Force -Path $catalogDirectory | Out-Null
 $catalog = [ordered]@{
