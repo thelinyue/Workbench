@@ -69,7 +69,7 @@ Copy-Item -LiteralPath (Join-Path $repoRoot 'src\HephaestusWorkbench.App\PluginS
 $pluginPackage = Join-Path $dist 'log-analyzer-1.50-win-x64.zip'
 [System.IO.Compression.ZipFile]::CreateFromDirectory($pluginPackageDirectory, $pluginPackage, [System.IO.Compression.CompressionLevel]::Optimal, $false)
 
-$hashFiles = @('HephaestusWorkbench_Setup.exe', 'log-analyzer-1.50-win-x64.zip')
+$hashFiles = @('HephaestusWorkbench_Setup.exe')
 $hashLines = foreach ($name in $hashFiles) {
     $hash = (Get-FileHash -Algorithm SHA256 -LiteralPath (Join-Path $dist $name)).Hash.ToLowerInvariant()
     "$hash  $name"
