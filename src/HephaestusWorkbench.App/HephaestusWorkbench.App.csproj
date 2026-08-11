@@ -18,6 +18,9 @@
   </ItemGroup>
   <ItemGroup>
     <None Include="PluginSeed\manifest.json" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
-    <None Include="..\..\插件\log_analyzer.exe" Link="PluginSeed\log_analyzer.exe" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <PluginBinaryCandidate Include="..\..\插件\log_analyzer.exe" Condition="'$(PluginBinaryPath)' == '' and Exists('..\..\插件\log_analyzer.exe')" />
+    <None Include="@(PluginBinaryCandidate)" Link="PluginSeed\log_analyzer.exe" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <None Include="$(PluginBinaryPath)" Condition="'$(PluginBinaryPath)' != '' and Exists('$(PluginBinaryPath)')" Link="PluginSeed\log_analyzer.exe" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <None Include="..\..\docs\plugin-development.md" Link="Documentation\plugin-development.md" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>

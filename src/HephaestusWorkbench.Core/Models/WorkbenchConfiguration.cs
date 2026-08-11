@@ -24,7 +24,15 @@ public sealed class AppSettingsConfig
 /// <summary>插件配置仅记录已登记插件和启用状态，插件文件仍由插件目录管理。</summary>
 public sealed class PluginConfig
 {
+    public string? DefaultPluginId { get; set; }
     public List<PluginConfigEntry> Plugins { get; set; } = new();
+}
+
+public enum PluginInstallSource
+{
+    Manual,
+    Bundled,
+    Marketplace
 }
 
 public sealed class PluginConfigEntry
@@ -32,4 +40,5 @@ public sealed class PluginConfigEntry
     public string Id { get; set; } = string.Empty;
     public string Version { get; set; } = string.Empty;
     public bool Enabled { get; set; } = true;
+    public PluginInstallSource Source { get; set; } = PluginInstallSource.Manual;
 }

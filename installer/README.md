@@ -9,7 +9,7 @@ C:\Program Files\HephaestusWorkbench
 安装包制作：
 
 ```powershell
-.\installer\build-installer.ps1 -Configuration Release -Version 1.0.0
+.\installer\build-installer.ps1 -Configuration Release -Version 1.1.0 -PluginBinaryPath '.\插件\log_analyzer.exe'
 ```
 
 脚本会先发布 WPF 主程序，再生成 `Payload.zip`，最后发布安装器并复制三个入口：

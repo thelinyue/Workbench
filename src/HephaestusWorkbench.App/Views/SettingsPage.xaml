@@ -1,28 +1,77 @@
-<UserControl x:Class="HephaestusWorkbench.App.Views.SettingsPage" xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
-    <ScrollViewer VerticalScrollBarVisibility="Auto"><StackPanel MaxWidth="760" HorizontalAlignment="Left">
-        <Border Style="{StaticResource CardStyle}" Margin="0,0,0,10"><StackPanel>
-            <TextBlock Text="界面主题" Style="{StaticResource SectionTitleStyle}"/>
-            <TextBlock Text="选择工作台的显示主题，保存后立即生效。" Style="{StaticResource MutedTextStyle}" Margin="0,0,0,8"/>
-            <ComboBox ItemsSource="{Binding ThemeOptions}" DisplayMemberPath="DisplayName" SelectedValuePath="Value" SelectedValue="{Binding SelectedTheme, UpdateSourceTrigger=PropertyChanged}" Width="160" HorizontalAlignment="Left"/>
-        </StackPanel></Border>
-        <Border Style="{StaticResource CardStyle}" Margin="0,0,0,10"><StackPanel>
-            <TextBlock Text="日志监控目录" Style="{StaticResource SectionTitleStyle}"/>
-            <TextBlock Text="程序会扫描以下目录中符合命名规则的 .tgz 文件。" Style="{StaticResource MutedTextStyle}" Margin="0,0,0,8"/>
-            <ListBox ItemsSource="{Binding WatchDirectories}" SelectedItem="{Binding SelectedWatchDirectory}" Height="130"/>
-            <DockPanel Margin="0,10,0,0">
-                <Button DockPanel.Dock="Right" Content="浏览" Click="BrowseWatchDirectory_Click"/>
-                <TextBox Text="{Binding NewWatchDirectory, UpdateSourceTrigger=PropertyChanged}"/>
-                <Button DockPanel.Dock="Right" Content="添加" Command="{Binding AddWatchDirectoryCommand}"/>
-            </DockPanel>
-            <Button Content="移除选中目录" Command="{Binding RemoveWatchDirectoryCommand}" HorizontalAlignment="Left" Margin="0,10,0,0"/>
-        </StackPanel></Border>
-        <Border Style="{StaticResource CardStyle}" Margin="0,0,0,10"><StackPanel>
-            <TextBlock Text="报告查看" Style="{StaticResource SectionTitleStyle}"/>
-            <CheckBox Content="启动时恢复上次打开的报告" IsChecked="{Binding ReportRestoreEnabled}"/>
-            <TextBlock Text="最大打开报告数量（1–10）" Style="{StaticResource MutedTextStyle}" Margin="0,10,0,5"/>
-            <TextBox Text="{Binding MaxOpenReports, UpdateSourceTrigger=PropertyChanged}" Width="100" HorizontalAlignment="Left"/>
-        </StackPanel></Border>
-        <Button Content="保存设置" Style="{StaticResource PrimaryButtonStyle}" Command="{Binding SaveCommand}" HorizontalAlignment="Left"/>
-        <TextBlock Text="{Binding Message}" Foreground="{DynamicResource WorkbenchSuccessBrush}" Margin="0,10,0,0" TextWrapping="Wrap"/>
-    </StackPanel></ScrollViewer>
+<UserControl x:Class="HephaestusWorkbench.App.Views.SettingsPage"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             SizeChanged="SettingsPage_SizeChanged">
+    <ScrollViewer HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
+        <Grid x:Name="SettingsLayout" HorizontalAlignment="Stretch">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition x:Name="PrimaryColumn" Width="2*"/>
+                <ColumnDefinition x:Name="SecondaryColumn" Width="1*"/>
+            </Grid.ColumnDefinitions>
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/>
+            </Grid.RowDefinitions>
+
+            <Border x:Name="WatchDirectoriesCard" Grid.Row="0" Grid.Column="0" Style="{StaticResource CardStyle}" Margin="0,0,10,10">
+                <StackPanel>
+                    <Grid>
+                        <TextBlock Text="日志监控目录" Style="{StaticResource SectionTitleStyle}" Margin="0"/>
+                        <TextBlock Text="{Binding WatchDirectoryCountText}" Style="{StaticResource MutedTextStyle}" HorizontalAlignment="Right" VerticalAlignment="Center"/>
+                    </Grid>
+                    <TextBlock Text="程序会扫描以下目录中符合命名规则的 .tgz 文件。可输入路径或点击浏览选择文件夹。" Style="{StaticResource MutedTextStyle}" TextWrapping="Wrap" Margin="0,0,0,12"/>
+                    <ListBox ItemsSource="{Binding WatchDirectories}" SelectedItem="{Binding SelectedWatchDirectory}" Height="150" ScrollViewer.VerticalScrollBarVisibility="Auto" ItemContainerStyle="{StaticResource DirectoryListItemStyle}">
+                        <ListBox.ItemTemplate>
+                            <DataTemplate>
+                                <TextBlock Text="{Binding}" ToolTip="{Binding}" TextTrimming="CharacterEllipsis"/>
+                            </DataTemplate>
+                        </ListBox.ItemTemplate>
+                    </ListBox>
+                    <Grid Margin="0,12,0,0">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBox Grid.Column="0" Text="{Binding NewWatchDirectory, UpdateSourceTrigger=PropertyChanged}" ToolTip="输入或粘贴目录路径，然后按 Enter 添加">
+                            <TextBox.InputBindings>
+                                <KeyBinding Key="Enter" Command="{Binding AddWatchDirectoryCommand}"/>
+                            </TextBox.InputBindings>
+                        </TextBox>
+                        <Button Grid.Column="1" Content="浏览" Click="BrowseWatchDirectory_Click" Width="88"/>
+                        <Button Grid.Column="2" Content="添加目录" Command="{Binding AddWatchDirectoryCommand}" Style="{StaticResource PrimaryButtonStyle}" Width="108" Margin="0"/>
+                    </Grid>
+                    <TextBlock Text="{Binding DirectoryFeedback}" Style="{StaticResource InlineFeedbackStyle}"/>
+                    <DockPanel Margin="0,12,0,0">
+                        <TextBlock Text="{Binding RemoveWatchDirectoryHint}" Style="{StaticResource MutedTextStyle}" VerticalAlignment="Center"/>
+                        <Button DockPanel.Dock="Right" Content="移除选中目录" Command="{Binding RemoveWatchDirectoryCommand}" ToolTipService.ShowOnDisabled="True" ToolTip="{Binding RemoveWatchDirectoryHint}" Margin="0"/>
+                    </DockPanel>
+                </StackPanel>
+            </Border>
+
+            <StackPanel x:Name="PreferencesPanel" Grid.Row="0" Grid.Column="1">
+                <Border Style="{StaticResource CardStyle}" Margin="0,0,0,10">
+                    <StackPanel>
+                        <TextBlock Text="界面主题" Style="{StaticResource SectionTitleStyle}"/>
+                        <TextBlock Text="选择工作台的显示主题，保存后立即生效。" Style="{StaticResource MutedTextStyle}" Margin="0,0,0,8" TextWrapping="Wrap"/>
+                        <ComboBox ItemsSource="{Binding ThemeOptions}" DisplayMemberPath="DisplayName" SelectedValuePath="Value" SelectedValue="{Binding SelectedTheme, UpdateSourceTrigger=PropertyChanged}" Width="160" HorizontalAlignment="Left"/>
+                    </StackPanel>
+                </Border>
+                <Border Style="{StaticResource CardStyle}">
+                    <StackPanel>
+                        <TextBlock Text="报告查看" Style="{StaticResource SectionTitleStyle}"/>
+                        <CheckBox Content="启动时恢复上次打开的报告" IsChecked="{Binding ReportRestoreEnabled}"/>
+                        <TextBlock Text="最大打开报告数量（1–10）" Style="{StaticResource MutedTextStyle}" Margin="0,10,0,5"/>
+                        <TextBox Text="{Binding MaxOpenReports, UpdateSourceTrigger=PropertyChanged}" Width="100" HorizontalAlignment="Left"/>
+                    </StackPanel>
+                </Border>
+            </StackPanel>
+
+            <StackPanel x:Name="SettingsActionsPanel" Grid.Row="1" Grid.ColumnSpan="2">
+                <Button Content="保存设置" Style="{StaticResource PrimaryButtonStyle}" Command="{Binding SaveCommand}" HorizontalAlignment="Left"/>
+                <TextBlock Text="{Binding Message}" Foreground="{DynamicResource WorkbenchSuccessBrush}" Margin="0,10,0,0" TextWrapping="Wrap"/>
+            </StackPanel>
+        </Grid>
+    </ScrollViewer>
 </UserControl>

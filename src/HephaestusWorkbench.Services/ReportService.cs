@@ -26,6 +26,9 @@ public sealed class ReportService
     public async Task<ReportSummary?> GetLatestForCaseAsync(string caseId, CancellationToken cancellationToken = default)
         => (await _reports.ListAsync(new ReportQuery(), cancellationToken)).FirstOrDefault(x => x.CaseId == caseId);
 
+    public Task<AnalysisCase?> GetCaseAsync(string caseId, CancellationToken cancellationToken = default)
+        => _analysis.GetCaseAsync(caseId, cancellationToken);
+
     public Task<IReadOnlyList<ReportSession>> LoadSessionAsync(CancellationToken cancellationToken = default)
         => _sessions.ListAsync(cancellationToken);
 

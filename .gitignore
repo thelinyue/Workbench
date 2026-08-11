@@ -7,6 +7,5 @@ publish/
 .plugin-integration-test/
 插件/
 installer/.staging/
-installer/dist/*.pfx
-installer/dist/*.exe
+installer/dist/
 installer/Payload.zip

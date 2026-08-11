@@ -39,6 +39,7 @@ public sealed class ReportsWorkspaceViewModel : ViewModelBase, IDisposable
     }
 
     public ReportsViewModel Library { get; }
+    public WorkbenchLogger Logger => _logger;
     public ObservableCollection<ReportTabViewModel> OpenTabs { get; } = new();
     public ICommand ShowLibraryCommand { get; }
     public ICommand OpenTabCommand { get; }
@@ -96,10 +97,16 @@ public sealed class ReportsWorkspaceViewModel : ViewModelBase, IDisposable
         }
     }
 
-    public async Task OpenCaseReportAsync(string caseId)
+    public async Task<bool> OpenCaseReportAsync(string caseId)
     {
         var report = await _reports.GetLatestForCaseAsync(caseId);
-        if (report is not null) await OpenReportAsync(report);
+        if (report is null)
+        {
+            _logger.Error($"案例没有可打开的报告：{caseId}");
+            return false;
+        }
+        await OpenReportAsync(report);
+        return SelectedTab?.Report.Id == report.Id;
     }
 
     public async Task OpenReportAsync(ReportSummary report)
@@ -156,7 +163,13 @@ public sealed class ReportsWorkspaceViewModel : ViewModelBase, IDisposable
 
     private async Task DeleteAsync(ReportSummary report)
     {
-        if (!_confirmDelete($"报告“{report.CaseName}”属于分析案例。继续将同时删除该案例、报告及全部相关数据，此操作不可恢复。")) return;
+        var analysisCase = await _reports.GetCaseAsync(report.CaseId);
+        var artifactDetails = analysisCase is null
+            ? "无法读取原始日志和解压目录路径，请谨慎确认。"
+            : $"原始日志：{analysisCase.SourcePath}\n解压目录：{analysisCase.ExtractPath}";
+        var message = $"报告“{report.CaseName}”属于分析案例。\n\n{artifactDetails}\n\n"
+            + "继续将删除该案例、报告、原始日志和解压目录，此操作不可恢复。";
+        if (!_confirmDelete(message)) return;
         foreach (var tab in OpenTabs.Where(x => x.Report.CaseId == report.CaseId).ToArray()) CloseTab(tab);
         await Wpf.Application.Current.Dispatcher.InvokeAsync(() => { }, Wpf.Threading.DispatcherPriority.ApplicationIdle);
         try

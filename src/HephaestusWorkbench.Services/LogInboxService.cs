@@ -3,6 +3,12 @@ using HephaestusWorkbench.Core.Repositories;
 
 namespace HephaestusWorkbench.Services;
 
+/// <summary>单个日志文件的检查结果，供监控目录之外的快捷分析入口复用收件箱校验规则。</summary>
+public sealed record LogFileInspectionResult(LogInboxItem? Item, string? ErrorMessage)
+{
+    public bool IsValid => Item is { IsValidArchive: true };
+}
+
 /// <summary>
 /// 监控一个或多个日志目录并维护内存收件箱。
 /// 目录配置写入 workspace.json；旧版本仍可通过 watch_directory 键完成兼容迁移。
@@ -18,6 +24,7 @@ public sealed class LogInboxService : IDisposable
     private readonly SemaphoreSlim _refreshLock = new(1, 1);
     private readonly List<FileSystemWatcher> _watchers = new();
     private IReadOnlyList<LogInboxItem> _items = Array.Empty<LogInboxItem>();
+    private int _invalidItemCount;
 
     // 保留旧构造函数，便于旧版调用方和单元测试平滑迁移。
     public LogInboxService(
@@ -54,6 +61,7 @@ public sealed class LogInboxService : IDisposable
     public bool IsUsingDefaultDirectory => WatchDirectories.Count == 1
         && string.Equals(WatchDirectory, _defaultWatchDirectory, StringComparison.OrdinalIgnoreCase);
     public IReadOnlyList<LogInboxItem> Items => _items;
+    public int InvalidItemCount => _invalidItemCount;
     public event EventHandler? ItemsChanged;
     public event EventHandler? ConfigurationChanged;
 
@@ -63,6 +71,7 @@ public sealed class LogInboxService : IDisposable
         StopWatchers();
         WatchDirectories = NormalizeDirectories(configuredDirectories);
         _items = Array.Empty<LogInboxItem>();
+        _invalidItemCount = 0;
         ConfigurationChanged?.Invoke(this, EventArgs.Empty);
 
         if (!IsConfigured)
@@ -117,21 +126,39 @@ public sealed class LogInboxService : IDisposable
         try
         {
             var result = new Dictionary<string, LogInboxItem>(StringComparer.OrdinalIgnoreCase);
+            var invalidItemCount = 0;
             foreach (var directory in WatchDirectories)
             {
                 if (!Directory.Exists(directory)) continue;
                 foreach (var path in Directory.EnumerateFiles(directory, "*.tgz", SearchOption.TopDirectoryOnly))
                 {
                     cancellationToken.ThrowIfCancellationRequested();
-                    if (!_parser.TryParse(path, out var item, out _) || item is null) continue;
+                    if (!_parser.TryParse(path, out var item, out var parseError) || item is null)
+                    {
+                        invalidItemCount++;
+                        var info = new FileInfo(path);
+                        result[Path.GetFullPath(path)] = new LogInboxItem
+                        {
+                            FilePath = info.FullName,
+                            FileName = info.Name,
+                            DeviceId = "无法识别",
+                            LogTime = info.LastWriteTime,
+                            FileSize = info.Exists ? info.Length : 0,
+                            IsValidArchive = false,
+                            ErrorMessage = parseError ?? "日志文件名无法识别。"
+                        };
+                        continue;
+                    }
                     var validation = await _validator.ValidateAsync(path, cancellationToken);
                     item.IsValidArchive = validation.IsValid;
                     item.ErrorMessage = validation.Error;
+                    if (!validation.IsValid) invalidItemCount++;
                     result[Path.GetFullPath(path)] = item;
                 }
             }
 
             _items = result.Values.OrderByDescending(x => x.LogTime).ToArray();
+            _invalidItemCount = invalidItemCount;
             ItemsChanged?.Invoke(this, EventArgs.Empty);
             return _items;
         }
@@ -144,6 +171,38 @@ public sealed class LogInboxService : IDisposable
         {
             _refreshLock.Release();
         }
+    }
+
+    /// <summary>
+    /// 检查任意位置的单个日志文件，不修改监控目录，也不复制或接管文件。
+    /// 通过校验后，调用方可把返回的项目交给 CaseAnalysisService 原地分析。
+    /// </summary>
+    public async Task<LogFileInspectionResult> InspectFileAsync(string path, CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(path))
+            return new LogFileInspectionResult(null, "请选择一个日志文件。");
+
+        string fullPath;
+        try
+        {
+            fullPath = Path.GetFullPath(path.Trim());
+        }
+        catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException)
+        {
+            return new LogFileInspectionResult(null, $"日志文件路径无效：{ex.Message}");
+        }
+
+        if (!string.Equals(Path.GetExtension(fullPath), ".tgz", StringComparison.OrdinalIgnoreCase))
+            return new LogFileInspectionResult(null, "只支持选择 .tgz 日志压缩包。");
+        if (!File.Exists(fullPath))
+            return new LogFileInspectionResult(null, $"日志文件不存在：{fullPath}");
+        if (!_parser.TryParse(fullPath, out var item, out var parseError) || item is null)
+            return new LogFileInspectionResult(null, parseError ?? "日志文件名无法识别。");
+
+        var validation = await _validator.ValidateAsync(fullPath, cancellationToken);
+        item.IsValidArchive = validation.IsValid;
+        item.ErrorMessage = validation.Error;
+        return new LogFileInspectionResult(item, validation.Error);
     }
 
     public async Task DeleteAsync(LogInboxItem item, CancellationToken cancellationToken = default)

@@ -9,6 +9,7 @@ public sealed class TaskCenter
     private readonly IAnalysisTaskRepository _tasks;
     private readonly SemaphoreSlim _slots = new(2, 2);
     private readonly Dictionary<string, CancellationTokenSource> _cancellations = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, string> _taskPlugins = new(StringComparer.OrdinalIgnoreCase);
     private readonly object _sync = new();
 
     public TaskCenter(IAnalysisTaskRepository tasks) => _tasks = tasks;
@@ -17,7 +18,11 @@ public sealed class TaskCenter
     public Task EnqueueAsync(AnalysisTask task, Func<CancellationToken, Task> action)
     {
         var cancellation = new CancellationTokenSource();
-        lock (_sync) _cancellations[task.Id] = cancellation;
+        lock (_sync)
+        {
+            _cancellations[task.Id] = cancellation;
+            _taskPlugins[task.Id] = task.PluginId;
+        }
         return Task.Run(async () =>
         {
             var acquired = false;
@@ -32,7 +37,11 @@ public sealed class TaskCenter
             {
                 if (acquired) _slots.Release();
                 cancellation.Dispose();
-                lock (_sync) _cancellations.Remove(task.Id);
+                lock (_sync)
+                {
+                    _cancellations.Remove(task.Id);
+                    _taskPlugins.Remove(task.Id);
+                }
                 TaskChanged?.Invoke(this, EventArgs.Empty);
             }
         });
@@ -46,5 +55,10 @@ public sealed class TaskCenter
             cancellation.Cancel();
             return true;
         }
+    }
+
+    public bool IsPluginActive(string pluginId)
+    {
+        lock (_sync) return _taskPlugins.Values.Any(x => string.Equals(x, pluginId, StringComparison.OrdinalIgnoreCase));
     }
 }

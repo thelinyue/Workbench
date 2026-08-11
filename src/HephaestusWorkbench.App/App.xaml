@@ -18,7 +18,7 @@
         <DataTemplate DataType="{x:Type vm:TasksViewModel}"><views:TasksPage /></DataTemplate>
         <DataTemplate DataType="{x:Type vm:StorageViewModel}"><views:StoragePage /></DataTemplate>
         <DataTemplate DataType="{x:Type vm:SettingsViewModel}"><views:SettingsPage /></DataTemplate>
-        <DataTemplate DataType="{x:Type vm:PluginsViewModel}"><views:PluginsPage /></DataTemplate>
+        <DataTemplate DataType="{x:Type vm:MarketplacePluginsViewModel}"><views:MarketplacePluginsPage /></DataTemplate>
         <DataTemplate DataType="{x:Type vm:ReportsWorkspaceViewModel}"><views:ReportPage /></DataTemplate>
         </ResourceDictionary>
     </Application.Resources>

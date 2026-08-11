@@ -56,7 +56,11 @@ public sealed class StorageViewModel : ViewModelBase
     private async Task CleanAsync()
     {
         if (SelectedCase is null) return;
-        if (Wpf.MessageBox.Show($"确认清理案例“{SelectedCase.DisplayName}”的原始日志和解压目录吗？报告会保留。", "确认清理", Wpf.MessageBoxButton.YesNo, Wpf.MessageBoxImage.Warning) != Wpf.MessageBoxResult.Yes) return;
+        var message = $"确认清理案例“{SelectedCase.DisplayName}”的数据吗？\n\n"
+            + $"原始日志：{SelectedCase.SourcePath}\n"
+            + $"解压目录：{SelectedCase.ExtractPath}\n\n"
+            + "上述原始日志和解压目录会被删除，报告会保留。";
+        if (Wpf.MessageBox.Show(message, "确认清理", Wpf.MessageBoxButton.YesNo, Wpf.MessageBoxImage.Warning) != Wpf.MessageBoxResult.Yes) return;
         await _storage.CleanCaseDataAsync(SelectedCase.Id);
         await LoadAsync();
     }

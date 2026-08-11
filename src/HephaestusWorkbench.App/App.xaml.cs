@@ -84,10 +84,11 @@ internal sealed class WorkbenchHost : IDisposable
         TaskCenter = new TaskCenter(TasksRepository);
         var legacyRunner = new LegacyLogAnalyzerRunner(Logger);
         var standardRunner = new StandardExePluginRunner(Logger);
-        Analysis = new CaseAnalysisService(Paths, CasesRepository, TasksRepository, ReportsRepository, PluginCatalog, legacyRunner, standardRunner, TaskCenter, Logger);
+        Analysis = new CaseAnalysisService(Paths, CasesRepository, TasksRepository, ReportsRepository, PluginCatalog, legacyRunner, standardRunner, TaskCenter, Logger, Configuration);
+        PluginMarketplace = new PluginMarketplaceService(Paths, PluginCatalog, Configuration, TaskCenter, Logger, PluginsRepository);
         Reports = new ReportService(ReportsRepository, ReportSessionsRepository, Analysis);
         Inbox = new LogInboxService(new LogFileParser(), new ArchiveValidator(), Configuration, Logger, Paths.InboxDirectory);
-        Storage = new StorageService(Paths, CasesRepository);
+        Storage = new StorageService(Paths, CasesRepository, Logger);
         Settings = new SettingsService(Configuration, SettingsStore, Paths.InboxDirectory);
     }
 
@@ -101,6 +102,7 @@ internal sealed class WorkbenchHost : IDisposable
     public ISettingsStore SettingsStore { get; }
     public WorkbenchConfigurationService Configuration { get; }
     public PluginCatalog PluginCatalog { get; }
+    public PluginMarketplaceService PluginMarketplace { get; }
     public TaskCenter TaskCenter { get; }
     public CaseAnalysisService Analysis { get; }
     public ReportService Reports { get; }
@@ -197,15 +199,18 @@ internal sealed class WorkbenchHost : IDisposable
 
         Logger.Info("开始登记内置日志分析插件。");
         await new PluginProvisioningService(Paths, _seedDirectory, Logger).ProvisionAsync();
-        foreach (var plugin in await PluginCatalog.ScanAsync())
+        var bundled = (await PluginCatalog.ScanAsync()).FirstOrDefault(x => string.Equals(x.Id, "log-analyzer", StringComparison.OrdinalIgnoreCase));
+        if (bundled is not null)
         {
             await Configuration.UpsertPluginAsync(new HephaestusWorkbench.Core.Models.PluginConfigEntry
             {
-                Id = plugin.Id,
-                Version = plugin.Version,
-                Enabled = true
+                Id = bundled.Id,
+                Version = bundled.Version,
+                Enabled = true,
+                Source = HephaestusWorkbench.Core.Models.PluginInstallSource.Bundled
             });
         }
+        await PluginMarketplace.SynchronizePluginInfoAsync();
         Logger.Info("内置日志分析插件登记完成。");
 
         Logger.Info("开始启动日志收件箱监控。");
@@ -214,7 +219,7 @@ internal sealed class WorkbenchHost : IDisposable
             ? $"日志收件箱监控已启动：{string.Join("、", Inbox.WatchDirectories)}"
             : "未配置日志收件目录，日志收件箱暂不扫描。");
 
-        MainViewModel = new MainViewModel(Analysis, Inbox, Storage, Settings, PluginCatalog, Reports, Logger, ThemeManager.ApplyTheme);
+        MainViewModel = new MainViewModel(Analysis, Inbox, Storage, Settings, PluginCatalog, PluginMarketplace, Reports, Logger, ThemeManager.ApplyTheme);
         await MainViewModel.InitializeAsync();
         Logger.Info("工作台初始化完成。");
     }

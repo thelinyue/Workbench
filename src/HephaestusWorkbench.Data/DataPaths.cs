@@ -15,11 +15,13 @@ public sealed class DataPaths
         PluginsDirectory = Path.Combine(Root, "Plugins");
         LogsDirectory = Path.Combine(Root, "Logs");
         TempDirectory = Path.Combine(Root, "Temp");
+        CacheDirectory = Path.Combine(Root, "Cache");
         ConfigDirectory = Path.Combine(Root, "Config");
         DatabaseFile = Path.Combine(DatabaseDirectory, "workbench.db");
         AppSettingsFile = Path.Combine(ConfigDirectory, "appsettings.json");
         PluginsConfigFile = Path.Combine(ConfigDirectory, "plugins.json");
         WorkspaceConfigFile = Path.Combine(ConfigDirectory, "workspace.json");
+        MarketplaceCatalogCacheFile = Path.Combine(CacheDirectory, "marketplace-catalog.json");
     }
 
     public string Root { get; }
@@ -31,10 +33,12 @@ public sealed class DataPaths
     public string PluginsDirectory { get; }
     public string LogsDirectory { get; }
     public string TempDirectory { get; }
+    public string CacheDirectory { get; }
     public string ConfigDirectory { get; }
     public string AppSettingsFile { get; }
     public string PluginsConfigFile { get; }
     public string WorkspaceConfigFile { get; }
+    public string MarketplaceCatalogCacheFile { get; }
 
     public string GetCaseDirectory(string caseId) => Path.Combine(CasesDirectory, caseId);
     public string GetCaseSourceDirectory(string caseId) => Path.Combine(GetCaseDirectory(caseId), "Source");
@@ -50,6 +54,7 @@ public sealed class DataPaths
         Directory.CreateDirectory(PluginsDirectory);
         Directory.CreateDirectory(LogsDirectory);
         Directory.CreateDirectory(TempDirectory);
+        Directory.CreateDirectory(CacheDirectory);
         Directory.CreateDirectory(ConfigDirectory);
     }
 }

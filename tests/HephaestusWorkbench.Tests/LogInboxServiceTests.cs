@@ -108,6 +108,102 @@ public sealed class LogInboxServiceTests
         }
     }
 
+    [Fact]
+    public async Task InspectFileAsync_ValidatesLogOutsideWatchDirectory()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "HephaestusWorkbenchTests", Guid.NewGuid().ToString("N"));
+        var paths = new HephaestusWorkbench.Data.DataPaths(root);
+        paths.EnsureCreated();
+        var selectedPath = Path.Combine(root, "Downloads", "diag_DEVICE01_2608111530.tgz");
+        Directory.CreateDirectory(Path.GetDirectoryName(selectedPath)!);
+        await WriteValidArchiveAsync(selectedPath);
+
+        try
+        {
+            using var service = new LogInboxService(
+                new LogFileParser(),
+                new ArchiveValidator(),
+                new MemorySettingsStore(),
+                new WorkbenchLogger(root),
+                paths.InboxDirectory);
+
+            var result = await service.InspectFileAsync(selectedPath);
+
+            Assert.True(result.IsValid);
+            Assert.NotNull(result.Item);
+            Assert.Equal(Path.GetFullPath(selectedPath), result.Item.FilePath);
+            Assert.Equal("DEVICE01", result.Item.DeviceId);
+        }
+        finally
+        {
+            if (Directory.Exists(root)) Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task InspectFileAsync_ReturnsChineseErrorsForUnsupportedMissingAndCorruptFiles()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "HephaestusWorkbenchTests", Guid.NewGuid().ToString("N"));
+        var paths = new HephaestusWorkbench.Data.DataPaths(root);
+        paths.EnsureCreated();
+        var corruptPath = Path.Combine(root, "diag_DEVICE01_2608111530.tgz");
+        await File.WriteAllTextAsync(corruptPath, "not-a-tar-gzip");
+
+        try
+        {
+            using var service = new LogInboxService(
+                new LogFileParser(),
+                new ArchiveValidator(),
+                new MemorySettingsStore(),
+                new WorkbenchLogger(root),
+                paths.InboxDirectory);
+
+            var unsupported = await service.InspectFileAsync(Path.Combine(root, "diag_DEVICE01_2608111530.zip"));
+            var missing = await service.InspectFileAsync(Path.Combine(root, "diag_DEVICE01_2608111531.tgz"));
+            var corrupt = await service.InspectFileAsync(corruptPath);
+
+            Assert.Contains("只支持", unsupported.ErrorMessage);
+            Assert.Contains("不存在", missing.ErrorMessage);
+            Assert.Contains("损坏或无法读取", corrupt.ErrorMessage);
+        }
+        finally
+        {
+            if (Directory.Exists(root)) Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task RefreshAsync_CountsAndKeepsUnrecognizedLogsForInboxReview()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "HephaestusWorkbenchTests", Guid.NewGuid().ToString("N"));
+        var paths = new HephaestusWorkbench.Data.DataPaths(root);
+        paths.EnsureCreated();
+        var invalidPath = Path.Combine(paths.InboxDirectory, "bad-name.tgz");
+        await File.WriteAllTextAsync(invalidPath, "invalid");
+
+        try
+        {
+            using var service = new LogInboxService(
+                new LogFileParser(),
+                new ArchiveValidator(),
+                new MemorySettingsStore(),
+                new WorkbenchLogger(root),
+                paths.InboxDirectory);
+
+            await service.StartAsync();
+
+            Assert.Equal(1, service.InvalidItemCount);
+            var item = Assert.Single(service.Items);
+            Assert.False(item.IsValidArchive);
+            Assert.Equal("bad-name.tgz", item.FileName);
+            Assert.Contains("文件名不符合", item.ErrorMessage);
+        }
+        finally
+        {
+            if (Directory.Exists(root)) Directory.Delete(root, recursive: true);
+        }
+    }
+
     private static async Task WriteValidArchiveAsync(string path)
     {
         await using var file = File.Create(path);

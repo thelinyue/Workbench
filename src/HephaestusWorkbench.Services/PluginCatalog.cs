@@ -5,6 +5,10 @@ using HephaestusWorkbench.PluginSDK;
 
 namespace HephaestusWorkbench.Services;
 
+/// <summary>
+/// 本地插件目录，负责发现并校验用户数据目录中的 manifest.json。
+/// 插件中心和分析服务共用此目录，避免 UI 自己拼接插件路径或重复实现扫描逻辑。
+/// </summary>
 public sealed class PluginCatalog : IPluginCatalog
 {
     private readonly DataPaths _paths;
@@ -20,6 +24,7 @@ public sealed class PluginCatalog : IPluginCatalog
         _jsonOptions.Converters.Add(new JsonStringEnumConverter());
     }
 
+    public string PluginsDirectory => _paths.PluginsDirectory;
     public IReadOnlyList<string> Issues => _issues;
 
     public async Task<IReadOnlyList<PluginManifest>> ScanAsync(CancellationToken cancellationToken = default)
@@ -52,6 +57,11 @@ public sealed class PluginCatalog : IPluginCatalog
                     ReportPath = manifest.ReportPath,
                     DirectoryPath = Path.GetDirectoryName(manifestPath)!
                 };
+                if (!IsWithinPluginDirectory(withPath.EntryPath, withPath.DirectoryPath))
+                {
+                    AddIssue($"插件入口不能指向插件目录之外：{withPath.EntryPath}");
+                    continue;
+                }
                 if (!File.Exists(withPath.EntryPath))
                 {
                     AddIssue($"插件入口不存在：{withPath.EntryPath}");
@@ -80,5 +90,12 @@ public sealed class PluginCatalog : IPluginCatalog
         if (_cache.TryGetValue(pluginId, out var cached)) return cached;
         await ScanAsync(cancellationToken);
         return _cache.GetValueOrDefault(pluginId);
+    }
+
+    private static bool IsWithinPluginDirectory(string entryPath, string pluginDirectory)
+    {
+        var directory = Path.GetFullPath(pluginDirectory).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar) + Path.DirectorySeparatorChar;
+        var fullEntryPath = Path.GetFullPath(entryPath);
+        return fullEntryPath.StartsWith(directory, StringComparison.OrdinalIgnoreCase);
     }
 }

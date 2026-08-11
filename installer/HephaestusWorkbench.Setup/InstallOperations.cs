@@ -79,7 +79,7 @@ internal static class EnvironmentChecker
 
 internal sealed class InstallMetadata
 {
-    public const string CurrentVersion = "1.0.0";
+    public const string CurrentVersion = "1.1.0";
     public string Product { get; set; } = "赫菲斯托斯工程工作台";
     public string Version { get; set; } = CurrentVersion;
     public DateTime InstalledAt { get; set; } = DateTime.Now;

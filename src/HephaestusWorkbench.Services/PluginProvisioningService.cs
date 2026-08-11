@@ -1,3 +1,4 @@
+using System.Text.Json;
 using HephaestusWorkbench.Data;
 
 namespace HephaestusWorkbench.Services;
@@ -32,10 +33,34 @@ public sealed class PluginProvisioningService
         Directory.CreateDirectory(destination);
         var destinationExe = Path.Combine(destination, "log_analyzer.exe");
         var destinationManifest = Path.Combine(destination, "manifest.json");
-        if (!File.Exists(destinationExe) || new FileInfo(destinationExe).Length != new FileInfo(sourceExe).Length)
+        var shouldUpdateExecutable = !File.Exists(destinationExe)
+            || !File.Exists(destinationManifest)
+            || IsSourceNewer(sourceManifest, destinationManifest);
+        if (shouldUpdateExecutable)
+        {
             File.Copy(sourceExe, destinationExe, overwrite: true);
-        File.Copy(sourceManifest, destinationManifest, overwrite: true);
-        _logger.Info("现有日志分析插件已登记到用户插件目录。");
+            File.Copy(sourceManifest, destinationManifest, overwrite: true);
+        }
+        _logger.Info(shouldUpdateExecutable ? "现有日志分析插件已更新到用户插件目录。" : "现有日志分析插件已登记到用户插件目录。");
         return Task.CompletedTask;
+    }
+
+    private static bool IsSourceNewer(string sourceManifest, string destinationManifest)
+    {
+        if (!File.Exists(destinationManifest)) return false;
+        try
+        {
+            using var source = JsonDocument.Parse(File.ReadAllText(sourceManifest));
+            using var destination = JsonDocument.Parse(File.ReadAllText(destinationManifest));
+            return source.RootElement.TryGetProperty("version", out var sourceVersion)
+                && destination.RootElement.TryGetProperty("version", out var destinationVersion)
+                && Version.TryParse(sourceVersion.GetString(), out var sourceValue)
+                && Version.TryParse(destinationVersion.GetString(), out var destinationValue)
+                && sourceValue > destinationValue;
+        }
+        catch
+        {
+            return true;
+        }
     }
 }

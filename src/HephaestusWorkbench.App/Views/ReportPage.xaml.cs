@@ -40,7 +40,7 @@ public partial class ReportPage : System.Windows.Controls.UserControl
         }
         if (!_viewers.TryGetValue(tab.Report.Id, out var viewer))
         {
-            viewer = new ReportViewerControl { DataContext = tab };
+            viewer = new ReportViewerControl { DataContext = tab, Logger = _workspace?.Logger };
             _viewers.Add(tab.Report.Id, viewer);
             tab.DisposeRequested += (_, _) =>
             {

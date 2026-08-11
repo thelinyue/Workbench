@@ -83,7 +83,8 @@ public sealed class StandardExePluginRunner : IPluginRunner
 }
 
 /// <summary>
-/// 兼容现有 log_analyzer.exe。该程序只接受 -d 参数，并把 report/report.html 写在输入文件同名目录下。
+/// 兼容现有 log_analyzer.exe。保留 -d 输入参数，并通过 -o 将完整报告直接输出到工作台报告目录。
+/// 解压文件仍由插件在原始日志目录生成，工作台不搬运或复制解压目录。
 /// </summary>
 public sealed class LegacyLogAnalyzerRunner : IPluginRunner
 {
@@ -98,22 +99,15 @@ public sealed class LegacyLogAnalyzerRunner : IPluginRunner
             var result = await ProcessPluginRunnerUtilities.ExecuteAsync(
                 manifest.EntryPath,
                 context.WorkingDirectory,
-                new[] { "-d", context.SourcePath },
+                new[] { "-d", context.SourcePath, "-o", context.OutputPath },
                 cancellationToken);
             if (result.ExitCode != 0)
                 return new PluginExecutionResult(result.ExitCode, null, string.IsNullOrWhiteSpace(result.StandardError) ? "日志分析插件执行失败。" : result.StandardError.Trim());
 
-            var baseName = FileUtilities.RemoveAllExtensions(Path.GetFileName(context.SourcePath));
-            var generatedDirectory = Path.Combine(Path.GetDirectoryName(context.SourcePath)!, baseName);
-            var generatedReportDirectory = Path.Combine(generatedDirectory, "report");
-            var generatedReport = Path.Combine(generatedReportDirectory, "report.html");
+            var generatedReport = Path.Combine(context.OutputPath, "report.html");
             if (!File.Exists(generatedReport))
-                return new PluginExecutionResult(result.ExitCode, null, "日志分析完成，但未找到 report/report.html。");
+                return new PluginExecutionResult(result.ExitCode, null, "日志分析完成，但未找到指定输出目录中的 report.html。");
 
-            FileUtilities.DeleteDirectoryIfExists(context.ExtractPath);
-            FileUtilities.DeleteDirectoryIfExists(context.OutputPath);
-            Directory.Move(generatedDirectory, context.ExtractPath);
-            FileUtilities.CopyDirectory(Path.Combine(context.ExtractPath, "report"), context.OutputPath);
             _logger.Info($"日志分析插件完成：{context.CaseId}");
             return new PluginExecutionResult(0, context.OutputPath, null);
         }

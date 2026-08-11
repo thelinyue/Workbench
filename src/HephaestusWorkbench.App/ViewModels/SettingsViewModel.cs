@@ -13,6 +13,8 @@ public sealed class SettingsViewModel : ViewModelBase
     private string _newWatchDirectory = string.Empty;
     private string? _selectedWatchDirectory;
     private string _message = string.Empty;
+    private string _directoryFeedback = string.Empty;
+    private bool _directoryFeedbackIsError;
     private readonly Func<int> _getOpenReportCount;
     private readonly Func<string, string?> _applyTheme;
     private bool _reportRestoreEnabled = true;
@@ -27,7 +29,7 @@ public sealed class SettingsViewModel : ViewModelBase
         _applyTheme = applyTheme;
         SaveCommand = new DelegateCommand(() => _ = SaveAsync());
         AddWatchDirectoryCommand = new DelegateCommand(AddWatchDirectory);
-        RemoveWatchDirectoryCommand = new DelegateCommand(RemoveWatchDirectory, () => !string.IsNullOrWhiteSpace(SelectedWatchDirectory) && WatchDirectories.Count > 1);
+        RemoveWatchDirectoryCommand = new DelegateCommand(RemoveWatchDirectory, CanRemoveWatchDirectory);
         _ = LoadAsync();
     }
 
@@ -37,16 +39,33 @@ public sealed class SettingsViewModel : ViewModelBase
         new ThemeOption("Light", "亮色"),
         new ThemeOption("Dark", "深色")
     };
-    public string NewWatchDirectory { get => _newWatchDirectory; set => SetProperty(ref _newWatchDirectory, value); }
+    public string NewWatchDirectory
+    {
+        get => _newWatchDirectory;
+        set
+        {
+            if (SetProperty(ref _newWatchDirectory, value)) ClearDirectoryFeedback();
+        }
+    }
     public string? SelectedWatchDirectory
     {
         get => _selectedWatchDirectory;
         set
         {
-            if (SetProperty(ref _selectedWatchDirectory, value)) (RemoveWatchDirectoryCommand as DelegateCommand)?.RaiseCanExecuteChanged();
+            if (SetProperty(ref _selectedWatchDirectory, value))
+            {
+                (RemoveWatchDirectoryCommand as DelegateCommand)?.RaiseCanExecuteChanged();
+                OnPropertyChanged(nameof(RemoveWatchDirectoryHint));
+            }
         }
     }
     public string Message { get => _message; private set => SetProperty(ref _message, value); }
+    public string DirectoryFeedback { get => _directoryFeedback; private set => SetProperty(ref _directoryFeedback, value); }
+    public bool DirectoryFeedbackIsError { get => _directoryFeedbackIsError; private set => SetProperty(ref _directoryFeedbackIsError, value); }
+    public string WatchDirectoryCountText => $"已添加 {WatchDirectories.Count} 个目录";
+    public string RemoveWatchDirectoryHint => WatchDirectories.Count <= 1
+        ? "至少保留一个目录"
+        : string.IsNullOrWhiteSpace(SelectedWatchDirectory) ? "请选择一个目录" : "移除所选目录";
     public ICommand SaveCommand { get; }
     public ICommand AddWatchDirectoryCommand { get; }
     public ICommand RemoveWatchDirectoryCommand { get; }
@@ -56,19 +75,65 @@ public sealed class SettingsViewModel : ViewModelBase
 
     public void AddWatchDirectory()
     {
-        if (string.IsNullOrWhiteSpace(NewWatchDirectory)) return;
-        var normalized = Path.GetFullPath(NewWatchDirectory.Trim());
-        if (!WatchDirectories.Contains(normalized, StringComparer.OrdinalIgnoreCase)) WatchDirectories.Add(normalized);
+        if (string.IsNullOrWhiteSpace(NewWatchDirectory))
+        {
+            SetDirectoryFeedback("请输入要监控的目录路径。", isError: true);
+            return;
+        }
+
+        string normalized;
+        try { normalized = Path.GetFullPath(NewWatchDirectory.Trim()); }
+        catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException)
+        {
+            SetDirectoryFeedback("目录路径无效，请检查路径后重试。", isError: true);
+            return;
+        }
+
+        if (WatchDirectories.Contains(normalized, StringComparer.OrdinalIgnoreCase))
+        {
+            SetDirectoryFeedback("该目录已经添加，无需重复添加。", isError: true);
+            return;
+        }
+
+        WatchDirectories.Add(normalized);
+        SelectedWatchDirectory = normalized;
         NewWatchDirectory = string.Empty;
+        SetDirectoryFeedback($"已添加目录（共 {WatchDirectories.Count} 个）。", isError: false);
+        OnPropertyChanged(nameof(WatchDirectoryCountText));
+        OnPropertyChanged(nameof(RemoveWatchDirectoryHint));
         (RemoveWatchDirectoryCommand as DelegateCommand)?.RaiseCanExecuteChanged();
     }
 
     public void RemoveWatchDirectory()
     {
-        if (SelectedWatchDirectory is null || WatchDirectories.Count <= 1) return;
-        WatchDirectories.Remove(SelectedWatchDirectory);
-        SelectedWatchDirectory = null;
+        if (!CanRemoveWatchDirectory())
+        {
+            SetDirectoryFeedback(RemoveWatchDirectoryHint, isError: true);
+            return;
+        }
+
+        WatchDirectories.Remove(SelectedWatchDirectory!);
+        SelectedWatchDirectory = WatchDirectories.FirstOrDefault();
+        SetDirectoryFeedback($"已移除目录（剩余 {WatchDirectories.Count} 个）。", isError: false);
+        OnPropertyChanged(nameof(WatchDirectoryCountText));
+        OnPropertyChanged(nameof(RemoveWatchDirectoryHint));
         (RemoveWatchDirectoryCommand as DelegateCommand)?.RaiseCanExecuteChanged();
+    }
+
+    private bool CanRemoveWatchDirectory()
+        => !string.IsNullOrWhiteSpace(SelectedWatchDirectory) && WatchDirectories.Count > 1;
+
+    private void SetDirectoryFeedback(string message, bool isError)
+    {
+        DirectoryFeedbackIsError = isError;
+        DirectoryFeedback = message;
+    }
+
+    private void ClearDirectoryFeedback()
+    {
+        if (string.IsNullOrEmpty(DirectoryFeedback)) return;
+        DirectoryFeedback = string.Empty;
+        DirectoryFeedbackIsError = false;
     }
 
     private async Task LoadAsync()
@@ -77,6 +142,10 @@ public sealed class SettingsViewModel : ViewModelBase
         {
             WatchDirectories.Clear();
             foreach (var directory in await _settings.GetWatchDirectoriesAsync()) WatchDirectories.Add(directory);
+            SelectedWatchDirectory = WatchDirectories.FirstOrDefault();
+            OnPropertyChanged(nameof(WatchDirectoryCountText));
+            OnPropertyChanged(nameof(RemoveWatchDirectoryHint));
+            (RemoveWatchDirectoryCommand as DelegateCommand)?.RaiseCanExecuteChanged();
             ReportRestoreEnabled = await _settings.GetReportRestoreEnabledAsync();
             MaxOpenReports = await _settings.GetReportMaxTabsAsync();
             SelectedTheme = await _settings.GetThemeAsync();

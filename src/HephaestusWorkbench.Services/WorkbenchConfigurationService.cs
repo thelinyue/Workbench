@@ -93,6 +93,7 @@ public sealed class WorkbenchConfigurationService
         if (existing is not null)
         {
             existing.Plugins ??= new List<PluginConfigEntry>();
+            NormalizePluginConfig(existing);
             await SavePluginConfigAsync(existing, cancellationToken);
             return existing;
         }
@@ -118,6 +119,7 @@ public sealed class WorkbenchConfigurationService
     public Task SavePluginConfigAsync(PluginConfig config, CancellationToken cancellationToken = default)
     {
         config.Plugins ??= new List<PluginConfigEntry>();
+        NormalizePluginConfig(config);
         return WriteAtomicAsync(_paths.PluginsConfigFile, config, cancellationToken);
     }
 
@@ -129,8 +131,9 @@ public sealed class WorkbenchConfigurationService
         else
         {
             existing.Version = plugin.Version;
-            existing.Enabled = plugin.Enabled;
+            existing.Source = plugin.Source;
         }
+        config.DefaultPluginId ??= plugin.Enabled ? plugin.Id : null;
         await SavePluginConfigAsync(config, cancellationToken);
     }
 
@@ -187,5 +190,18 @@ public sealed class WorkbenchConfigurationService
                 ? AppSettingsConfig.LightTheme
                 : AppSettingsConfig.LightTheme;
         settings.MaxReportTabs = Math.Clamp(settings.MaxReportTabs, 1, 10);
+    }
+
+    private static void NormalizePluginConfig(PluginConfig config)
+    {
+        config.Plugins = config.Plugins
+            .Where(x => !string.IsNullOrWhiteSpace(x.Id))
+            .GroupBy(x => x.Id, StringComparer.OrdinalIgnoreCase)
+            .Select(x => x.First())
+            .ToList();
+        if (config.DefaultPluginId is not null
+            && !config.Plugins.Any(x => x.Enabled && string.Equals(x.Id, config.DefaultPluginId, StringComparison.OrdinalIgnoreCase)))
+            config.DefaultPluginId = null;
+        config.DefaultPluginId ??= config.Plugins.FirstOrDefault(x => x.Enabled)?.Id;
     }
 }

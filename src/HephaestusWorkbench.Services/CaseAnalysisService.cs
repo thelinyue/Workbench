@@ -20,6 +20,7 @@ public sealed class CaseAnalysisService
     private readonly IPluginRunner _standardRunner;
     private readonly TaskCenter _taskCenter;
     private readonly WorkbenchLogger _logger;
+    private readonly WorkbenchConfigurationService? _configuration;
     public event EventHandler? StateChanged;
 
     public CaseAnalysisService(
@@ -31,7 +32,8 @@ public sealed class CaseAnalysisService
         IPluginRunner legacyRunner,
         IPluginRunner standardRunner,
         TaskCenter taskCenter,
-        WorkbenchLogger logger)
+        WorkbenchLogger logger,
+        WorkbenchConfigurationService? configuration = null)
     {
         _paths = paths;
         _cases = cases;
@@ -42,6 +44,7 @@ public sealed class CaseAnalysisService
         _standardRunner = standardRunner;
         _taskCenter = taskCenter;
         _logger = logger;
+        _configuration = configuration;
     }
 
     public async Task<AnalysisTask?> StartAsync(LogInboxItem item, CancellationToken cancellationToken = default)
@@ -53,7 +56,18 @@ public sealed class CaseAnalysisService
         }
 
         var plugins = await _catalog.ScanAsync(cancellationToken);
-        var plugin = plugins.FirstOrDefault(x => x.Runner == "legacy-log-analyzer") ?? plugins.FirstOrDefault();
+        PluginManifest? plugin;
+        if (_configuration is null)
+        {
+            plugin = plugins.FirstOrDefault(x => x.Runner == "legacy-log-analyzer") ?? plugins.FirstOrDefault();
+        }
+        else
+        {
+            var config = await _configuration.EnsurePluginConfigAsync(cancellationToken);
+            var enabledIds = config.Plugins.Where(x => x.Enabled).Select(x => x.Id).ToHashSet(StringComparer.OrdinalIgnoreCase);
+            plugin = plugins.FirstOrDefault(x => enabledIds.Contains(x.Id)
+                && string.Equals(x.Id, config.DefaultPluginId, StringComparison.OrdinalIgnoreCase));
+        }
         if (plugin is null)
         {
             _logger.Error("没有可用的日志分析插件。");
@@ -61,13 +75,10 @@ public sealed class CaseAnalysisService
         }
 
         var caseId = Guid.NewGuid().ToString("N");
-        var caseDirectory = _paths.GetCaseDirectory(caseId);
-        var sourceDirectory = _paths.GetCaseSourceDirectory(caseId);
-        var extractDirectory = _paths.GetCaseExtractDirectory(caseId);
+        var sourcePath = Path.GetFullPath(item.FilePath);
+        var sourceDirectory = Path.GetDirectoryName(sourcePath) ?? throw new InvalidOperationException("原始日志路径没有父目录。");
+        var extractDirectory = Path.Combine(sourceDirectory, FileUtilities.RemoveAllExtensions(Path.GetFileName(sourcePath)));
         var reportDirectory = _paths.GetCaseReportDirectory(caseId);
-        Directory.CreateDirectory(sourceDirectory);
-        var sourcePath = Path.Combine(sourceDirectory, item.FileName);
-        File.Copy(item.FilePath, sourcePath, overwrite: false);
 
         var now = DateTime.Now;
         var analysisCase = new AnalysisCase
@@ -80,7 +91,7 @@ public sealed class CaseAnalysisService
             Status = CaseStatus.Ready,
             SourcePath = sourcePath,
             ExtractPath = extractDirectory,
-            ReportPath = reportDirectory,
+            ReportPath = null,
             CreateTime = now,
             UpdateTime = now
         };
@@ -124,7 +135,9 @@ public sealed class CaseAnalysisService
     }
 
     public async Task<IReadOnlyList<AnalysisCase>> ListCasesAsync(CancellationToken cancellationToken = default) => await _cases.ListAsync(cancellationToken);
+    public Task<AnalysisCase?> GetCaseAsync(string caseId, CancellationToken cancellationToken = default) => _cases.GetAsync(caseId, cancellationToken);
     public async Task<IReadOnlyList<AnalysisTask>> ListTasksAsync(CancellationToken cancellationToken = default) => await _tasks.ListAsync(cancellationToken);
+    public Task<AnalysisTask?> GetTaskAsync(string taskId, CancellationToken cancellationToken = default) => _tasks.GetAsync(taskId, cancellationToken);
 
     public async Task RenameAsync(string caseId, string displayName, CancellationToken cancellationToken = default)
     {
@@ -138,7 +151,15 @@ public sealed class CaseAnalysisService
     {
         var item = await _cases.GetAsync(caseId, cancellationToken);
         if (item is null) return;
-        if (Directory.Exists(_paths.GetCaseDirectory(item.Id))) Directory.Delete(_paths.GetCaseDirectory(item.Id), recursive: true);
+        try
+        {
+            FileUtilities.DeleteCaseArtifacts(item, _paths, deleteReport: true);
+        }
+        catch (Exception ex)
+        {
+            _logger.Error($"删除案例数据失败：{item.DisplayName}", ex);
+            throw new InvalidOperationException($"删除案例数据失败：{ex.Message}", ex);
+        }
         await _cases.DeleteAsync(caseId, cancellationToken);
         StateChanged?.Invoke(this, EventArgs.Empty);
     }
@@ -157,8 +178,8 @@ public sealed class CaseAnalysisService
             analysisCase.Id,
             analysisCase.SourcePath,
             _paths.GetCaseReportDirectory(analysisCase.Id),
-            _paths.GetCaseExtractDirectory(analysisCase.Id),
-            _paths.GetCaseSourceDirectory(analysisCase.Id));
+            analysisCase.ExtractPath,
+            Path.GetDirectoryName(analysisCase.SourcePath) ?? _paths.Root);
         var runner = plugin.Runner == "legacy-log-analyzer" ? _legacyRunner : _standardRunner;
         var result = await runner.RunAsync(plugin, context, cancellationToken);
         task.EndTime = DateTime.Now;
@@ -168,6 +189,7 @@ public sealed class CaseAnalysisService
         await _tasks.UpdateAsync(task);
 
         analysisCase.Status = result.ReportPath is null ? CaseStatus.Failed : CaseStatus.Completed;
+        analysisCase.ReportPath = result.ReportPath;
         analysisCase.ErrorMessage = result.ErrorMessage;
         analysisCase.UpdateTime = DateTime.Now;
         await _cases.UpdateAsync(analysisCase);

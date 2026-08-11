@@ -37,9 +37,9 @@ SSH ──> not implemented
 | Data | 唯一正式访问层 | 不负责 | 创建数据目录 | 不负责 | 无 |
 | Configuration/Settings | 兼容读取 `app_settings` | 读写三个配置文件 | 创建配置目录 | 不负责 | 通过事件通知 |
 | Log Inbox | 不落库 | 通过配置服务保存目录 | 读取/删除监控目录中的 `.tgz` | 不负责 | 内存 `LogInboxItem` |
-| Case Analysis | 写 Case/Task/Report | 读取插件目录结果 | 创建/删除 Case 目录、复制日志 | 通过 runner 启动 | `StateChanged` |
+| Case Analysis | 写 Case/Task/Report | 读取插件目录结果 | 创建/删除 Case 报告目录，管理原始日志路径 | 通过 runner 启动 | `StateChanged` |
 | Task Center | 写入由 Analysis 完成 | 不访问 | 不直接访问 | 管理取消令牌 | `TaskChanged` |
-| Plugin | 可写/读 plugin_info，但生产登记链路不完整 | 读 manifest，写插件配置由配置服务完成 | 读写 Plugins 目录和报告输出 | 启动 EXE | Issues、插件列表 |
+| Plugin | 同步 plugin_info | 读在线目录和 manifest，写默认/启用配置 | 安全安装、更新和卸载 Plugins 目录 | 启动 EXE | 在线目录、安装状态、Issues |
 | Report | 查询 reports/session/case | 读取报告偏好 | 读取 `report.html` | WebView2 宿主进程 | Tab、筛选、阅读位置 |
 | Storage | 读取 Case | 不访问 | 统计/删除日志和 Extract | 不负责 | 占用统计 |
 | Installer | 不访问运行时数据库 | 不访问运行时配置 | 安装目录、Payload、升级备份 | 发布/运行安装器 | 安装器窗口 |
@@ -164,13 +164,13 @@ SSH ──> not implemented
 
 依赖：Core、Data repositories、DataPaths、TaskCenter、PluginCatalog、Plugin runners、WorkbenchLogger。  
 输入：已校验的 `LogInboxItem`、取消令牌、用户重命名/删除命令。  
-输出：`analysis_cases`、`analysis_tasks`、`reports` 记录，Case Source/Extract/Report 目录，`StateChanged` 事件。  
+输出：`analysis_cases`、`analysis_tasks`、`reports` 记录，原始日志路径和 Case Report 目录，`StateChanged` 事件。
 风险点：
 
-- 复制日志、写 Case、写 Task、启动插件和写 Report 不是一个事务，失败时可能留下部分数据。
+- 写 Case、写 Task、启动插件和写 Report 不是一个事务，失败时可能留下原始路径中的部分解压数据。
 - 当前通过 fire-and-forget 入队；数据库/文件异常需要保证被记录并转换为可理解的失败状态。
 - 应用重启后 Waiting/Running 任务没有恢复/重试协议。
-- 当前插件选择优先 legacy runner 或第一个扫描到的插件，启用状态约束不完整。
+- 插件选择必须使用 `plugins.json` 中已启用的默认插件；默认项缺失时不得静默切换到其他插件。
 
 ## 9. Task Center 模块
 
@@ -210,11 +210,11 @@ SSH ──> not implemented
 输出：PluginManifest、Issues、外部 EXE 进程结果、`report.html`、插件日志。  
 风险点：
 
-- manifest 的入口、路径和 HTML 输出属于外部信任边界，当前没有签名、沙箱或完整路径越界防护。
+- manifest、在线目录、压缩包和 HTML 输出属于外部信任边界；v1.1.0 使用 HTTPS、SHA-256、大小和路径边界校验，但尚未提供数字签名或沙箱。
 - `PluginType.Dll` 和 `IAnalysisPlugin` 只是契约，当前没有 DLL 加载实现。
-- `plugins.json` 的 Enabled 没有完整参与插件选择。
-- 内置 EXE 主要按文件大小判断是否复制，同大小更新可能无法覆盖。
-- legacy runner 依赖旧程序的 `-d` 参数和输入文件同名输出目录，兼容逻辑不能随意改写。
+- `plugins.json` 保存安装来源、启用状态和默认插件，运行、更新与卸载必须遵守这些状态。
+- 内置 EXE 仅在随应用版本更高或目标文件缺失时更新，不能覆盖在线安装的更高版本。
+- legacy runner 保留旧程序的 `-d` 参数，并新增 `-o` 报告输出目录；解压内容留在原始日志目录，工作台只保存报告目录。
 
 ## 11. PluginSDK 模块
 
@@ -342,10 +342,10 @@ SSH ──> not implemented
 名称：内置日志分析插件和测试日志资产  
 路径：`插件/log_analyzer.exe`、`插件/宇diag_EC660JJ42230BE31_2608101025.tgz`、`src/HephaestusWorkbench.App/PluginSeed/manifest.json`。  
 职责：提供当前 MVP 使用的旧版日志分析可执行文件、manifest 和验收样例。  
-入口文件：manifest 中的 `entry`，内置入口为 `log_analyzer.exe`；legacy runner 使用 `-d <日志文件>`。  
-依赖：Windows x64、插件自身运行环境、Case Source/Extract/Report 目录约定。  
+入口文件：manifest 中的 `entry`，内置入口为 `log_analyzer.exe`；legacy runner 使用 `-d <原始日志文件> -o <报告目录>`。
+依赖：Windows x64、插件自身运行环境、原始日志目录和 Case Report 目录约定。
 输入：`.tgz` 日志文件和 `-d`/标准 runner 参数。  
-输出：输入文件同名生成目录中的 `report/report.html`，随后被复制到 Case Report 目录。  
+输出：原始输入文件同名目录中的解压内容，以及工作台 Case Report 目录中的完整报告资源。
 风险点：
 
 - 二进制资产不等同于可审计的源代码，更新和来源需要单独管理。

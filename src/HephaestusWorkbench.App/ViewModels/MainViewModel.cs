@@ -19,7 +19,7 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
     private string _pluginStatus = "插件：检查中";
     private string _storageStatus = "存储：计算中";
 
-    public MainViewModel(CaseAnalysisService analysis, LogInboxService inbox, StorageService storage, SettingsService settings, PluginCatalog plugins, ReportService reports, WorkbenchLogger logger, Func<string, string?> applyTheme)
+    public MainViewModel(CaseAnalysisService analysis, LogInboxService inbox, StorageService storage, SettingsService settings, PluginCatalog plugins, PluginMarketplaceService marketplace, ReportService reports, WorkbenchLogger logger, Func<string, string?> applyTheme)
     {
         _analysis = analysis;
         _inbox = inbox;
@@ -38,13 +38,21 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
         };
         Reports = new ReportsWorkspaceViewModel(reports, settings, OpenCase, logger);
         OpenSettingsCommand = new DelegateCommand(OpenSettings);
-        Dashboard = new DashboardViewModel(analysis, storage, inbox, () => SelectNavigation("inbox"), () => SelectNavigation("cases"), OpenSettings);
+        Dashboard = new DashboardViewModel(
+            analysis,
+            storage,
+            inbox,
+            () => SelectNavigation("inbox"),
+            () => SelectNavigation("cases"),
+            OpenSettings,
+            OpenQuickReportAsync,
+            logger);
         Inbox = new InboxViewModel(inbox, analysis);
         Cases = new CasesViewModel(analysis, NavigateToReport);
         Tasks = new TasksViewModel(analysis);
         Storage = new StorageViewModel(storage, analysis);
         Settings = new SettingsViewModel(settings, inbox, () => Reports.OpenTabCount, applyTheme);
-        Plugins = new PluginsViewModel(plugins);
+        Plugins = new MarketplacePluginsViewModel(plugins, marketplace, logger);
         _selectedNavigationItem = NavigationItems[0];
         _currentPage = Dashboard;
         UpdateStatusMessage();
@@ -61,7 +69,7 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
     public TasksViewModel Tasks { get; }
     public StorageViewModel Storage { get; }
     public SettingsViewModel Settings { get; }
-    public PluginsViewModel Plugins { get; }
+    public MarketplacePluginsViewModel Plugins { get; }
     public string ActivityStatus { get => _activityStatus; private set => SetProperty(ref _activityStatus, value); }
     public string PluginStatus { get => _pluginStatus; private set => SetProperty(ref _pluginStatus, value); }
     public string StorageStatus { get => _storageStatus; private set => SetProperty(ref _storageStatus, value); }
@@ -101,6 +109,13 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
     {
         SelectedNavigationItem = NavigationItems.First(x => x.Key == "reports");
         _ = Reports.OpenCaseReportAsync(caseId);
+    }
+
+    private async Task<bool> OpenQuickReportAsync(string caseId)
+    {
+        var opened = await Reports.OpenCaseReportAsync(caseId);
+        if (opened) SelectedNavigationItem = NavigationItems.First(x => x.Key == "reports");
+        return opened;
     }
 
     private void OpenCase(string caseId)
@@ -149,6 +164,7 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
     {
         _inbox.ConfigurationChanged -= OnConfigurationChanged;
         _analysis.StateChanged -= OnAnalysisStateChanged;
+        Dashboard.Dispose();
         Reports.Dispose();
     }
 }

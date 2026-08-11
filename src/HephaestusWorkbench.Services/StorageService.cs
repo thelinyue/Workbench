@@ -10,11 +10,13 @@ public sealed class StorageService
 {
     private readonly DataPaths _paths;
     private readonly IAnalysisCaseRepository _cases;
+    private readonly WorkbenchLogger? _logger;
 
-    public StorageService(DataPaths paths, IAnalysisCaseRepository cases)
+    public StorageService(DataPaths paths, IAnalysisCaseRepository cases, WorkbenchLogger? logger = null)
     {
         _paths = paths;
         _cases = cases;
+        _logger = logger;
     }
 
     public async Task<StorageSummary> GetSummaryAsync(CancellationToken cancellationToken = default)
@@ -30,7 +32,14 @@ public sealed class StorageService
     public async Task CleanCaseDataAsync(string caseId, CancellationToken cancellationToken = default)
     {
         var item = await _cases.GetAsync(caseId, cancellationToken) ?? throw new InvalidOperationException("案例不存在。");
-        FileUtilities.DeleteDirectoryIfExists(item.ExtractPath);
-        if (File.Exists(item.SourcePath)) File.Delete(item.SourcePath);
+        try
+        {
+            FileUtilities.DeleteCaseArtifacts(item, _paths, deleteReport: false);
+        }
+        catch (Exception ex)
+        {
+            _logger?.Error($"清理案例原始数据失败：{item.DisplayName}", ex);
+            throw new InvalidOperationException($"清理案例原始数据失败：{ex.Message}", ex);
+        }
     }
 }

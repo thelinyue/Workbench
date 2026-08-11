@@ -61,4 +61,29 @@ public sealed class PluginCatalogTests
             if (Directory.Exists(root)) Directory.Delete(root, recursive: true);
         }
     }
+
+    [Fact]
+    public async Task ScanAsync_RejectsEntryOutsidePluginDirectory()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "HephaestusWorkbenchTests", Guid.NewGuid().ToString("N"));
+        var pluginDirectory = Path.Combine(root, "Plugins", "sample");
+        Directory.CreateDirectory(pluginDirectory);
+        try
+        {
+            File.WriteAllText(Path.Combine(root, "Plugins", "outside.exe"), "test");
+            await File.WriteAllTextAsync(Path.Combine(pluginDirectory, "manifest.json"), """
+                { "id":"sample", "name":"越界插件", "version":"1.0", "type":"Exe", "entry":"../outside.exe" }
+                """);
+            var catalog = new PluginCatalog(new DataPaths(root), new WorkbenchLogger(root));
+
+            var result = await catalog.ScanAsync();
+
+            Assert.Empty(result);
+            Assert.Contains(catalog.Issues, issue => issue.Contains("插件目录之外", StringComparison.Ordinal));
+        }
+        finally
+        {
+            if (Directory.Exists(root)) Directory.Delete(root, recursive: true);
+        }
+    }
 }

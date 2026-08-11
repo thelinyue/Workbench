@@ -10,6 +10,7 @@ public sealed class InstallerTests
     {
         var metadata = new InstallMetadata();
 
+        Assert.Equal("1.1.0", metadata.Version);
         Assert.Equal("赫菲斯托斯工程工作台", metadata.Product);
     }
 
