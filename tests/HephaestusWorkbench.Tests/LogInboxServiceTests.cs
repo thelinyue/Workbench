@@ -204,6 +204,83 @@ public sealed class LogInboxServiceTests
         }
     }
 
+    [Fact]
+    public async Task DeleteAsync_RemovesOnlyOriginalLogAndKeepsAnalysisArtifacts()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "HephaestusWorkbenchTests", Guid.NewGuid().ToString("N"));
+        var paths = new HephaestusWorkbench.Data.DataPaths(root);
+        paths.EnsureCreated();
+        var source = Path.Combine(paths.InboxDirectory, "diag_DEVICE01_2608111530.tgz");
+        var extractMarker = Path.Combine(root, "Cases", "case-1", "Extract", "keep.txt");
+        var reportMarker = Path.Combine(root, "Reports", "case-1", "keep.html");
+        Directory.CreateDirectory(Path.GetDirectoryName(extractMarker)!);
+        Directory.CreateDirectory(Path.GetDirectoryName(reportMarker)!);
+        await WriteValidArchiveAsync(source);
+        await File.WriteAllTextAsync(extractMarker, "extract");
+        await File.WriteAllTextAsync(reportMarker, "report");
+
+        try
+        {
+            using var service = new LogInboxService(
+                new LogFileParser(),
+                new ArchiveValidator(),
+                new MemorySettingsStore(),
+                new WorkbenchLogger(root),
+                paths.InboxDirectory);
+            await service.StartAsync();
+
+            await service.DeleteAsync(Assert.Single(service.Items));
+
+            Assert.False(File.Exists(source));
+            Assert.True(File.Exists(extractMarker));
+            Assert.True(File.Exists(reportMarker));
+            Assert.Empty(service.Items);
+            var log = await File.ReadAllTextAsync(Path.Combine(root, "Logs", "workbench.log"));
+            Assert.Contains("删除完成：原始日志文件", log);
+            Assert.Contains("未删除案例、解压目录或分析报告", log);
+        }
+        finally
+        {
+            if (Directory.Exists(root)) Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task DeleteAsync_MissingOriginalLogWritesChineseSkipMessage()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "HephaestusWorkbenchTests", Guid.NewGuid().ToString("N"));
+        var paths = new HephaestusWorkbench.Data.DataPaths(root);
+        paths.EnsureCreated();
+        var missing = Path.Combine(paths.InboxDirectory, "diag_DEVICE01_2608111530.tgz");
+
+        try
+        {
+            using var service = new LogInboxService(
+                new LogFileParser(),
+                new ArchiveValidator(),
+                new MemorySettingsStore(),
+                new WorkbenchLogger(root),
+                paths.InboxDirectory);
+            await service.StartAsync();
+
+            await service.DeleteAsync(new HephaestusWorkbench.Core.Models.LogInboxItem
+            {
+                FilePath = missing,
+                FileName = Path.GetFileName(missing),
+                DeviceId = "DEVICE01"
+            });
+
+            Assert.Empty(service.Items);
+            var log = await File.ReadAllTextAsync(Path.Combine(root, "Logs", "workbench.log"));
+            Assert.Contains("删除原始日志文件跳过：文件不存在", log);
+            Assert.Contains(missing, log);
+        }
+        finally
+        {
+            if (Directory.Exists(root)) Directory.Delete(root, recursive: true);
+        }
+    }
+
     private static async Task WriteValidArchiveAsync(string path)
     {
         await using var file = File.Create(path);

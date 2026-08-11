@@ -7,6 +7,7 @@
     <EnableWindowsTargeting>true</EnableWindowsTargeting>
     <AssemblyName>HephaestusWorkbench</AssemblyName>
     <RootNamespace>HephaestusWorkbench.App</RootNamespace>
+    <ApplicationIcon>Assets\AppIcon\app-icon.ico</ApplicationIcon>
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="..\HephaestusWorkbench.Core\HephaestusWorkbench.Core.csproj" />
@@ -22,5 +23,6 @@
     <None Include="@(PluginBinaryCandidate)" Link="PluginSeed\log_analyzer.exe" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
     <None Include="$(PluginBinaryPath)" Condition="'$(PluginBinaryPath)' != '' and Exists('$(PluginBinaryPath)')" Link="PluginSeed\log_analyzer.exe" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
     <None Include="..\..\docs\plugin-development.md" Link="Documentation\plugin-development.md" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <Resource Include="Assets\AppIcon\app-icon.ico" />
   </ItemGroup>
 </Project>

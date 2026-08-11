@@ -1,7 +1,7 @@
 ﻿param(
     [ValidateSet('Debug', 'Release')]
     [string]$Configuration = 'Release',
-    [string]$Version = '1.1.1',
+    [string]$Version = '1.1.2',
     [Parameter(Mandatory = $true)]
     [string]$PluginBinaryPath,
     [string]$InnoCompilerPath
@@ -57,7 +57,8 @@ if ($LASTEXITCODE -ne 0) { throw "应用发布失败，退出码：$LASTEXITCODE
 Write-Host '正在生成标准单文件离线安装包……'
 & $InnoCompilerPath "/DMyAppVersion=$Version" "/DAppSource=$appPublish" "/DOutputDir=$dist" $innoScript
 if ($LASTEXITCODE -ne 0) { throw "Inno Setup 编译失败，退出码：$LASTEXITCODE" }
-$setupExecutable = Join-Path $dist 'HephaestusWorkbench_Setup.exe'
+$setupFileName = "HephaestusWorkbench_Setup_v$Version.exe"
+$setupExecutable = Join-Path $dist $setupFileName
 if (-not (Test-Path -LiteralPath $setupExecutable -PathType Leaf)) {
     throw "未生成预期的安装包：$setupExecutable"
 }
@@ -69,7 +70,7 @@ Copy-Item -LiteralPath (Join-Path $repoRoot 'src\HephaestusWorkbench.App\PluginS
 $pluginPackage = Join-Path $dist 'log-analyzer-1.50-win-x64.zip'
 [System.IO.Compression.ZipFile]::CreateFromDirectory($pluginPackageDirectory, $pluginPackage, [System.IO.Compression.CompressionLevel]::Optimal, $false)
 
-$hashFiles = @('HephaestusWorkbench_Setup.exe')
+$hashFiles = @($setupFileName)
 $hashLines = foreach ($name in $hashFiles) {
     $hash = (Get-FileHash -Algorithm SHA256 -LiteralPath (Join-Path $dist $name)).Hash.ToLowerInvariant()
     "$hash  $name"

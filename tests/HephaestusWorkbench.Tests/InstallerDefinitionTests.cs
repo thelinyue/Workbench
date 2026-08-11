@@ -9,6 +9,8 @@ public sealed class InstallerDefinitionTests
 
         Assert.Contains("WizardStyle=modern", script);
         Assert.Contains("LicenseFile=", script);
+        Assert.Contains("OutputBaseFilename=HephaestusWorkbench_Setup_v{#MyAppVersion}", script);
+        Assert.Contains("VersionInfoProductVersion={#MyAppVersion}", script);
         Assert.Contains("Source: \"{#AppSource}\\*\"", script);
         Assert.DoesNotContain("PayloadPackage", script, StringComparison.OrdinalIgnoreCase);
     }
@@ -18,7 +20,7 @@ public sealed class InstallerDefinitionTests
     {
         var script = ReadRepositoryFile("installer", "build-installer.ps1");
 
-        Assert.Contains("HephaestusWorkbench_Setup.exe", script);
+        Assert.Contains("HephaestusWorkbench_Setup_v$Version.exe", script);
         Assert.DoesNotContain("HephaestusWorkbench_Update.exe", script);
         Assert.DoesNotContain("HephaestusWorkbench_Uninstall.exe", script);
         Assert.DoesNotContain("HephaestusWorkbench-v$Version-win-x64.zip", script);

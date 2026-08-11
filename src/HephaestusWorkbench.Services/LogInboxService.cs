@@ -209,7 +209,14 @@ public sealed class LogInboxService : IDisposable
     {
         await Task.Run(() =>
         {
-            if (File.Exists(item.FilePath)) File.Delete(item.FilePath);
+            if (!File.Exists(item.FilePath))
+            {
+                _logger.Info($"删除原始日志文件跳过：文件不存在，{item.FilePath}");
+                return;
+            }
+
+            File.Delete(item.FilePath);
+            _logger.Info($"删除完成：原始日志文件，{item.FilePath}；未删除案例、解压目录或分析报告");
         }, cancellationToken);
         await RefreshAsync(cancellationToken);
     }

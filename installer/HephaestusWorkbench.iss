@@ -1,5 +1,5 @@
 #ifndef MyAppVersion
-  #define MyAppVersion "1.1.1"
+  #define MyAppVersion "1.1.2"
 #endif
 #ifndef AppSource
   #error AppSource must be supplied by build-installer.ps1
@@ -24,7 +24,8 @@ DefaultGroupName=赫菲斯托斯工程工作台
 DisableProgramGroupPage=no
 LicenseFile=..\distribution\public\DISTRIBUTION-LICENSE.md
 OutputDir={#OutputDir}
-OutputBaseFilename=HephaestusWorkbench_Setup
+OutputBaseFilename=HephaestusWorkbench_Setup_v{#MyAppVersion}
+SetupIconFile=..\src\HephaestusWorkbench.App\Assets\AppIcon\app-icon.ico
 UninstallDisplayName=赫菲斯托斯工程工作台
 UninstallDisplayIcon={app}\HephaestusWorkbench.exe
 Compression=lzma2/ultra64

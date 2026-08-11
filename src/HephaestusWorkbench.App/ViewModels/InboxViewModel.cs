@@ -106,7 +106,10 @@ public sealed class InboxViewModel : ViewModelBase
     private async Task DeleteAsync()
     {
         if (SelectedItem is null) return;
-        if (Wpf.MessageBox.Show($"确认删除日志文件“{SelectedItem.FileName}”吗？此操作不可恢复。", "确认删除", Wpf.MessageBoxButton.YesNo, Wpf.MessageBoxImage.Warning) != Wpf.MessageBoxResult.Yes) return;
+        var message = $"确认删除原始日志文件“{SelectedItem.FileName}”吗？\n\n"
+            + "本次操作只删除原始日志文件，不删除案例、解压目录或分析报告。\n"
+            + "此操作不可恢复。";
+        if (Wpf.MessageBox.Show(message, "确认删除原始日志", Wpf.MessageBoxButton.YesNo, Wpf.MessageBoxImage.Warning) != Wpf.MessageBoxResult.Yes) return;
         await _inbox.DeleteAsync(SelectedItem);
     }
 }

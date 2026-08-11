@@ -299,7 +299,7 @@ SSH ──> not implemented
 
 依赖：.NET 8 Windows Forms、`Payload.zip`、Windows 文件系统、WebView2 Runtime（目标机前置条件）。  
 输入：Configuration、Version、安装路径、Payload 和可选离线 WebView2 安装器。  
-输出：`installer/dist/HephaestusWorkbench_Setup.exe`、Update、Uninstall 入口，安装目录和升级备份。  
+输出：`installer/dist/HephaestusWorkbench_Setup_v<版本号>.exe`、Windows 卸载入口和安装目录。
 风险点：
 
 - 安装器输出和 Payload 属于生成物，不应被误当作源码模块。

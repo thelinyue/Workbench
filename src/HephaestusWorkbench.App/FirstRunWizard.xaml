@@ -3,7 +3,8 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:local="clr-namespace:HephaestusWorkbench.App"
         Title="赫工 - 首次配置" Height="620" Width="820"
-        MinHeight="560" MinWidth="760" WindowStartupLocation="CenterScreen" ResizeMode="NoResize">
+        MinHeight="560" MinWidth="760" WindowStartupLocation="CenterScreen" ResizeMode="NoResize"
+        Icon="Assets/AppIcon/app-icon.ico">
     <Window.Resources>
         <local:StepVisibilityConverter x:Key="StepVisibilityConverter" />
     </Window.Resources>
