@@ -41,7 +41,7 @@ public sealed record MarketplaceCatalogResult(
 /// </summary>
 public sealed partial class PluginMarketplaceService
 {
-    public const string CatalogUrl = "https://raw.githubusercontent.com/thelinyue/Hephaestus-Workbench-Releases/main/marketplace/catalog.json";
+    public const string CatalogUrl = "https://raw.githubusercontent.com/thelinyue/Hephaestus-Workbench-Plugins/main/catalog.json";
     public const long MaximumPackageBytes = 200L * 1024 * 1024;
     public const long MaximumExtractedBytes = 1024L * 1024 * 1024;
 
@@ -352,7 +352,7 @@ public sealed partial class PluginMarketplaceService
         if (string.IsNullOrWhiteSpace(item.Name)) throw new InvalidDataException($"插件名称为空：{item.Id}");
         if (!Version.TryParse(item.Version, out _)) throw new InvalidDataException($"插件版本无效：{item.Version}");
         if (!Version.TryParse(item.MinimumAppVersion, out var minimum)) throw new InvalidDataException($"最低应用版本无效：{item.MinimumAppVersion}");
-        if (item.Type != PluginType.Exe) throw new InvalidDataException("v1.1.0 仅支持 EXE 插件。");
+        if (item.Type != PluginType.Exe) throw new InvalidDataException("当前版本仅支持 EXE 插件。");
         EnsureHttps(new Uri(item.PackageUrl, UriKind.Absolute));
         if (!Sha256Pattern().IsMatch(item.Sha256)) throw new InvalidDataException($"插件 SHA-256 无效：{item.Id}");
         if (item.PackageSize <= 0 || item.PackageSize > MaximumPackageBytes) throw new InvalidDataException($"插件包大小无效：{item.Id}");

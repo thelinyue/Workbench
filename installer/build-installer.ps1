@@ -1,7 +1,7 @@
 ﻿param(
     [ValidateSet('Debug', 'Release')]
     [string]$Configuration = 'Release',
-    [string]$Version = '1.1.0',
+    [string]$Version = '1.1.1',
     [Parameter(Mandatory = $true)]
     [string]$PluginBinaryPath,
     [string]$InnoCompilerPath
@@ -97,6 +97,18 @@ $catalog = [ordered]@{
             packageSize = (Get-Item -LiteralPath $pluginPackage).Length
             minimumAppVersion = '1.1.0'
             releaseNotesUrl = 'https://github.com/thelinyue/Hephaestus-Workbench-Releases/releases/tag/plugin-log-analyzer-v1.50'
+            author = 'thelinyue'
+            license = 'Proprietary binary distribution'
+            repository = 'https://github.com/thelinyue/Hephaestus-Workbench-Releases'
+            manifest = [ordered]@{
+                id = 'log-analyzer'
+                name = '日志分析插件'
+                version = '1.50'
+                type = 'Exe'
+                entry = 'log_analyzer.exe'
+                runner = 'legacy-log-analyzer'
+                reportPath = 'report/report.html'
+            }
         }
     )
 }

@@ -6,7 +6,7 @@
 
 ## 安装
 
-从 `v1.1.0` Release 下载 `HephaestusWorkbench_Setup.exe`。它是包含 .NET 8 运行时和官方内置插件的单文件离线安装包，提供标准 Windows 安装向导；同一个 Setup 也用于后续升级和修复。卸载请使用 Windows 设置或控制面板中的“已安装的应用”。
+从最新 Release 下载 `HephaestusWorkbench_Setup.exe`。它是包含 .NET 8 运行时和官方内置插件的单文件离线安装包，提供标准 Windows 安装向导；同一个 Setup 也用于后续升级和修复。卸载请使用 Windows 设置或控制面板中的“已安装的应用”。
 
 下载后可使用 PowerShell 验证文件：
 
@@ -18,6 +18,6 @@ Get-FileHash -Algorithm SHA256 .\HephaestusWorkbench_Setup.exe
 
 ## 官方插件目录
 
-应用读取 `marketplace/catalog.json` 获取官方插件。目录中的安装包地址必须使用 HTTPS，客户端会强制校验包大小、SHA-256、压缩包路径和插件清单。
+从 v1.1.1 开始，应用读取独立公开仓库 `thelinyue/Hephaestus-Workbench-Plugins` 根目录的 `catalog.json` 获取在线插件。插件 ZIP 仍由各插件的 GitHub Release 托管；客户端会强制校验 HTTPS、包大小、SHA-256、压缩包路径和插件清单。v1.1.0 保留使用本仓库中的旧目录。
 
 遇到下载、安装或校验错误时，请保留工作台 `Logs/workbench.log` 中的中文错误信息用于排查。

@@ -14,6 +14,20 @@ namespace HephaestusWorkbench.Tests;
 public sealed class PluginMarketplaceServiceTests
 {
     [Fact]
+    public async Task RefreshAsync_RequestsDedicatedPluginCatalog()
+    {
+        await WithServiceAsync(async context =>
+        {
+            context.Handler.Response = JsonResponse(CatalogJson(new string('a', 64), 1));
+
+            await context.Service.RefreshAsync();
+
+            Assert.Equal(PluginMarketplaceService.CatalogUrl, context.Handler.LastRequestUri?.AbsoluteUri);
+            Assert.Contains("Hephaestus-Workbench-Plugins", context.Handler.LastRequestUri?.AbsoluteUri);
+        });
+    }
+
+    [Fact]
     public async Task RefreshAsync_UsesLastValidCacheWhenNetworkFails()
     {
         await WithServiceAsync(async context =>
@@ -163,8 +177,10 @@ public sealed class PluginMarketplaceServiceTests
     {
         public HttpResponseMessage Response { get; set; } = new(HttpStatusCode.NotFound);
         public Exception? Exception { get; set; }
+        public Uri? LastRequestUri { get; private set; }
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
         {
+            LastRequestUri = request.RequestUri;
             if (Exception is not null) return Task.FromException<HttpResponseMessage>(Exception);
             Response.RequestMessage = request;
             return Task.FromResult(Response);

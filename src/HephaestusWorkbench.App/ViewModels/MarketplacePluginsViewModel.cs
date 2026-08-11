@@ -94,7 +94,7 @@ public sealed class MarketplacePluginsViewModel : ViewModelBase
                 var entry = config.Plugins.FirstOrDefault(x => string.Equals(x.Id, plugin.Id, StringComparison.OrdinalIgnoreCase));
                 InstalledItems.Add(new InstalledPluginItem { Manifest = plugin, Source = entry?.Source ?? PluginInstallSource.Manual, Enabled = entry?.Enabled ?? true, IsDefault = string.Equals(config.DefaultPluginId, plugin.Id, StringComparison.OrdinalIgnoreCase) });
             }
-            var appVersion = typeof(MarketplacePluginsViewModel).Assembly.GetName().Version ?? new Version(1, 1, 0);
+            var appVersion = typeof(MarketplacePluginsViewModel).Assembly.GetName().Version ?? new Version(1, 1, 1);
             OnlineItems.Clear();
             foreach (var plugin in online.Plugins.OrderBy(x => x.Name))
             {

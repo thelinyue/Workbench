@@ -21,7 +21,7 @@
 
 当前工作区中的插件位于 `插件/log_analyzer.exe`。构建时会将它作为 `PluginSeed` 复制到发布目录，首次启动时登记到用户数据目录的 `Plugins/log-analyzer`。
 
-插件开发请参阅 [插件开发文档](docs/plugin-development.md)。v1.1.0 插件中心支持从官方公开目录安装和更新 EXE 插件，并可管理启用状态与默认插件；DLL 插件运行尚未接入。
+插件开发请参阅 [插件开发文档](docs/plugin-development.md)。v1.1.1 插件中心从独立公开目录 `thelinyue/Hephaestus-Workbench-Plugins` 安装和更新 EXE 插件，并可管理启用状态与默认插件；DLL 插件运行尚未接入。
 
 公开安装包和官方插件位于独立分发仓库 `thelinyue/Hephaestus-Workbench-Releases`。本源码仓库保持私有，发布流程见 [闭源分发说明](docs/distribution.md)。
 
@@ -73,24 +73,18 @@ Config/workspace.json
 直接执行：
 
 ```powershell
-
+.\installer\build-installer.ps1 -Configuration Release -Version 1.1.1 -PluginBinaryPath '.\插件\log_analyzer.exe'
 ```
 
 输出位于 `installer\dist`：
 
 ```text
 HephaestusWorkbench_Setup.exe
-HephaestusWorkbench_Update.exe
-HephaestusWorkbench_Uninstall.exe
+SHA256SUMS.txt
+log-analyzer-1.50-win-x64.zip
 ```
 
-如需离线自动安装 WebView2，请将官方 x64 安装程序放到：
-
-```text
-installer\dependencies\MicrosoftEdgeWebView2RuntimeInstallerX64.exe
-```
-
-缺少该文件时，安装器会在检测失败时给出中文提示，不会伪造运行环境已满足。
+同一个 Setup 用于首次安装、覆盖升级和修复；卸载入口由 Windows 设置或控制面板管理。应用数据位于程序安装目录之外，升级和卸载默认保留用户数据。
 
 ## 验收流程
 
