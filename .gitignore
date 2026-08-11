@@ -5,6 +5,7 @@ publish/
 .dotnet-home/
 .nuget/
 .plugin-integration-test/
+插件/
 installer/.staging/
 installer/dist/*.pfx
 installer/dist/*.exe
