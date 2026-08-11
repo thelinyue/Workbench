@@ -208,7 +208,7 @@ jobs:
             throw "SHA256SUMS.txt 与安装包不一致。"
           }
 
-          $publicDirectory = Join-Path $PWD ".release-assets"
+          $publicDirectory = Join-Path $PWD "release-assets"
           New-Item -ItemType Directory -Force -Path $publicDirectory | Out-Null
           Copy-Item -LiteralPath $setup, $checksums -Destination $publicDirectory
           $publicFiles = @(Get-ChildItem -LiteralPath $publicDirectory -File)
@@ -227,7 +227,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: HephaestusWorkbench-Setup-v${{ steps.version.outputs.version }}
-          path: .release-assets/*
+          path: release-assets/*
           if-no-files-found: error
           retention-days: 14
 
@@ -254,8 +254,8 @@ jobs:
           }
 
           gh release create $tag `
-            ".release-assets\${{ steps.assets.outputs.setup_name }}" `
-            ".release-assets\SHA256SUMS.txt" `
+            "release-assets\${{ steps.assets.outputs.setup_name }}" `
+            "release-assets\SHA256SUMS.txt" `
             --repo $env:RELEASES_REPO `
             --title "Hephaestus Workbench $tag" `
             --notes-file $notes `
