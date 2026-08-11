@@ -7,15 +7,20 @@
     <RootNamespace>HephaestusWorkbench.Setup</RootNamespace>
     <AssemblyName>HephaestusWorkbench-Setup</AssemblyName>
     <PublishSingleFile>true</PublishSingleFile>
-    <SelfContained>true</SelfContained>
+    <SelfContained>false</SelfContained>
     <RuntimeIdentifier>win-x64</RuntimeIdentifier>
     <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
     <PublishTrimmed>false</PublishTrimmed>
     <ApplicationManifest>app.manifest</ApplicationManifest>
   </PropertyGroup>
   <ItemGroup>
-    <EmbeddedResource Include="..\Payload.zip">
-      <LogicalName>Payload.zip</LogicalName>
-    </EmbeddedResource>
+    <AssemblyAttribute Include="System.Reflection.AssemblyMetadataAttribute">
+      <_Parameter1>PayloadSha256</_Parameter1>
+      <_Parameter2>$(PayloadSha256)</_Parameter2>
+    </AssemblyAttribute>
+    <AssemblyAttribute Include="System.Reflection.AssemblyMetadataAttribute">
+      <_Parameter1>PayloadSize</_Parameter1>
+      <_Parameter2>$(PayloadSize)</_Parameter2>
+    </AssemblyAttribute>
   </ItemGroup>
 </Project>

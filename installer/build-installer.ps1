@@ -12,7 +12,6 @@ $stagingRoot = Join-Path $PSScriptRoot '.staging'
 $appPublish = Join-Path $stagingRoot 'app'
 $setupPublish = Join-Path $stagingRoot 'setup'
 $dist = Join-Path $PSScriptRoot 'dist'
-$payload = Join-Path $PSScriptRoot 'Payload.zip'
 $pluginBinary = [System.IO.Path]::GetFullPath($PluginBinaryPath)
 if (-not (Test-Path -LiteralPath $pluginBinary -PathType Leaf)) {
     throw "未找到正式发布所需的日志分析插件：$pluginBinary"
@@ -29,6 +28,7 @@ if (Test-Path -LiteralPath $dist) {
     }
 }
 New-Item -ItemType Directory -Force -Path $appPublish, $setupPublish, $dist | Out-Null
+$payload = Join-Path $dist "HephaestusWorkbench-v$Version-win-x64.zip"
 
 $env:DOTNET_CLI_HOME = Join-Path $repoRoot '.dotnet-home'
 $appProject = Join-Path $repoRoot 'src\HephaestusWorkbench.App\HephaestusWorkbench.App.csproj'
@@ -45,11 +45,12 @@ Write-Host 'Publishing Hephaestus Workbench application...'
 & dotnet publish $appProject -c $Configuration -r win-x64 --self-contained true --no-restore -p:Version=$Version -p:PluginBinaryPath=$pluginBinary -p:DebugType=None -p:DebugSymbols=false -o $appPublish
 if ($LASTEXITCODE -ne 0) { throw "Application publish failed, exit code: $LASTEXITCODE" }
 
-if (Test-Path -LiteralPath $payload) { Remove-Item -LiteralPath $payload -Force }
 [System.IO.Compression.ZipFile]::CreateFromDirectory($appPublish, $payload, [System.IO.Compression.CompressionLevel]::Optimal, $false)
+$payloadHash = (Get-FileHash -Algorithm SHA256 -LiteralPath $payload).Hash.ToLowerInvariant()
+$payloadSize = (Get-Item -LiteralPath $payload).Length
 
 Write-Host 'Publishing installer...'
-& dotnet publish $setupProject -c $Configuration -r win-x64 --self-contained true --no-restore -p:Version=$Version -p:DebugType=None -p:DebugSymbols=false -o $setupPublish
+& dotnet publish $setupProject -c $Configuration -r win-x64 --self-contained false --no-restore -p:Version=$Version -p:PayloadSha256=$payloadHash -p:PayloadSize=$payloadSize -p:DebugType=None -p:DebugSymbols=false -o $setupPublish
 if ($LASTEXITCODE -ne 0) { throw "Installer publish failed, exit code: $LASTEXITCODE" }
 $setupExecutable = Join-Path $setupPublish 'HephaestusWorkbench-Setup.exe'
 if (-not (Test-Path -LiteralPath $setupExecutable)) { throw "Installer executable was not generated: $setupExecutable" }
@@ -69,6 +70,7 @@ $hashFiles = @(
     'HephaestusWorkbench_Setup.exe',
     'HephaestusWorkbench_Update.exe',
     'HephaestusWorkbench_Uninstall.exe',
+    "HephaestusWorkbench-v$Version-win-x64.zip",
     'log-analyzer-1.50-win-x64.zip'
 )
 $hashLines = foreach ($name in $hashFiles) {

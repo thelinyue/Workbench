@@ -10,7 +10,7 @@ Hephaestus Workbench 的源码仓库保持私有。面向用户公开的安装�
 .\installer\build-installer.ps1 -Configuration Release -Version 1.1.0 -PluginBinaryPath '.\插件\log_analyzer.exe'
 ```
 
-脚本在 `installer/dist` 生成三个安装入口、`log-analyzer-1.50-win-x64.zip` 和 `SHA256SUMS.txt`。没有插件二进制时，普通源码构建仍然可执行，但正式打包会立即返回中文错误。
+脚本在 `installer/dist` 生成三个轻量联网安装入口、self-contained 主程序 ZIP、`log-analyzer-1.50-win-x64.zip` 和 `SHA256SUMS.txt`。安装器在构建时固化主程序 ZIP 的大小与 SHA-256，首次安装和升级需要联网下载该 ZIP。没有插件二进制时，普通源码构建仍然可执行，但正式打包会立即返回中文错误。
 
 ## 公开仓库内容
 

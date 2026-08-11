@@ -1,10 +1,47 @@
 using System.Text.Json;
+using System.IO.Compression;
+using System.Net;
+using System.Net.Http;
+using System.Security.Cryptography;
 using HephaestusWorkbench.Setup;
 
 namespace HephaestusWorkbench.Tests;
 
 public sealed class InstallerTests
 {
+    [Fact]
+    public async Task PayloadPackage_DownloadsAndVerifiesExpectedHash()
+    {
+        var file = Path.Combine(Path.GetTempPath(), $"payload-{Guid.NewGuid():N}.zip");
+        var content = "payload"u8.ToArray();
+        try
+        {
+            using var client = new HttpClient(new PayloadHandler(content));
+            await PayloadPackage.DownloadAsync(file, Convert.ToHexString(SHA256.HashData(content)), content.Length, new SetupLogger(), client);
+            Assert.Equal(content, await File.ReadAllBytesAsync(file));
+
+            await Assert.ThrowsAsync<InvalidDataException>(() => PayloadPackage.DownloadAsync(file, new string('0', 64), content.Length, new SetupLogger(), client));
+        }
+        finally { if (File.Exists(file)) File.Delete(file); }
+    }
+
+    [Fact]
+    public void PayloadPackage_RejectsArchiveTraversal()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "HephaestusWorkbenchTests", Guid.NewGuid().ToString("N"));
+        var package = Path.Combine(root, "payload.zip");
+        var target = Path.Combine(root, "target");
+        Directory.CreateDirectory(root);
+        try
+        {
+            using (var zip = ZipFile.Open(package, ZipArchiveMode.Create))
+            using (var writer = new StreamWriter(zip.CreateEntry("../outside.txt").Open())) writer.Write("bad");
+            Assert.Throws<InvalidDataException>(() => PayloadPackage.Extract(package, target));
+            Assert.False(File.Exists(Path.Combine(root, "outside.txt")));
+        }
+        finally { if (Directory.Exists(root)) Directory.Delete(root, recursive: true); }
+    }
+
     [Fact]
     public void InstallMetadata_UsesHephaestusProductIdentity()
     {
@@ -72,6 +109,15 @@ public sealed class InstallerTests
         finally
         {
             if (Directory.Exists(root)) Directory.Delete(root, recursive: true);
+        }
+    }
+
+    private sealed class PayloadHandler(byte[] content) : HttpMessageHandler
+    {
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            var response = new HttpResponseMessage(HttpStatusCode.OK) { Content = new ByteArrayContent(content), RequestMessage = request };
+            return Task.FromResult(response);
         }
     }
 }

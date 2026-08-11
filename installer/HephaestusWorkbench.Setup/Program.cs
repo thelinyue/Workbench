@@ -1,6 +1,4 @@
 using System.Diagnostics;
-using System.IO.Compression;
-using System.Reflection;
 using System.Windows.Forms;
 
 namespace HephaestusWorkbench.Setup;
@@ -95,9 +93,12 @@ internal static class Program
         if (string.IsNullOrWhiteSpace(installParent))
             throw new InvalidOperationException("无法确定安装目录的父目录。");
         var temporaryDirectory = Path.Combine(installParent, $".HephaestusWorkbench-setup-{Guid.NewGuid():N}");
+        var payloadFile = Path.Combine(Path.GetTempPath(), $"HephaestusWorkbench-{Guid.NewGuid():N}.zip");
         try
         {
-            ExtractPayload(temporaryDirectory);
+            MessageBox.Show("安装程序将联网下载约 75 MB 的主程序文件，下载完成后会自动校验并继续安装。", "准备下载", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            PayloadPackage.DownloadAsync(payloadFile, logger).GetAwaiter().GetResult();
+            PayloadPackage.Extract(payloadFile, temporaryDirectory);
             InstallOperations.ReplaceProgramDirectory(temporaryDirectory, installDirectory, logger);
             InstallOperations.WriteMetadata(installDirectory);
             InstallOperations.CreateShortcuts(installDirectory);
@@ -106,28 +107,8 @@ internal static class Program
         }
         finally
         {
+            if (File.Exists(payloadFile)) File.Delete(payloadFile);
             if (Directory.Exists(temporaryDirectory)) Directory.Delete(temporaryDirectory, recursive: true);
-        }
-    }
-
-    private static void ExtractPayload(string targetDirectory)
-    {
-        using var payload = Assembly.GetExecutingAssembly().GetManifestResourceStream("Payload.zip")
-            ?? throw new InvalidOperationException("安装包内缺少程序文件。");
-        using var archive = new ZipArchive(payload, ZipArchiveMode.Read);
-        var targetRoot = Path.GetFullPath(targetDirectory) + Path.DirectorySeparatorChar;
-        foreach (var entry in archive.Entries)
-        {
-            var destination = Path.GetFullPath(Path.Combine(targetDirectory, entry.FullName));
-            if (!destination.StartsWith(targetRoot, StringComparison.OrdinalIgnoreCase))
-                throw new InvalidDataException("安装包包含无效文件路径。");
-            if (string.IsNullOrEmpty(entry.Name))
-            {
-                Directory.CreateDirectory(destination);
-                continue;
-            }
-            Directory.CreateDirectory(Path.GetDirectoryName(destination)!);
-            entry.ExtractToFile(destination, overwrite: true);
         }
     }
 
