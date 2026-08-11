@@ -88,8 +88,6 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw "解决方案还原失败，退出码：$LASTEXITCODE" }
           dotnet build HephaestusWorkbench.sln -c Release --no-restore
           if ($LASTEXITCODE -ne 0) { throw "无插件二进制源码构建失败，退出码：$LASTEXITCODE" }
-          dotnet test HephaestusWorkbench.sln -c Release --no-build --no-restore
-          if ($LASTEXITCODE -ne 0) { throw "自动化测试失败，退出码：$LASTEXITCODE" }
 
       - name: 下载并校验官方插件
         id: plugin
@@ -126,6 +124,17 @@ jobs:
 
           "binary=$binaryPath" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
           Write-Host "官方插件校验通过：$hash"
+
+      - name: 使用授权插件运行完整测试
+        shell: pwsh
+        run: |
+          dotnet build HephaestusWorkbench.sln `
+            -c Release `
+            --no-restore `
+            -p:PluginBinaryPath="${{ steps.plugin.outputs.binary }}"
+          if ($LASTEXITCODE -ne 0) { throw "带授权插件的测试构建失败，退出码：$LASTEXITCODE" }
+          dotnet test HephaestusWorkbench.sln -c Release --no-build --no-restore
+          if ($LASTEXITCODE -ne 0) { throw "自动化测试失败，退出码：$LASTEXITCODE" }
 
       - name: 安装并校验 Inno Setup 6.7.3
         id: inno
