@@ -1,31 +1,24 @@
-# 赫工（Hephaestus Workbench）安装器
+# 赫菲斯托斯工程工作台安装包
 
-安装器采用小型 .NET 8 Windows Forms 联网引导程序，默认目标目录为：
+正式发行使用 Inno Setup 6 生成标准 Windows 单文件离线安装包，默认安装目录为：
 
 ```text
 C:\Program Files\HephaestusWorkbench
 ```
 
-安装包制作：
+安装包制作命令：
 
 ```powershell
 .\installer\build-installer.ps1 -Configuration Release -Version 1.1.0 -PluginBinaryPath '.\插件\log_analyzer.exe'
 ```
 
-脚本会先发布 self-contained WPF 主程序并生成独立 ZIP，再发布不内嵌主程序的轻量安装器并复制三个入口：
+构建机必须安装 Inno Setup 6。也可通过 `-InnoCompilerPath` 显式传入 `ISCC.exe`。脚本会完成以下工作：
 
-- `HephaestusWorkbench_Setup.exe`：首次安装或修复安装
-- `HephaestusWorkbench_Update.exe --update`：升级现有安装
-- `HephaestusWorkbench_Uninstall.exe --uninstall`：卸载安装目录
+- 发布包含 .NET 8 运行时的 Windows x64 主程序。
+- 将显式传入且已获授权的 `log_analyzer.exe` 同时写入 PluginSeed 和官方插件 ZIP。
+- 生成唯一的 `HephaestusWorkbench_Setup.exe`、官方插件包、市场目录和 SHA-256 文件。
+- 不把插件 EXE、PDB、源码、测试日志或构建缓存写入源码仓库。
 
-安装器本身需要 .NET 8 Desktop Runtime，并会联网下载约 75 MB 的主程序 ZIP、校验固定 SHA-256 后安装。安装完成后的主程序是 self-contained；安装器还会检查 Windows 10/11 x64 和 WebView2 Runtime。
+安装包提供欢迎、许可协议、安装目录、开始菜单、桌面快捷方式、确认、进度和完成页面。同一个 Setup 可用于首次安装、覆盖升级和修复；卸载入口由 Windows 控制面板统一管理，不再单独发布 Update 或 Uninstall EXE。
 
-首次安装会显示传统安装器风格的“选择安装位置”页面。目标文件夹是可直接编辑的完整路径，默认值为 C:\Program Files\HephaestusWorkbench；也可以输入其他盘符路径，例如 D:\Apps\HephaestusWorkbench。全新安装只使用 HephaestusWorkbench 的新程序、数据和 Bootstrap 路径，不读取或迁移旧版产品数据。
-
-正式包如需离线安装 WebView2，将官方 x64 安装程序放到：
-
-```text
-installer\dependencies\MicrosoftEdgeWebView2RuntimeInstallerX64.exe
-```
-
-升级前会将当前 HephaestusWorkbench 用户数据目录中的数据库备份到 `Backups\upgrade-<timestamp>`，程序升级不会覆盖 `HephaestusWorkbenchData`。卸载默认保留用户数据，只有明确确认后才删除日志、案例和报告。
+应用数据默认位于用户文档目录，并通过 LocalAppData 中的引导文件记录，不在程序安装目录内。升级和卸载只处理程序文件，默认保留用户数据库、日志、案例和报告。

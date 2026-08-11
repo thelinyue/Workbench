@@ -3,18 +3,30 @@
     [string]$Configuration = 'Release',
     [string]$Version = '1.1.0',
     [Parameter(Mandatory = $true)]
-    [string]$PluginBinaryPath
+    [string]$PluginBinaryPath,
+    [string]$InnoCompilerPath
 )
 
 $ErrorActionPreference = 'Stop'
 $repoRoot = Split-Path -Parent $PSScriptRoot
 $stagingRoot = Join-Path $PSScriptRoot '.staging'
 $appPublish = Join-Path $stagingRoot 'app'
-$setupPublish = Join-Path $stagingRoot 'setup'
 $dist = Join-Path $PSScriptRoot 'dist'
 $pluginBinary = [System.IO.Path]::GetFullPath($PluginBinaryPath)
 if (-not (Test-Path -LiteralPath $pluginBinary -PathType Leaf)) {
     throw "未找到正式发布所需的日志分析插件：$pluginBinary"
+}
+
+if ([string]::IsNullOrWhiteSpace($InnoCompilerPath)) {
+    $compilerCandidates = @(
+        (Join-Path $env:LOCALAPPDATA 'Programs\Inno Setup 6\ISCC.exe'),
+        (Join-Path ${env:ProgramFiles(x86)} 'Inno Setup 6\ISCC.exe'),
+        (Join-Path $env:ProgramFiles 'Inno Setup 6\ISCC.exe')
+    )
+    $InnoCompilerPath = $compilerCandidates | Where-Object { Test-Path -LiteralPath $_ -PathType Leaf } | Select-Object -First 1
+}
+if ([string]::IsNullOrWhiteSpace($InnoCompilerPath) -or -not (Test-Path -LiteralPath $InnoCompilerPath -PathType Leaf)) {
+    throw '未找到 Inno Setup 6 编译器 ISCC.exe，请先安装 Inno Setup 6，或通过 -InnoCompilerPath 显式传入。'
 }
 
 if (Test-Path -LiteralPath $stagingRoot) { Remove-Item -LiteralPath $stagingRoot -Recurse -Force }
@@ -27,37 +39,28 @@ if (Test-Path -LiteralPath $dist) {
         Write-Warning "原 dist 目录正在被占用，改用独立输出目录：$dist"
     }
 }
-New-Item -ItemType Directory -Force -Path $appPublish, $setupPublish, $dist | Out-Null
-$payload = Join-Path $dist "HephaestusWorkbench-v$Version-win-x64.zip"
+New-Item -ItemType Directory -Force -Path $appPublish, $dist | Out-Null
 
 $env:DOTNET_CLI_HOME = Join-Path $repoRoot '.dotnet-home'
 $appProject = Join-Path $repoRoot 'src\HephaestusWorkbench.App\HephaestusWorkbench.App.csproj'
-$setupProject = Join-Path $PSScriptRoot 'HephaestusWorkbench.Setup\HephaestusWorkbench.Setup.csproj'
+$innoScript = Join-Path $PSScriptRoot 'HephaestusWorkbench.iss'
 Add-Type -AssemblyName System.IO.Compression.FileSystem
 
-Write-Host 'Restoring win-x64 publish assets...'
+Write-Host '正在还原 win-x64 发布依赖……'
 & dotnet restore $appProject -r win-x64 --configfile (Join-Path $repoRoot 'NuGet.config')
-if ($LASTEXITCODE -ne 0) { throw "Application restore failed, exit code: $LASTEXITCODE" }
-& dotnet restore $setupProject -r win-x64 --configfile (Join-Path $repoRoot 'NuGet.config')
-if ($LASTEXITCODE -ne 0) { throw "Installer restore failed, exit code: $LASTEXITCODE" }
+if ($LASTEXITCODE -ne 0) { throw "应用还原失败，退出码：$LASTEXITCODE" }
 
-Write-Host 'Publishing Hephaestus Workbench application...'
+Write-Host '正在发布 self-contained 主程序……'
 & dotnet publish $appProject -c $Configuration -r win-x64 --self-contained true --no-restore -p:Version=$Version -p:PluginBinaryPath=$pluginBinary -p:DebugType=None -p:DebugSymbols=false -o $appPublish
-if ($LASTEXITCODE -ne 0) { throw "Application publish failed, exit code: $LASTEXITCODE" }
+if ($LASTEXITCODE -ne 0) { throw "应用发布失败，退出码：$LASTEXITCODE" }
 
-[System.IO.Compression.ZipFile]::CreateFromDirectory($appPublish, $payload, [System.IO.Compression.CompressionLevel]::Optimal, $false)
-$payloadHash = (Get-FileHash -Algorithm SHA256 -LiteralPath $payload).Hash.ToLowerInvariant()
-$payloadSize = (Get-Item -LiteralPath $payload).Length
-
-Write-Host 'Publishing installer...'
-& dotnet publish $setupProject -c $Configuration -r win-x64 --self-contained false --no-restore -p:Version=$Version -p:PayloadSha256=$payloadHash -p:PayloadSize=$payloadSize -p:DebugType=None -p:DebugSymbols=false -o $setupPublish
-if ($LASTEXITCODE -ne 0) { throw "Installer publish failed, exit code: $LASTEXITCODE" }
-$setupExecutable = Join-Path $setupPublish 'HephaestusWorkbench-Setup.exe'
-if (-not (Test-Path -LiteralPath $setupExecutable)) { throw "Installer executable was not generated: $setupExecutable" }
-
-Copy-Item -LiteralPath $setupExecutable -Destination (Join-Path $dist 'HephaestusWorkbench_Setup.exe') -Force
-Copy-Item -LiteralPath $setupExecutable -Destination (Join-Path $dist 'HephaestusWorkbench_Update.exe') -Force
-Copy-Item -LiteralPath $setupExecutable -Destination (Join-Path $dist 'HephaestusWorkbench_Uninstall.exe') -Force
+Write-Host '正在生成标准单文件离线安装包……'
+& $InnoCompilerPath "/DMyAppVersion=$Version" "/DAppSource=$appPublish" "/DOutputDir=$dist" $innoScript
+if ($LASTEXITCODE -ne 0) { throw "Inno Setup 编译失败，退出码：$LASTEXITCODE" }
+$setupExecutable = Join-Path $dist 'HephaestusWorkbench_Setup.exe'
+if (-not (Test-Path -LiteralPath $setupExecutable -PathType Leaf)) {
+    throw "未生成预期的安装包：$setupExecutable"
+}
 
 $pluginPackageDirectory = Join-Path $stagingRoot 'plugin-package'
 New-Item -ItemType Directory -Force -Path $pluginPackageDirectory | Out-Null
@@ -66,13 +69,7 @@ Copy-Item -LiteralPath (Join-Path $repoRoot 'src\HephaestusWorkbench.App\PluginS
 $pluginPackage = Join-Path $dist 'log-analyzer-1.50-win-x64.zip'
 [System.IO.Compression.ZipFile]::CreateFromDirectory($pluginPackageDirectory, $pluginPackage, [System.IO.Compression.CompressionLevel]::Optimal, $false)
 
-$hashFiles = @(
-    'HephaestusWorkbench_Setup.exe',
-    'HephaestusWorkbench_Update.exe',
-    'HephaestusWorkbench_Uninstall.exe',
-    "HephaestusWorkbench-v$Version-win-x64.zip",
-    'log-analyzer-1.50-win-x64.zip'
-)
+$hashFiles = @('HephaestusWorkbench_Setup.exe', 'log-analyzer-1.50-win-x64.zip')
 $hashLines = foreach ($name in $hashFiles) {
     $hash = (Get-FileHash -Algorithm SHA256 -LiteralPath (Join-Path $dist $name)).Hash.ToLowerInvariant()
     "$hash  $name"
@@ -106,15 +103,5 @@ $catalog = [ordered]@{
 $catalogJson = $catalog | ConvertTo-Json -Depth 5
 [System.IO.File]::WriteAllText((Join-Path $catalogDirectory 'catalog.json'), $catalogJson, [System.Text.UTF8Encoding]::new($false))
 
-$webView2Installer = Join-Path $PSScriptRoot 'dependencies\MicrosoftEdgeWebView2RuntimeInstallerX64.exe'
-$prerequisiteOutput = Join-Path $dist 'Prerequisites'
-if (Test-Path -LiteralPath $webView2Installer) {
-    New-Item -ItemType Directory -Force -Path $prerequisiteOutput | Out-Null
-    Copy-Item -LiteralPath $webView2Installer -Destination $prerequisiteOutput -Force
-    Write-Host 'Copied the offline WebView2 installer.'
-} else {
-    Write-Warning 'Offline WebView2 installer not found; setup will show a manual installation message if needed.'
-}
-
 Remove-Item -LiteralPath $stagingRoot -Recurse -Force
-Write-Host "Installer package generated: $dist"
+Write-Host "标准单文件离线安装包已生成：$setupExecutable"

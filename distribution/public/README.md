@@ -6,7 +6,7 @@
 
 ## 安装
 
-从 `v1.1.0` Release 下载轻量的 `HephaestusWorkbench_Setup.exe`。安装器需要 .NET 8 Desktop Runtime 和网络连接，会下载约 75 MB 的 self-contained 主程序包并强制校验完整性。升级现有安装可使用 `HephaestusWorkbench_Update.exe`，卸载入口为 `HephaestusWorkbench_Uninstall.exe`。
+从 `v1.1.0` Release 下载 `HephaestusWorkbench_Setup.exe`。它是包含 .NET 8 运行时和官方内置插件的单文件离线安装包，提供标准 Windows 安装向导；同一个 Setup 也用于后续升级和修复。卸载请使用 Windows 设置或控制面板中的“已安装的应用”。
 
 下载后可使用 PowerShell 验证文件：
 
