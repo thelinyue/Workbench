@@ -9,3 +9,4 @@ publish/
 installer/.staging/
 installer/dist/
 installer/dist-*/
+installer/Payload.zip
