@@ -1,0 +1,75 @@
+<Window x:Class="HephaestusWorkbench.App.FirstRunWizard"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:local="clr-namespace:HephaestusWorkbench.App"
+        Title="赫工 - 首次配置" Height="560" Width="760"
+        MinHeight="500" MinWidth="680" WindowStartupLocation="CenterScreen" ResizeMode="NoResize">
+    <Window.Resources>
+        <local:StepVisibilityConverter x:Key="StepVisibilityConverter" />
+    </Window.Resources>
+    <Grid Margin="26">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <StackPanel Margin="0,0,0,16">
+            <TextBlock Text="欢迎使用赫菲斯托斯工程工作台（赫工）" FontSize="24" FontWeight="SemiBold" />
+            <TextBlock Text="首次运行配置向导" Style="{StaticResource MutedTextStyle}" Margin="0,6,0,0" />
+            <TextBlock Text="{Binding StepText}" HorizontalAlignment="Right" Style="{StaticResource MutedTextStyle}" />
+        </StackPanel>
+
+        <Border Grid.Row="1" Style="{StaticResource CardStyle}">
+            <Grid>
+                <StackPanel Visibility="{Binding CurrentStep, Converter={StaticResource StepVisibilityConverter}, ConverterParameter=0}">
+                    <TextBlock Text="准备开始" Style="{StaticResource SectionTitleStyle}" />
+                    <TextBlock Text="向导将帮助你选择分析数据目录、日志监控目录，并创建数据库、配置文件和内置分析插件。" TextWrapping="Wrap" />
+                    <TextBlock Text="现有数据目录和案例不会被覆盖；初始化过程可以安全重试。" Style="{StaticResource MutedTextStyle}" TextWrapping="Wrap" Margin="0,14,0,0" />
+                </StackPanel>
+
+                <StackPanel Visibility="{Binding CurrentStep, Converter={StaticResource StepVisibilityConverter}, ConverterParameter=1}">
+                    <TextBlock Text="数据目录" Style="{StaticResource SectionTitleStyle}" />
+                    <TextBlock Text="数据库、案例、报告、插件和日志将保存到此目录。请不要选择程序安装目录。" Style="{StaticResource MutedTextStyle}" TextWrapping="Wrap" Margin="0,0,0,10" />
+                    <DockPanel>
+                        <Button DockPanel.Dock="Right" Content="浏览" Command="{Binding BrowseDataPathCommand}" />
+                        <TextBox Text="{Binding DataPath, UpdateSourceTrigger=PropertyChanged}" />
+                    </DockPanel>
+                </StackPanel>
+
+                <StackPanel Visibility="{Binding CurrentStep, Converter={StaticResource StepVisibilityConverter}, ConverterParameter=2}">
+                    <TextBlock Text="日志监控目录" Style="{StaticResource SectionTitleStyle}" />
+                    <TextBlock Text="工作台会扫描这些目录中符合命名规则的 .tgz 文件。默认使用数据目录下的 Inbox。" Style="{StaticResource MutedTextStyle}" TextWrapping="Wrap" Margin="0,0,0,10" />
+                    <ListBox ItemsSource="{Binding MonitorPaths}" SelectedItem="{Binding SelectedMonitorPath}" Height="150" />
+                    <DockPanel Margin="0,10,0,0">
+                        <Button DockPanel.Dock="Right" Content="浏览" Command="{Binding BrowseMonitorPathCommand}" />
+                        <TextBox Text="{Binding NewMonitorPath, UpdateSourceTrigger=PropertyChanged}" />
+                        <Button DockPanel.Dock="Right" Content="添加" Command="{Binding AddMonitorCommand}" />
+                    </DockPanel>
+                    <Button Content="移除选中目录" Command="{Binding RemoveMonitorCommand}" HorizontalAlignment="Left" Margin="0,10,0,0" />
+                </StackPanel>
+
+                <StackPanel Visibility="{Binding CurrentStep, Converter={StaticResource StepVisibilityConverter}, ConverterParameter=3}">
+                    <TextBlock Text="插件目录" Style="{StaticResource SectionTitleStyle}" />
+                    <TextBlock Text="内置日志分析插件会登记到以下目录。当前版本不提供插件在线安装和升级。" Style="{StaticResource MutedTextStyle}" TextWrapping="Wrap" Margin="0,0,0,10" />
+                    <TextBlock Text="{Binding PluginDirectory}" TextWrapping="Wrap" />
+                    <Button Content="打开插件目录" Command="{Binding OpenPluginDirectoryCommand}" HorizontalAlignment="Left" Margin="0,14,0,0" />
+                </StackPanel>
+
+                <StackPanel Visibility="{Binding CurrentStep, Converter={StaticResource StepVisibilityConverter}, ConverterParameter=4}">
+                    <TextBlock Text="初始化工作台" Style="{StaticResource SectionTitleStyle}" />
+                    <TextBlock Text="{Binding ProgressMessage}" TextWrapping="Wrap" />
+                    <ProgressBar IsIndeterminate="{Binding IsBusy}" Height="8" Margin="0,18,0,0" />
+                </StackPanel>
+            </Grid>
+        </Border>
+
+        <DockPanel Grid.Row="2" Margin="0,16,0,0">
+            <TextBlock Text="{Binding ErrorMessage}" Foreground="{DynamicResource WorkbenchDangerBrush}" TextWrapping="Wrap" VerticalAlignment="Center" MaxWidth="470" />
+            <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
+                <Button Content="上一步" Command="{Binding BackCommand}" />
+                <Button Content="{Binding NextButtonText}" Style="{StaticResource PrimaryButtonStyle}" Command="{Binding NextCommand}" Margin="0" />
+            </StackPanel>
+        </DockPanel>
+    </Grid>
+</Window>

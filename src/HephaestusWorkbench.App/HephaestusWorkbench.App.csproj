@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <UseWindowsForms>true</UseWindowsForms>
+    <EnableWindowsTargeting>true</EnableWindowsTargeting>
+    <AssemblyName>HephaestusWorkbench</AssemblyName>
+    <RootNamespace>HephaestusWorkbench.App</RootNamespace>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\HephaestusWorkbench.Core\HephaestusWorkbench.Core.csproj" />
+    <ProjectReference Include="..\HephaestusWorkbench.Data\HephaestusWorkbench.Data.csproj" />
+    <ProjectReference Include="..\HephaestusWorkbench.Services\HephaestusWorkbench.Services.csproj" />
+    <ProjectReference Include="..\HephaestusWorkbench.PluginSDK\HephaestusWorkbench.PluginSDK.csproj" />
+    <PackageReference Include="CommunityToolkit.Mvvm" Version="8.3.2" />
+    <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.2903.40" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="PluginSeed\manifest.json" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <None Include="..\..\插件\log_analyzer.exe" Link="PluginSeed\log_analyzer.exe" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+  </ItemGroup>
+</Project>

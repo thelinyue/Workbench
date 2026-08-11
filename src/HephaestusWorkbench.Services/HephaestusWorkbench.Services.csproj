@@ -1,0 +1,10 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\HephaestusWorkbench.Core\HephaestusWorkbench.Core.csproj" />
+    <ProjectReference Include="..\HephaestusWorkbench.Data\HephaestusWorkbench.Data.csproj" />
+    <ProjectReference Include="..\HephaestusWorkbench.PluginSDK\HephaestusWorkbench.PluginSDK.csproj" />
+  </ItemGroup>
+</Project>

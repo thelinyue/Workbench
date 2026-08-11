@@ -1,0 +1,47 @@
+<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <SolidColorBrush x:Key="WorkbenchBackgroundBrush" Color="#F5F7FA" />
+    <SolidColorBrush x:Key="WorkbenchSurfaceBrush" Color="#FFFFFF" />
+    <SolidColorBrush x:Key="WorkbenchSurfaceAltBrush" Color="#F0F4F8" />
+    <SolidColorBrush x:Key="WorkbenchBorderBrush" Color="#D7DEE8" />
+    <SolidColorBrush x:Key="WorkbenchTextBrush" Color="#1F2937" />
+    <SolidColorBrush x:Key="WorkbenchMutedTextBrush" Color="#667085" />
+    <SolidColorBrush x:Key="WorkbenchPrimaryBrush" Color="#2563EB" />
+    <SolidColorBrush x:Key="WorkbenchAccentBrush" Color="#F59E0B" />
+    <SolidColorBrush x:Key="WorkbenchOnPrimaryBrush" Color="#FFFFFF" />
+    <SolidColorBrush x:Key="WorkbenchSuccessBrush" Color="#15803D" />
+    <SolidColorBrush x:Key="WorkbenchDangerBrush" Color="#DC2626" />
+    <SolidColorBrush x:Key="WorkbenchWarningBrush" Color="#B45309" />
+    <SolidColorBrush x:Key="WorkbenchInputBrush" Color="#FFFFFF" />
+    <SolidColorBrush x:Key="WorkbenchHoverBrush" Color="#E8F0FE" />
+    <SolidColorBrush x:Key="WorkbenchSelectedBrush" Color="#DBEAFE" />
+    <SolidColorBrush x:Key="WorkbenchDangerSurfaceBrush" Color="#FEE2E2" />
+    <SolidColorBrush x:Key="WorkbenchErrorOverlayBrush" Color="#F2FFFFFF" />
+    <SolidColorBrush x:Key="WorkbenchStatusRunningBrush" Color="#DBEAFE" />
+    <SolidColorBrush x:Key="WorkbenchStatusCompletedBrush" Color="#DCFCE7" />
+    <SolidColorBrush x:Key="WorkbenchStatusFailedBrush" Color="#FEE2E2" />
+    <SolidColorBrush x:Key="WorkbenchStatusWaitingBrush" Color="#FEF3C7" />
+    <SolidColorBrush x:Key="WorkbenchStatusUnknownBrush" Color="#E5E7EB" />
+
+    <Style TargetType="Window"><Setter Property="FontFamily" Value="Segoe UI"/><Setter Property="FontSize" Value="14"/><Setter Property="Foreground" Value="{DynamicResource WorkbenchTextBrush}"/><Setter Property="Background" Value="{DynamicResource WorkbenchBackgroundBrush}"/></Style>
+    <Style TargetType="UserControl"><Setter Property="Foreground" Value="{DynamicResource WorkbenchTextBrush}"/></Style>
+    <Style TargetType="TextBlock"><Setter Property="Foreground" Value="{DynamicResource WorkbenchTextBrush}"/><Setter Property="TextTrimming" Value="CharacterEllipsis"/></Style>
+    <Style x:Key="MutedTextStyle" TargetType="TextBlock"><Setter Property="Foreground" Value="{DynamicResource WorkbenchMutedTextBrush}"/><Setter Property="FontSize" Value="12"/></Style>
+    <Style x:Key="SectionTitleStyle" TargetType="TextBlock"><Setter Property="FontSize" Value="16"/><Setter Property="FontWeight" Value="SemiBold"/><Setter Property="Margin" Value="0,0,0,10"/></Style>
+    <Style x:Key="CardStyle" TargetType="Border"><Setter Property="Background" Value="{DynamicResource WorkbenchSurfaceBrush}"/><Setter Property="BorderBrush" Value="{DynamicResource WorkbenchBorderBrush}"/><Setter Property="BorderThickness" Value="1"/><Setter Property="CornerRadius" Value="3"/><Setter Property="Padding" Value="14"/></Style>
+
+    <Style TargetType="Button">
+        <Setter Property="Foreground" Value="{DynamicResource WorkbenchTextBrush}"/><Setter Property="Background" Value="{DynamicResource WorkbenchSurfaceAltBrush}"/><Setter Property="BorderBrush" Value="{DynamicResource WorkbenchBorderBrush}"/><Setter Property="BorderThickness" Value="1"/><Setter Property="Padding" Value="12,6"/><Setter Property="Margin" Value="0,0,8,0"/><Setter Property="Cursor" Value="Hand"/>
+        <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="Button"><Border x:Name="Border" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="3" Padding="{TemplateBinding Padding}"><ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/></Border><ControlTemplate.Triggers><Trigger Property="IsMouseOver" Value="True"><Setter TargetName="Border" Property="Background" Value="{DynamicResource WorkbenchHoverBrush}"/></Trigger><Trigger Property="IsPressed" Value="True"><Setter TargetName="Border" Property="Opacity" Value="0.78"/></Trigger><Trigger Property="IsEnabled" Value="False"><Setter TargetName="Border" Property="Opacity" Value="0.45"/></Trigger></ControlTemplate.Triggers></ControlTemplate></Setter.Value></Setter>
+    </Style>
+    <Style x:Key="PrimaryButtonStyle" TargetType="Button" BasedOn="{StaticResource {x:Type Button}}"><Setter Property="Foreground" Value="{DynamicResource WorkbenchOnPrimaryBrush}"/><Setter Property="Background" Value="{DynamicResource WorkbenchPrimaryBrush}"/><Setter Property="BorderBrush" Value="{DynamicResource WorkbenchPrimaryBrush}"/></Style>
+    <Style x:Key="DangerButtonStyle" TargetType="Button" BasedOn="{StaticResource {x:Type Button}}"><Setter Property="Foreground" Value="{DynamicResource WorkbenchDangerBrush}"/><Setter Property="Background" Value="{DynamicResource WorkbenchDangerSurfaceBrush}"/><Setter Property="BorderBrush" Value="{DynamicResource WorkbenchDangerBrush}"/></Style>
+
+    <Style TargetType="TextBox"><Setter Property="Foreground" Value="{DynamicResource WorkbenchTextBrush}"/><Setter Property="Background" Value="{DynamicResource WorkbenchInputBrush}"/><Setter Property="BorderBrush" Value="{DynamicResource WorkbenchBorderBrush}"/><Setter Property="CaretBrush" Value="{DynamicResource WorkbenchPrimaryBrush}"/><Setter Property="Padding" Value="8,6"/><Setter Property="Margin" Value="0,0,8,0"/></Style>
+    <Style TargetType="ComboBox"><Setter Property="Foreground" Value="{DynamicResource WorkbenchTextBrush}"/><Setter Property="Background" Value="{DynamicResource WorkbenchInputBrush}"/><Setter Property="BorderBrush" Value="{DynamicResource WorkbenchBorderBrush}"/><Setter Property="Padding" Value="6,4"/><Setter Property="Margin" Value="0,0,8,0"/></Style>
+    <Style TargetType="DatePicker"><Setter Property="Foreground" Value="{DynamicResource WorkbenchTextBrush}"/><Setter Property="Background" Value="{DynamicResource WorkbenchInputBrush}"/><Setter Property="Margin" Value="0,0,8,0"/></Style>
+    <Style TargetType="CheckBox"><Setter Property="Foreground" Value="{DynamicResource WorkbenchTextBrush}"/><Setter Property="Margin" Value="0,5"/></Style>
+    <Style TargetType="ListBox"><Setter Property="Background" Value="Transparent"/><Setter Property="BorderThickness" Value="0"/><Setter Property="Foreground" Value="{DynamicResource WorkbenchTextBrush}"/></Style>
+    <Style TargetType="ListBoxItem"><Setter Property="HorizontalContentAlignment" Value="Stretch"/><Setter Property="Padding" Value="0"/><Setter Property="Margin" Value="0,0,0,6"/><Setter Property="Background" Value="Transparent"/><Setter Property="Foreground" Value="{DynamicResource WorkbenchTextBrush}"/></Style>
+    <Style TargetType="ScrollViewer"><Setter Property="Background" Value="Transparent"/></Style>
+</ResourceDictionary>
