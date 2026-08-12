@@ -42,6 +42,9 @@ public sealed record MarketplaceCatalogResult(
 public sealed partial class PluginMarketplaceService
 {
     public const string CatalogUrl = "https://raw.githubusercontent.com/thelinyue/Hephaestus-Workbench-Plugins/main/catalog.json";
+    // GitHub Release 下载会先经过重定向，弱网环境下 15 秒容易在包尚未下载完时误判失败。
+    // 这里保留有限超时，避免网络异常导致插件中心永久等待，同时给正常的慢速下载留出余量。
+    public static readonly TimeSpan DefaultHttpTimeout = TimeSpan.FromMinutes(2);
     public const long MaximumPackageBytes = 200L * 1024 * 1024;
     public const long MaximumExtractedBytes = 1024L * 1024 * 1024;
 
@@ -73,7 +76,7 @@ public sealed partial class PluginMarketplaceService
         _tasks = tasks;
         _logger = logger;
         _pluginInfo = pluginInfo;
-        _http = httpClient ?? new HttpClient { Timeout = TimeSpan.FromSeconds(15) };
+        _http = httpClient ?? new HttpClient { Timeout = DefaultHttpTimeout };
     }
 
     public async Task<MarketplaceCatalogResult> RefreshAsync(CancellationToken cancellationToken = default)

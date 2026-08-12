@@ -25,9 +25,7 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  PLUGIN_URL: https://github.com/thelinyue/Hephaestus-Workbench-Releases/releases/download/plugin-log-analyzer-v1.60/log-analyzer-1.60-win-x64.zip
-  PLUGIN_SHA256: a984d5887fe702fed2b241f1499001be2da70523fb85b5e430fb6461f7dcc9b9
-  PLUGIN_SIZE: "1819274"
+  PLUGIN_REPO: thelinyue/Hephaestus-Workbench-Releases
   RULE_EDITOR_URL: https://github.com/thelinyue/Hephaestus-Workbench-Releases/releases/download/plugin-log-rule-editor-v1.0.0/log-rule-editor-v1.0.0.zip
   RULE_EDITOR_SHA256: 5f779d7b73ff262b86cddf77413a21180a5a03c8af6b140a72a68ce2ccbfb834
   RULE_EDITOR_SIZE: "1632412"
@@ -96,20 +94,46 @@ jobs:
         id: plugin
         shell: pwsh
         run: |
+          $headers = @{
+            Accept = "application/vnd.github+json"
+            "User-Agent" = "Hephaestus-Workbench-CI"
+          }
+          $apiUrl = "https://api.github.com/repos/$env:PLUGIN_REPO/releases?per_page=100"
+          $releases = Invoke-RestMethod -Headers $headers -Uri $apiUrl -TimeoutSec 120
+          $candidates = @(
+            foreach ($release in $releases) {
+              if ($release.draft -or $release.prerelease) { continue }
+              if ($release.tag_name -match '^plugin-log-analyzer-v(?<version>\d+(?:\.\d+)+)$') {
+                [pscustomobject]@{ Release = $release; Version = [version]$Matches.version }
+              }
+            }
+          )
+          $selected = $candidates | Sort-Object Version -Descending | Select-Object -First 1
+          if ($null -eq $selected) {
+            throw "远程 Releases 仓库没有找到正式的日志分析插件版本。"
+          }
+
+          $release = $selected.Release
+          $version = $selected.Version.ToString()
+          $assetNames = @(
+            "log-analyzer-$version-win-x64.zip",
+            "plugin-log-analyzer-v$version-win-x64.zip"
+          )
+          $asset = @($release.assets | Where-Object name -in $assetNames | Select-Object -First 1)
+          if ($asset.Count -ne 1) {
+            throw "Release $($release.tag_name) 缺少日志分析插件 ZIP，支持的资产名：$($assetNames -join '、')。"
+          }
+          $assetName = $asset.name
+
           $directory = Join-Path $env:RUNNER_TEMP "official-plugin"
           $archive = Join-Path $directory "log-analyzer.zip"
           $expanded = Join-Path $directory "expanded"
           New-Item -ItemType Directory -Force -Path $directory, $expanded | Out-Null
-          Invoke-WebRequest -Uri $env:PLUGIN_URL -OutFile $archive -TimeoutSec 120
+          Invoke-WebRequest -Uri $asset.browser_download_url -OutFile $archive -TimeoutSec 120
 
           $file = Get-Item -LiteralPath $archive
           $hash = (Get-FileHash -Algorithm SHA256 -LiteralPath $archive).Hash.ToLowerInvariant()
-          if ($file.Length -ne [long]$env:PLUGIN_SIZE) {
-            throw "官方插件包大小错误：实际 $($file.Length)，预期 $env:PLUGIN_SIZE。"
-          }
-          if ($hash -ne $env:PLUGIN_SHA256) {
-            throw "官方插件包 SHA-256 错误：实际 $hash。"
-          }
+          if ($file.Length -le 0) { throw "官方插件包为空：$assetName。" }
 
           Expand-Archive -LiteralPath $archive -DestinationPath $expanded
           $manifestPath = Join-Path $expanded "manifest.json"
@@ -120,13 +144,17 @@ jobs:
           }
 
           $manifest = Get-Content -Raw -Encoding UTF8 $manifestPath | ConvertFrom-Json
-          if ($manifest.id -ne "log-analyzer" -or $manifest.version -ne "1.60" -or
+          if ($manifest.id -ne "log-analyzer" -or $manifest.version -ne $version -or
               $manifest.type -ne "Exe" -or $manifest.entry -ne "log_analyzer.exe") {
-            throw "官方插件清单与固定发行信息不一致。"
+            throw "官方插件清单与 Release 版本不一致：$($release.tag_name)。"
           }
 
+          $seedManifest = Join-Path $env:GITHUB_WORKSPACE "src\HephaestusWorkbench.App\PluginSeed\manifest.json"
+          Copy-Item -LiteralPath $manifestPath -Destination $seedManifest -Force
           "binary=$binaryPath" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
-          Write-Host "官方插件校验通过：$hash"
+          "version=$version" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          "sha256=$hash" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          Write-Host "官方插件校验通过：版本 $version，SHA-256 $hash"
 
       - name: 下载并校验官方规则编辑器
         id: rule_editor

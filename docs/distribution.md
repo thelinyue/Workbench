@@ -17,7 +17,7 @@ Hephaestus Workbench 的源码仓库保持私有。安装包、官方插件、�
 - Plugins 仓库根目录 `catalog.json`：v1.1.1 及以后客户端读取的版本化插件目录。
 - Plugins 仓库的 Schema、模板和校验脚本：社区投稿与 CI 校验使用，不存放插件二进制。
 - Releases 仓库 `README.md` 与 `DISTRIBUTION-LICENSE.md`：用户下载、校验和二进制许可说明。
-- Releases 仓库 Release `plugin-log-analyzer-v1.60`：官方插件 ZIP。插件版本使用分段数字格式，`1.60` 明确高于 `1.50`，不要混用 `1.6` 和 `1.60`。
+- Releases 仓库中 `plugin-log-analyzer-v*` 的最高正式 Release：GitHub Actions 会自动选择最高版本并将其内置到工作台安装包。插件版本使用分段数字格式，不要混用 `1.6` 和 `1.60`。
 - Releases 仓库 Release `plugin-log-rule-editor-v1.0.0`：官方规则编辑器 ZIP。
 - Releases 仓库 Release `v1.2.1`：单个离线 Setup、`SHA256SUMS.txt` 和发行说明。
 

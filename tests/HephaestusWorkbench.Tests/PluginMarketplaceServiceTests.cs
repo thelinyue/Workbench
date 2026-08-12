@@ -14,6 +14,12 @@ namespace HephaestusWorkbench.Tests;
 public sealed class PluginMarketplaceServiceTests
 {
     [Fact]
+    public void DefaultHttpTimeout_AllowsSlowGitHubReleaseDownloads()
+    {
+        Assert.Equal(TimeSpan.FromMinutes(2), PluginMarketplaceService.DefaultHttpTimeout);
+    }
+
+    [Fact]
     public async Task RefreshAsync_RequestsDedicatedPluginCatalog()
     {
         await WithServiceAsync(async context =>
