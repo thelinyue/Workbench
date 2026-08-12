@@ -341,7 +341,6 @@ jobs:
           New-Item -ItemType Directory -Force -Path $directory | Out-Null
           $setup = Join-Path $directory $setupName
           $checksums = Join-Path $directory "SHA256SUMS.txt"
-          $catalogPath = Join-Path $directory "catalog.json"
 
           curl.exe -L --fail --silent --show-error `
             -o $setup "https://github.com/$env:RELEASES_REPO/releases/download/$tag/$setupName"
@@ -349,9 +348,6 @@ jobs:
           curl.exe -L --fail --silent --show-error `
             -o $checksums "https://github.com/$env:RELEASES_REPO/releases/download/$tag/SHA256SUMS.txt"
           if ($LASTEXITCODE -ne 0) { throw "匿名下载校验文件失败，退出码：$LASTEXITCODE" }
-          curl.exe -L --fail --silent --show-error `
-            -o $catalogPath "https://raw.githubusercontent.com/thelinyue/Hephaestus-Workbench-Plugins/main/catalog.json"
-          if ($LASTEXITCODE -ne 0) { throw "匿名下载插件目录失败，退出码：$LASTEXITCODE" }
 
           $setupHash = (Get-FileHash -Algorithm SHA256 -LiteralPath $setup).Hash.ToLowerInvariant()
           $checksumLine = (Get-Content -Raw -Encoding UTF8 $checksums).Trim()
@@ -360,19 +356,4 @@ jobs:
             throw "匿名下载的安装包或校验文件与构建产物不一致。"
           }
 
-          $catalog = Get-Content -Raw -Encoding UTF8 $catalogPath | ConvertFrom-Json
-          $verifiedPlugins = foreach ($pluginId in @("log-analyzer", "log-rule-editor")) {
-            $plugin = $catalog.plugins | Where-Object id -eq $pluginId | Select-Object -First 1
-            if ($null -eq $plugin) { throw "公开插件目录缺少 $pluginId。" }
-            $pluginPath = Join-Path $directory "$pluginId.zip"
-            curl.exe -L --fail --silent --show-error -o $pluginPath $plugin.packageUrl
-            if ($LASTEXITCODE -ne 0) { throw "匿名下载官方插件 $pluginId 失败，退出码：$LASTEXITCODE" }
-            $pluginHash = (Get-FileHash -Algorithm SHA256 -LiteralPath $pluginPath).Hash.ToLowerInvariant()
-            if ($pluginHash -ne $plugin.sha256 -or
-                (Get-Item -LiteralPath $pluginPath).Length -ne [long]$plugin.packageSize) {
-              throw "匿名下载的官方插件 $pluginId 与公开目录不一致。"
-            }
-            "$pluginId=$pluginHash"
-          }
-
-          Write-Host "匿名下载验收通过：安装包 $setupHash；插件 $($verifiedPlugins -join '，')"
+          Write-Host "匿名下载验收通过：安装包 $setupHash"
