@@ -21,6 +21,7 @@ public sealed class CaseAnalysisService
     private readonly TaskCenter _taskCenter;
     private readonly WorkbenchLogger _logger;
     private readonly WorkbenchConfigurationService? _configuration;
+    private readonly RuleSetService? _rules;
     public event EventHandler? StateChanged;
 
     public CaseAnalysisService(
@@ -33,7 +34,8 @@ public sealed class CaseAnalysisService
         IPluginRunner standardRunner,
         TaskCenter taskCenter,
         WorkbenchLogger logger,
-        WorkbenchConfigurationService? configuration = null)
+        WorkbenchConfigurationService? configuration = null,
+        RuleSetService? rules = null)
     {
         _paths = paths;
         _cases = cases;
@@ -45,6 +47,7 @@ public sealed class CaseAnalysisService
         _taskCenter = taskCenter;
         _logger = logger;
         _configuration = configuration;
+        _rules = rules;
     }
 
     public async Task<AnalysisTask?> StartAsync(LogInboxItem item, CancellationToken cancellationToken = default)
@@ -224,7 +227,8 @@ public sealed class CaseAnalysisService
             analysisCase.SourcePath,
             _paths.GetCaseReportDirectory(analysisCase.Id),
             analysisCase.ExtractPath,
-            Path.GetDirectoryName(analysisCase.SourcePath) ?? _paths.Root);
+            Path.GetDirectoryName(analysisCase.SourcePath) ?? _paths.Root,
+            _rules?.HasActiveRules == true ? _rules.ActiveRulesPath : null);
         var runner = plugin.Runner == "legacy-log-analyzer" ? _legacyRunner : _standardRunner;
         var result = await runner.RunAsync(plugin, context, cancellationToken);
         task.EndTime = DateTime.Now;

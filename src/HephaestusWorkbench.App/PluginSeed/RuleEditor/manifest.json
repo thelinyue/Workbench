@@ -1,0 +1,8 @@
+{
+  "id": "log-rule-editor",
+  "name": "Log Analyzer Rule Editor",
+  "version": "1.0.0",
+  "type": "Exe",
+  "entry": "rule_editor.exe",
+  "capabilities": ["rule-editor"]
+}

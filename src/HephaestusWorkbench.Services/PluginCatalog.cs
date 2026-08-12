@@ -55,6 +55,7 @@ public sealed class PluginCatalog : IPluginCatalog
                     Entry = manifest.Entry,
                     Runner = manifest.Runner,
                     ReportPath = manifest.ReportPath,
+                    Capabilities = manifest.Capabilities.ToList(),
                     DirectoryPath = Path.GetDirectoryName(manifestPath)!
                 };
                 if (!IsWithinPluginDirectory(withPath.EntryPath, withPath.DirectoryPath))

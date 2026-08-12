@@ -78,13 +78,14 @@ internal sealed class WorkbenchHost : IDisposable
         PluginsRepository = new SqlitePluginInfoRepository(_factory);
         SettingsStore = new SqliteSettingsStore(_factory);
         Configuration = new WorkbenchConfigurationService(Paths);
+        Rules = new RuleSetService(Paths, Logger);
 
         _seedDirectory = Path.Combine(AppContext.BaseDirectory, "PluginSeed");
         PluginCatalog = new PluginCatalog(Paths, Logger);
         TaskCenter = new TaskCenter(TasksRepository);
         var legacyRunner = new LegacyLogAnalyzerRunner(Logger);
         var standardRunner = new StandardExePluginRunner(Logger);
-        Analysis = new CaseAnalysisService(Paths, CasesRepository, TasksRepository, ReportsRepository, PluginCatalog, legacyRunner, standardRunner, TaskCenter, Logger, Configuration);
+        Analysis = new CaseAnalysisService(Paths, CasesRepository, TasksRepository, ReportsRepository, PluginCatalog, legacyRunner, standardRunner, TaskCenter, Logger, Configuration, Rules);
         PluginMarketplace = new PluginMarketplaceService(Paths, PluginCatalog, Configuration, TaskCenter, Logger, PluginsRepository);
         Reports = new ReportService(ReportsRepository, ReportSessionsRepository, Analysis);
         Inbox = new LogInboxService(new LogFileParser(), new ArchiveValidator(), Configuration, Logger, Paths.InboxDirectory);
@@ -101,6 +102,7 @@ internal sealed class WorkbenchHost : IDisposable
     public IPluginInfoRepository PluginsRepository { get; }
     public ISettingsStore SettingsStore { get; }
     public WorkbenchConfigurationService Configuration { get; }
+    public RuleSetService Rules { get; }
     public PluginCatalog PluginCatalog { get; }
     public PluginMarketplaceService PluginMarketplace { get; }
     public TaskCenter TaskCenter { get; }
@@ -219,7 +221,7 @@ internal sealed class WorkbenchHost : IDisposable
             ? $"日志收件箱监控已启动：{string.Join("、", Inbox.WatchDirectories)}"
             : "未配置日志收件目录，日志收件箱暂不扫描。");
 
-        MainViewModel = new MainViewModel(Analysis, Inbox, Storage, Settings, PluginCatalog, PluginMarketplace, Reports, Logger, ThemeManager.ApplyTheme);
+        MainViewModel = new MainViewModel(Analysis, Inbox, Storage, Settings, PluginCatalog, PluginMarketplace, Reports, Logger, ThemeManager.ApplyTheme, Rules);
         await MainViewModel.InitializeAsync();
         Logger.Info("工作台初始化完成。");
     }

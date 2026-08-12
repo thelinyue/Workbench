@@ -13,12 +13,17 @@ public sealed class DataPaths
         ReportsDirectory = Path.Combine(Root, "Reports");
         InboxDirectory = Path.Combine(Root, "Inbox");
         PluginsDirectory = Path.Combine(Root, "Plugins");
+        RulesDirectory = Path.Combine(Root, "Rules");
+        LocalRulesDirectory = Path.Combine(RulesDirectory, "Local");
+        ActiveRulesDirectory = Path.Combine(RulesDirectory, "Active");
+        ActiveRulesFile = Path.Combine(ActiveRulesDirectory, "active.json");
         LogsDirectory = Path.Combine(Root, "Logs");
         TempDirectory = Path.Combine(Root, "Temp");
         CacheDirectory = Path.Combine(Root, "Cache");
         ConfigDirectory = Path.Combine(Root, "Config");
         DatabaseFile = Path.Combine(DatabaseDirectory, "workbench.db");
         AppSettingsFile = Path.Combine(ConfigDirectory, "appsettings.json");
+        RulePublisherTokenFile = Path.Combine(ConfigDirectory, "rule-publisher.token");
         PluginsConfigFile = Path.Combine(ConfigDirectory, "plugins.json");
         WorkspaceConfigFile = Path.Combine(ConfigDirectory, "workspace.json");
         MarketplaceCatalogCacheFile = Path.Combine(CacheDirectory, "marketplace-catalog.json");
@@ -31,11 +36,16 @@ public sealed class DataPaths
     public string ReportsDirectory { get; }
     public string InboxDirectory { get; }
     public string PluginsDirectory { get; }
+    public string RulesDirectory { get; }
+    public string LocalRulesDirectory { get; }
+    public string ActiveRulesDirectory { get; }
+    public string ActiveRulesFile { get; }
     public string LogsDirectory { get; }
     public string TempDirectory { get; }
     public string CacheDirectory { get; }
     public string ConfigDirectory { get; }
     public string AppSettingsFile { get; }
+    public string RulePublisherTokenFile { get; }
     public string PluginsConfigFile { get; }
     public string WorkspaceConfigFile { get; }
     public string MarketplaceCatalogCacheFile { get; }
@@ -52,6 +62,9 @@ public sealed class DataPaths
         Directory.CreateDirectory(ReportsDirectory);
         Directory.CreateDirectory(InboxDirectory);
         Directory.CreateDirectory(PluginsDirectory);
+        Directory.CreateDirectory(RulesDirectory);
+        Directory.CreateDirectory(LocalRulesDirectory);
+        Directory.CreateDirectory(ActiveRulesDirectory);
         Directory.CreateDirectory(LogsDirectory);
         Directory.CreateDirectory(TempDirectory);
         Directory.CreateDirectory(CacheDirectory);

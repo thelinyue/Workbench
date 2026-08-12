@@ -58,6 +58,7 @@ v1.1.1 同时支持本地插件目录和官方在线目录：
 | `entry` | 是 | 相对于 `manifest.json` 所在目录的入口文件路径，例如 `bin/analyzer.exe`。不要填写绝对路径。 |
 | `runner` | 否 | 仅现有旧版插件使用 `legacy-log-analyzer`。标准 EXE 插件不要填写。 |
 | `reportPath` | 否 | 旧版清单兼容字段。标准 EXE 当前固定检查输出目录中的 `report.html`。 |
+| `capabilities` | 否 | 插件能力列表；规则编辑器需声明 `rule-editor`，否则工作台不会显示“使用规则编辑器”。 |
 
 ### ID 和路径约定
 
@@ -81,6 +82,7 @@ sample-analyzer.exe --case <case-id> --input <source-path> --output <output-path
 | `--case` | 工作台生成的案例 ID。插件可以把它写入诊断信息，但不要假设它是文件名。 |
 | `--input` | 当前案例的原始日志压缩包绝对路径。 |
 | `--output` | 当前案例的报告输出目录绝对路径。 |
+| `--rules` | 工作台当前激活规则 JSON 路径；规则编辑器和支持外部规则的分析插件使用。 |
 
 插件必须遵守以下约定：
 
@@ -118,6 +120,10 @@ log_analyzer.exe -d <source-path> -o <report-output-directory>
 ```
 
 `-d` 保留原有输入参数；插件继续在原始输入文件同名目录下生成解压内容，`-o` 用于指定工作台报告目录。插件必须在输出目录中生成 `report.html` 以及它引用的 `static`、`structured` 等资源。未传入 `-o` 时，仍使用原始的 `report/report.html` 默认位置。该协议用于适配当前日志分析插件；新插件应使用第 4 节的标准协议。
+
+当前日志分析插件还接受 `--rules <path>`。传入有效规则文件时使用外部规则；未传入时继续使用嵌入式 `config.json`。外部 JSON 无效时必须直接失败，不能静默回退。
+
+规则编辑器插件声明 `capabilities: ["rule-editor"]`，工作台启动时传入 `--rules <path> --listen 127.0.0.1:0 --open`。编辑器通过回环 API 提供 `GET /api/rules`、`PUT /api/rules` 和 `POST /api/rules/validate`，规则文件只写入工作台用户数据目录，不写入安装目录；“导出规则”仍用于跨环境交换。
 
 ## 6. SDK 和 DLL 契约
 

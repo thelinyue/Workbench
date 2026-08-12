@@ -6,6 +6,7 @@ using HephaestusWorkbench.App.ViewModels;
 using HephaestusWorkbench.App.Views;
 using HephaestusWorkbench.Core.Models;
 using HephaestusWorkbench.PluginSDK;
+using HephaestusWorkbench.Services;
 using WorkbenchApp = HephaestusWorkbench.App.App;
 
 namespace HephaestusWorkbench.Tests;
@@ -16,6 +17,41 @@ public sealed class WpfUiCollection;
 [Collection("WPF UI")]
 public sealed class MarketplacePluginsPageTests
 {
+    [Fact]
+    public void OnlinePluginItem_UsesCanonicalSegmentedVersionsForUpdateState()
+    {
+        var update = new OnlinePluginItem
+        {
+            Plugin = new MarketplacePlugin
+            {
+                Id = "log-analyzer",
+                Name = "日志分析插件",
+                Version = "1.60",
+                Type = PluginType.Exe,
+                PackageUrl = "https://example.com/plugin.zip",
+                Sha256 = new string('a', 64),
+                PackageSize = 1
+            },
+            InstalledVersion = "1.50",
+            IsCompatible = true
+        };
+
+        Assert.True(update.HasUpdate);
+        Assert.True(update.CanInstall);
+        Assert.Equal("更新", update.ActionText);
+
+        var olderOnline = new OnlinePluginItem
+        {
+            Plugin = update.Plugin with { Version = "1.50" },
+            InstalledVersion = "1.60",
+            IsCompatible = true
+        };
+
+        Assert.False(olderOnline.HasUpdate);
+        Assert.False(olderOnline.CanInstall);
+        Assert.Equal("已是最新", olderOnline.ActionText);
+    }
+
     [Fact]
     public void InstalledPluginCard_RendersReadOnlyFieldsWithoutBindingException()
     {

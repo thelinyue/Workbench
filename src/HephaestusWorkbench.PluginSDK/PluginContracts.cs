@@ -20,6 +20,10 @@ public sealed class PluginManifest
     public required string Entry { get; init; }
     public string? Runner { get; init; }
     public string? ReportPath { get; init; }
+    [JsonPropertyName("capabilities")]
+    public List<string> Capabilities { get; init; } = new();
+
+    public bool Supports(string capability) => Capabilities.Any(x => string.Equals(x, capability, StringComparison.OrdinalIgnoreCase));
 
     [JsonIgnore]
     public string DirectoryPath { get; init; } = string.Empty;
@@ -33,7 +37,8 @@ public sealed record PluginExecutionContext(
     string SourcePath,
     string OutputPath,
     string ExtractPath,
-    string WorkingDirectory);
+    string WorkingDirectory,
+    string? RulesPath = null);
 
 public sealed record PluginExecutionResult(
     int ExitCode,

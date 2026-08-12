@@ -325,6 +325,7 @@ public sealed partial class PluginMarketplaceService
             Entry = manifest.Entry,
             Runner = manifest.Runner,
             ReportPath = manifest.ReportPath,
+            Capabilities = manifest.Capabilities.ToList(),
             DirectoryPath = staging
         };
         if (!string.Equals(resolved.Id, item.Id, StringComparison.OrdinalIgnoreCase)

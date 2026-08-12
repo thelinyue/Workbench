@@ -9,7 +9,10 @@ using AnalysisTaskStatus = HephaestusWorkbench.Core.Models.TaskStatus;
 
 namespace HephaestusWorkbench.App.ViewModels;
 
+/// <summary>分析中心状态筛选项；空键表示不过滤。</summary>
 public sealed record AnalysisFilterOption(string? Key, string Name);
+
+/// <summary>分析中心插件筛选项；空标识表示不过滤。</summary>
 public sealed record AnalysisPluginOption(string? Id, string Name);
 
 /// <summary>
@@ -27,6 +30,7 @@ public sealed class AnalysisCenterViewModel : ViewModelBase, IDisposable
     private readonly Func<string, bool> _confirmDeleteLifecycle;
     private readonly SemaphoreSlim _loadLock = new(1, 1);
     private readonly List<AnalysisLogGroupViewModel> _allItems = new();
+    private readonly HashSet<string> _submittingSources = new(StringComparer.OrdinalIgnoreCase);
     private AnalysisLogGroupViewModel? _selectedItem;
     private AnalysisAttemptViewModel? _selectedAttempt;
     private string _keyword = string.Empty;
@@ -36,7 +40,11 @@ public sealed class AnalysisCenterViewModel : ViewModelBase, IDisposable
     private DateTime? _startDate;
     private DateTime? _endDate;
     private string _message = string.Empty;
+    private string? _operationMessage;
     private string _caseName = string.Empty;
+    private string? _expandedSourcePath;
+    private bool _isBulkOperationActive;
+    private int _suppressStateRefresh;
     private bool _disposed;
 
     public AnalysisCenterViewModel(
@@ -71,14 +79,20 @@ public sealed class AnalysisCenterViewModel : ViewModelBase, IDisposable
         _selectedStatus = StatusOptions[0];
         _selectedPlugin = PluginOptions[0];
 
-        RefreshCommand = new DelegateCommand(() => _ = LoadAsync());
-        PrimaryCommand = new DelegateCommand(() => _ = ExecutePrimaryAsync(), () => SelectedItem?.CanExecutePrimary == true);
-        RenameCommand = new DelegateCommand(() => _ = RenameAsync(), () => SelectedAttempt is not null && !string.IsNullOrWhiteSpace(CaseName));
-        OpenReportCommand = new DelegateCommand(() => _ = OpenSelectedReportAsync(), () => SelectedAttempt?.Report?.IsAvailable == true);
-        OpenExtractDirectoryCommand = new DelegateCommand(OpenExtractDirectory, () => SelectedAttempt is not null);
-        OpenReportFolderCommand = new DelegateCommand(OpenReportFolder, () => SelectedAttempt?.Report is not null);
-        DeleteSourceCommand = new DelegateCommand(() => _ = DeleteSourceAsync(), () => SelectedItem?.SourceExists == true);
-        DeleteLifecycleCommand = new DelegateCommand(() => _ = DeleteLifecycleAsync(), () => SelectedItem is { Attempts.Count: > 0, HasActiveTask: false });
+        RefreshCommand = new DelegateCommand(() => { _operationMessage = null; _ = LoadAsync(); }, () => !IsBulkOperationActive);
+        OpenRowReportCommand = new DelegateCommand(parameter => _ = OpenRowReportAsync(parameter as AnalysisLogGroupViewModel), parameter => parameter is AnalysisLogGroupViewModel { CanOpenReport: true });
+        OpenAttemptReportCommand = new DelegateCommand(parameter => _ = OpenAttemptReportAsync(parameter as AnalysisAttemptViewModel), parameter => parameter is AnalysisAttemptViewModel { Report.IsAvailable: true });
+        AnalyzeAllPendingCommand = new DelegateCommand(() => _ = AnalyzeAllPendingAsync(), () => !IsBulkOperationActive && BulkEligibleCount > 0);
+        DeleteFilteredInvalidCommand = new DelegateCommand(() => _ = DeleteFilteredInvalidAsync(), () => !IsBulkOperationActive && InvalidDeleteCount > 0);
+        AnalyzeSingleCommand = new DelegateCommand(parameter => _ = AnalyzeSingleAsync(parameter as AnalysisLogGroupViewModel), CanAnalyzeSingle);
+        ToggleHistoryCommand = new DelegateCommand(parameter => ToggleHistory(parameter as AnalysisLogGroupViewModel), parameter => parameter is AnalysisLogGroupViewModel { Attempts.Count: > 0 });
+        BeginRenameCommand = new DelegateCommand(parameter => BeginRename(parameter as AnalysisAttemptViewModel), parameter => parameter is AnalysisAttemptViewModel && !IsBulkOperationActive);
+        CancelRenameCommand = new DelegateCommand(parameter => CancelRename(parameter as AnalysisAttemptViewModel));
+        RenameCommand = new DelegateCommand(parameter => _ = RenameAsync(parameter as AnalysisAttemptViewModel), CanRename);
+        OpenExtractDirectoryCommand = new DelegateCommand(OpenExtractDirectory, CanOpenExtractDirectory);
+        OpenReportFolderCommand = new DelegateCommand(OpenReportFolder, parameter => ResolveAttempt(parameter)?.Report is not null);
+        DeleteSourceCommand = new DelegateCommand(parameter => _ = DeleteSourceAsync(parameter as AnalysisLogGroupViewModel), parameter => parameter is AnalysisLogGroupViewModel { SourceExists: true } && !IsBulkOperationActive);
+        DeleteLifecycleCommand = new DelegateCommand(parameter => _ = DeleteLifecycleAsync(parameter as AnalysisLogGroupViewModel), parameter => parameter is AnalysisLogGroupViewModel item && item.CanDeleteLifecycle && !IsBulkOperationActive);
 
         _inbox.ItemsChanged += OnSourceStateChanged;
         _inbox.ConfigurationChanged += OnSourceStateChanged;
@@ -90,9 +104,15 @@ public sealed class AnalysisCenterViewModel : ViewModelBase, IDisposable
     public ObservableCollection<AnalysisFilterOption> StatusOptions { get; }
     public ObservableCollection<AnalysisPluginOption> PluginOptions { get; }
     public ICommand RefreshCommand { get; }
-    public ICommand PrimaryCommand { get; }
+    public ICommand OpenRowReportCommand { get; }
+    public ICommand OpenAttemptReportCommand { get; }
+    public ICommand AnalyzeAllPendingCommand { get; }
+    public ICommand DeleteFilteredInvalidCommand { get; }
+    public ICommand AnalyzeSingleCommand { get; }
+    public ICommand ToggleHistoryCommand { get; }
+    public ICommand BeginRenameCommand { get; }
+    public ICommand CancelRenameCommand { get; }
     public ICommand RenameCommand { get; }
-    public ICommand OpenReportCommand { get; }
     public ICommand OpenExtractDirectoryCommand { get; }
     public ICommand OpenReportFolderCommand { get; }
     public ICommand DeleteSourceCommand { get; }
@@ -101,6 +121,17 @@ public sealed class AnalysisCenterViewModel : ViewModelBase, IDisposable
     public bool ShowEmptyState => Items.Count == 0;
     public bool HasSelection => SelectedItem is not null;
     public bool HasSelectedAttempt => SelectedAttempt is not null;
+    public int BulkEligibleCount => Items.Count(x => x.IsBulkEligible);
+    public int InvalidDeleteCount => Items.Count(x => x.IsInvalidDeleteEligible);
+    public bool IsBulkOperationActive
+    {
+        get => _isBulkOperationActive;
+        private set
+        {
+            if (!SetProperty(ref _isBulkOperationActive, value)) return;
+            RaiseCommands();
+        }
+    }
     public string CaseName
     {
         get => _caseName;
@@ -160,12 +191,15 @@ public sealed class AnalysisCenterViewModel : ViewModelBase, IDisposable
             var tasksTask = _analysis.ListTasksAsync();
             var reportsTask = _reportService.ListAsync(new ReportQuery());
             await Task.WhenAll(casesTask, tasksTask, reportsTask);
+            await Reports.RefreshLibraryAsync();
 
             _allItems.Clear();
             _allItems.AddRange(BuildGroups(_inbox.Items, casesTask.Result, tasksTask.Result, reportsTask.Result));
+            var expanded = _expandedSourcePath is null ? null : _allItems.FirstOrDefault(x => PathsEqual(x.SourcePath, _expandedSourcePath));
+            if (expanded is not null) expanded.IsHistoryExpanded = true;
             RebuildPluginOptions();
             ApplyFilter(selectedPath, selectedCaseId);
-            Message = string.Empty;
+            Message = _operationMessage ?? string.Empty;
         }
         catch (Exception ex)
         {
@@ -187,6 +221,7 @@ public sealed class AnalysisCenterViewModel : ViewModelBase, IDisposable
         ResetFilters();
         SelectedItem = group;
         SelectedAttempt = group.Attempts.First(x => string.Equals(x.Case.Id, caseId, StringComparison.OrdinalIgnoreCase));
+        ExpandHistory(group);
     }
 
     public async Task SelectSourceAsync(string sourcePath)
@@ -259,6 +294,9 @@ public sealed class AnalysisCenterViewModel : ViewModelBase, IDisposable
             Items.Clear();
             SelectedItem = null;
             OnPropertyChanged(nameof(ShowEmptyState));
+            OnPropertyChanged(nameof(BulkEligibleCount));
+            OnPropertyChanged(nameof(InvalidDeleteCount));
+            RaiseCommands();
             return;
         }
 
@@ -279,56 +317,186 @@ public sealed class AnalysisCenterViewModel : ViewModelBase, IDisposable
         SelectedItem = restored ?? Items.FirstOrDefault();
         if (selectedCaseId is not null && SelectedItem is not null)
             SelectedAttempt = SelectedItem.Attempts.FirstOrDefault(x => string.Equals(x.Case.Id, selectedCaseId, StringComparison.OrdinalIgnoreCase)) ?? SelectedItem.CurrentAttempt;
-        Message = string.Empty;
+        Message = _operationMessage ?? string.Empty;
         OnPropertyChanged(nameof(ShowEmptyState));
+        OnPropertyChanged(nameof(BulkEligibleCount));
+        OnPropertyChanged(nameof(InvalidDeleteCount));
+        RaiseCommands();
     }
 
-    private async Task ExecutePrimaryAsync()
+    private async Task OpenRowReportAsync(AnalysisLogGroupViewModel? item)
     {
-        var item = SelectedItem;
-        if (item is null) return;
-        if (item.CurrentAttempt?.Report is { IsAvailable: true } report && item.StageKey == "completed")
+        if (item?.LatestAvailableReport is { IsAvailable: true } report)
         {
             await Reports.OpenReportAsync(report);
             return;
         }
-        if (item.HasActiveTask || !item.SourceExists) return;
-
-        var inspection = await _inbox.InspectFileAsync(item.SourcePath);
-        if (!inspection.IsValid || inspection.Item is null)
-        {
-            Message = inspection.ErrorMessage ?? "日志文件无法分析。";
-            return;
-        }
-        if (await _analysis.StartAsync(inspection.Item) is null)
-        {
-            Message = "无法创建分析任务，请检查默认插件是否可用。";
-            return;
-        }
-        await SelectSourceAsync(item.SourcePath);
+        Message = "该日志暂无可用报告。";
     }
 
-    private async Task RenameAsync()
+    private async Task OpenAttemptReportAsync(AnalysisAttemptViewModel? attempt)
     {
-        if (SelectedAttempt is null || string.IsNullOrWhiteSpace(CaseName)) return;
-        var caseId = SelectedAttempt.Case.Id;
-        await _analysis.RenameAsync(caseId, CaseName);
+        if (attempt?.Report is { IsAvailable: true } report) await Reports.OpenReportAsync(report);
+    }
+
+    private bool CanAnalyzeSingle(object? parameter)
+        => parameter is AnalysisLogGroupViewModel item
+            && !IsBulkOperationActive
+            && item.CanAnalyzeSingle
+            && !_submittingSources.Contains(item.SourcePath);
+
+    private async Task AnalyzeSingleAsync(AnalysisLogGroupViewModel? item)
+    {
+        if (item is null || !CanAnalyzeSingle(item) || !_submittingSources.Add(item.SourcePath)) return;
+        BeginBulkOperation();
+        var feedback = string.Empty;
+        try
+        {
+            var result = await SubmitAnalysisAsync(item);
+            feedback = result switch
+            {
+                AnalysisSubmissionResult.Submitted => $"已提交分析任务：{item.FileName}",
+                AnalysisSubmissionResult.Skipped => $"日志状态已变化，未提交：{item.FileName}",
+                _ => $"提交分析任务失败：{item.FileName}"
+            };
+        }
+        catch (Exception ex)
+        {
+            feedback = $"提交分析任务失败：{ex.Message}";
+            _logger.Error($"提交单份日志分析失败：{item.SourcePath}", ex);
+        }
+        finally
+        {
+            _submittingSources.Remove(item.SourcePath);
+            EndBulkOperation();
+            await LoadAsync();
+            Message = _operationMessage = feedback;
+        }
+    }
+
+    /// <summary>
+    /// 批量按钮只提交当前筛选结果中的“待分析”日志。先复制快照再逐项创建任务，
+    /// 避免任务状态事件刷新列表后改变本次批量操作的边界。
+    /// </summary>
+    private async Task AnalyzeAllPendingAsync()
+    {
+        if (IsBulkOperationActive) return;
+        var targets = Items.Where(x => x.IsBulkEligible).ToArray();
+        if (targets.Length == 0) return;
+
+        BeginBulkOperation();
+        var submitted = 0;
+        var skipped = 0;
+        var failed = 0;
+        try
+        {
+            foreach (var item in targets)
+            {
+                try
+                {
+                    switch (await SubmitAnalysisAsync(item))
+                    {
+                        case AnalysisSubmissionResult.Submitted: submitted++; break;
+                        case AnalysisSubmissionResult.Skipped: skipped++; break;
+                        default: failed++; break;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    failed++;
+                    _logger.Error($"批量提交日志分析失败：{item.SourcePath}", ex);
+                }
+            }
+        }
+        finally
+        {
+            EndBulkOperation();
+            await LoadAsync();
+            Message = _operationMessage = $"批量分析提交完成：成功 {submitted} 个，跳过 {skipped} 个，失败 {failed} 个。后台最多同时分析 2 个任务。";
+        }
+    }
+
+    private async Task<AnalysisSubmissionResult> SubmitAnalysisAsync(AnalysisLogGroupViewModel item)
+    {
+        if (!File.Exists(item.SourcePath) || item.HasActiveTask) return AnalysisSubmissionResult.Skipped;
+        var inspection = await _inbox.InspectFileAsync(item.SourcePath);
+        if (!inspection.IsValid || inspection.Item is null) return AnalysisSubmissionResult.Skipped;
+        return await _analysis.StartAsync(inspection.Item) is null
+            ? AnalysisSubmissionResult.Failed
+            : AnalysisSubmissionResult.Submitted;
+    }
+
+    private void ToggleHistory(AnalysisLogGroupViewModel? item)
+    {
+        if (item is null || item.Attempts.Count == 0) return;
+        if (item.IsHistoryExpanded)
+        {
+            item.IsHistoryExpanded = false;
+            _expandedSourcePath = null;
+            return;
+        }
+        ExpandHistory(item);
+    }
+
+    private void ExpandHistory(AnalysisLogGroupViewModel item)
+    {
+        foreach (var other in _allItems.Where(x => !ReferenceEquals(x, item))) other.IsHistoryExpanded = false;
+        item.IsHistoryExpanded = true;
+        _expandedSourcePath = item.SourcePath;
+        SelectedItem = item;
+        SelectedAttempt = item.CurrentAttempt;
+    }
+
+    private void BeginRename(AnalysisAttemptViewModel? attempt)
+    {
+        if (attempt is null) return;
+        foreach (var item in _allItems.SelectMany(x => x.Attempts)) item.IsRenaming = false;
+        SelectedAttempt = attempt;
+        CaseName = attempt.Case.DisplayName;
+        attempt.IsRenaming = true;
+    }
+
+    private void CancelRename(AnalysisAttemptViewModel? attempt)
+    {
+        if (attempt is null) return;
+        attempt.IsRenaming = false;
+        if (ReferenceEquals(SelectedAttempt, attempt)) CaseName = attempt.Case.DisplayName;
+    }
+
+    private bool CanRename(object? parameter)
+        => parameter is AnalysisAttemptViewModel attempt
+            && attempt.IsRenaming
+            && !IsBulkOperationActive
+            && !string.IsNullOrWhiteSpace(CaseName);
+
+    private async Task RenameAsync(AnalysisAttemptViewModel? attempt)
+    {
+        if (attempt is null || !CanRename(attempt)) return;
+        var caseId = attempt.Case.Id;
+        await _analysis.RenameAsync(caseId, CaseName.Trim());
+        attempt.IsRenaming = false;
         await SelectCaseAsync(caseId);
     }
 
-    private async Task OpenSelectedReportAsync()
+    private static AnalysisAttemptViewModel? ResolveAttempt(object? parameter)
+        => parameter switch
+        {
+            AnalysisAttemptViewModel attempt => attempt,
+            AnalysisLogGroupViewModel group => group.CurrentAttempt,
+            _ => null
+        };
+
+    private bool CanOpenExtractDirectory(object? parameter) => ResolveAttempt(parameter) is not null;
+
+    private void OpenExtractDirectory(object? parameter)
     {
-        if (SelectedAttempt?.Report is { IsAvailable: true } report) await Reports.OpenReportAsync(report);
+        var attempt = ResolveAttempt(parameter);
+        if (attempt is not null) _openExtractDirectory(attempt.Case.ExtractPath);
     }
 
-    private void OpenExtractDirectory()
+    private void OpenReportFolder(object? parameter)
     {
-        if (SelectedAttempt is not null) _openExtractDirectory(SelectedAttempt.Case.ExtractPath);
-    }
-
-    private void OpenReportFolder()
-    {
-        var report = SelectedAttempt?.Report;
+        var report = ResolveAttempt(parameter)?.Report;
         if (report is null) return;
         try
         {
@@ -346,9 +514,8 @@ public sealed class AnalysisCenterViewModel : ViewModelBase, IDisposable
         }
     }
 
-    private async Task DeleteSourceAsync()
+    private async Task DeleteSourceAsync(AnalysisLogGroupViewModel? item)
     {
-        var item = SelectedItem;
         if (item is null || !item.SourceExists) return;
         var message = $"确认仅删除原始日志吗？\n\n{item.SourcePath}\n\n案例、解压目录和报告都会保留。";
         if (!_confirmDeleteSource(message)) return;
@@ -364,9 +531,8 @@ public sealed class AnalysisCenterViewModel : ViewModelBase, IDisposable
         await LoadAsync();
     }
 
-    private async Task DeleteLifecycleAsync()
+    private async Task DeleteLifecycleAsync(AnalysisLogGroupViewModel? item)
     {
-        var item = SelectedItem;
         if (item is null || item.HasActiveTask) return;
         var reportCount = item.Attempts.Count(x => x.Report is not null);
         var extractPath = item.Attempts.FirstOrDefault()?.Case.ExtractPath ?? "无";
@@ -375,8 +541,7 @@ public sealed class AnalysisCenterViewModel : ViewModelBase, IDisposable
         Reports.CloseCaseTabs(item.Attempts.Select(x => x.Case.Id));
         try
         {
-            await _analysis.DeleteLifecycleAsync(item.SourcePath);
-            await _inbox.RefreshAsync();
+            await DeleteLifecycleCoreAsync(item);
             await LoadAsync();
         }
         catch (Exception ex)
@@ -386,7 +551,94 @@ public sealed class AnalysisCenterViewModel : ViewModelBase, IDisposable
         }
     }
 
-    private void OnSourceStateChanged(object? sender, EventArgs e) => RunOnUi(() => _ = LoadAsync());
+    /// <summary>
+    /// 删除当前筛选中的无效日志。无效日志通常没有案例，此时生命周期服务没有可删除的数据库记录，
+    /// 必须改由收件箱服务删除源文件；若将来存在残留案例，则仍走完整生命周期安全校验。
+    /// </summary>
+    private async Task DeleteFilteredInvalidAsync()
+    {
+        if (IsBulkOperationActive) return;
+        var targets = Items.Where(x => x.IsInvalidDeleteEligible).ToArray();
+        if (targets.Length == 0) return;
+        var caseCount = targets.Sum(x => x.Attempts.Count);
+        var reportCount = targets.Sum(x => x.Attempts.Count(a => a.Report is not null));
+        var message = $"确认删除当前筛选结果中的 {targets.Length} 个无效日志吗？\n\n"
+            + $"关联案例：{caseCount} 个\n关联报告：{reportCount} 个\n\n"
+            + "原始日志、案例、解压目录和报告都将被删除，此操作不可恢复。";
+        if (!_confirmDeleteLifecycle(message)) return;
+
+        BeginBulkOperation();
+        Reports.CloseCaseTabs(targets.SelectMany(x => x.Attempts).Select(x => x.Case.Id));
+        var deleted = 0;
+        var skipped = 0;
+        var failed = 0;
+        try
+        {
+            foreach (var item in targets)
+            {
+                try
+                {
+                    if (!File.Exists(item.SourcePath) && item.Attempts.Count == 0)
+                    {
+                        skipped++;
+                        continue;
+                    }
+                    await DeleteLifecycleCoreAsync(item);
+                    deleted++;
+                }
+                catch (Exception ex)
+                {
+                    failed++;
+                    _logger.Error($"批量删除无效日志失败：{item.SourcePath}", ex);
+                }
+            }
+        }
+        finally
+        {
+            EndBulkOperation();
+            await LoadAsync();
+            Message = _operationMessage = $"异常日志清理完成：成功 {deleted} 个，跳过 {skipped} 个，失败 {failed} 个。";
+        }
+    }
+
+    private async Task DeleteLifecycleCoreAsync(AnalysisLogGroupViewModel item)
+    {
+        if (item.Attempts.Count > 0)
+        {
+            await _analysis.DeleteLifecycleAsync(item.SourcePath);
+            await _inbox.RefreshAsync();
+            return;
+        }
+
+        var source = item.InboxItem ?? new LogInboxItem
+        {
+            FilePath = item.SourcePath,
+            FileName = item.FileName,
+            DeviceId = item.DeviceId,
+            LogTime = item.LogTime,
+            IsValidArchive = false,
+            ErrorMessage = item.InboxError
+        };
+        await _inbox.DeleteAsync(source);
+    }
+
+    private void BeginBulkOperation()
+    {
+        Interlocked.Increment(ref _suppressStateRefresh);
+        IsBulkOperationActive = true;
+    }
+
+    private void EndBulkOperation()
+    {
+        IsBulkOperationActive = false;
+        Interlocked.Decrement(ref _suppressStateRefresh);
+    }
+
+    private void OnSourceStateChanged(object? sender, EventArgs e)
+    {
+        if (Volatile.Read(ref _suppressStateRefresh) > 0) return;
+        RunOnUi(() => _ = LoadAsync());
+    }
 
     private void ResetFilters()
     {
@@ -407,7 +659,13 @@ public sealed class AnalysisCenterViewModel : ViewModelBase, IDisposable
 
     private void RaiseCommands()
     {
-        foreach (var command in new[] { PrimaryCommand, RenameCommand, OpenReportCommand, OpenExtractDirectoryCommand, OpenReportFolderCommand, DeleteSourceCommand, DeleteLifecycleCommand })
+        foreach (var command in new[]
+        {
+            RefreshCommand, OpenRowReportCommand, OpenAttemptReportCommand, AnalyzeAllPendingCommand,
+            DeleteFilteredInvalidCommand, AnalyzeSingleCommand, ToggleHistoryCommand, BeginRenameCommand,
+            CancelRenameCommand, RenameCommand, OpenExtractDirectoryCommand, OpenReportFolderCommand,
+            DeleteSourceCommand, DeleteLifecycleCommand
+        })
             ((DelegateCommand)command).RaiseCanExecuteChanged();
     }
 
@@ -439,8 +697,10 @@ public sealed class AnalysisCenterViewModel : ViewModelBase, IDisposable
 }
 
 /// <summary>单次案例、任务和报告的只读组合，供日志详情呈现完整分析历史。</summary>
-public sealed class AnalysisAttemptViewModel
+public sealed class AnalysisAttemptViewModel : ViewModelBase
 {
+    private bool _isRenaming;
+
     public AnalysisAttemptViewModel(AnalysisCase analysisCase, AnalysisTask? task, ReportSummary? report)
     {
         Case = analysisCase;
@@ -459,17 +719,21 @@ public sealed class AnalysisAttemptViewModel
     public DateTime ActivityTime => Task?.EndTime ?? Task?.StartTime ?? Case.UpdateTime;
     public bool IsActive => Task?.Status is AnalysisTaskStatus.Waiting or AnalysisTaskStatus.Running
         || Case.Status is CaseStatus.Ready or CaseStatus.Running;
+    public bool IsRenaming { get => _isRenaming; set => SetProperty(ref _isRenaming, value); }
 }
 
 /// <summary>同一源日志的聚合行；主列表状态优先采用活动分析，否则采用最近一次分析结果。</summary>
-public sealed class AnalysisLogGroupViewModel
+public sealed class AnalysisLogGroupViewModel : ViewModelBase
 {
+    private bool _isHistoryExpanded;
+
     public AnalysisLogGroupViewModel(string sourcePath, LogInboxItem? inboxItem, IReadOnlyList<AnalysisAttemptViewModel> attempts)
     {
         SourcePath = sourcePath;
         InboxItem = inboxItem;
         Attempts = new ObservableCollection<AnalysisAttemptViewModel>(attempts.OrderByDescending(x => x.ActivityTime));
         CurrentAttempt = Attempts.FirstOrDefault(x => x.IsActive) ?? Attempts.FirstOrDefault();
+        LatestAvailableReport = Attempts.Select(x => x.Report).FirstOrDefault(x => x?.IsAvailable == true);
         var latestCase = CurrentAttempt?.Case;
         FileName = inboxItem?.FileName ?? latestCase?.OriginalName ?? Path.GetFileName(sourcePath);
         DeviceId = inboxItem?.DeviceId ?? latestCase?.DeviceId ?? "无法识别";
@@ -480,7 +744,7 @@ public sealed class AnalysisLogGroupViewModel
         ActivityTimes = Attempts.Select(x => x.ActivityTime).Append(LogTime).ToArray();
         SearchText = string.Join('\n', new[] { FileName, DeviceId, SourcePath }.Concat(Attempts.SelectMany(x => new[] { x.Case.DisplayName, x.PluginName })));
 
-        if (inboxItem is { IsValidArchive: false } && Attempts.Count == 0)
+        if (inboxItem is { IsValidArchive: false })
         {
             StageKey = "invalid";
             StatusText = "无效日志";
@@ -527,6 +791,7 @@ public sealed class AnalysisLogGroupViewModel
     public LogInboxItem? InboxItem { get; }
     public ObservableCollection<AnalysisAttemptViewModel> Attempts { get; }
     public AnalysisAttemptViewModel? CurrentAttempt { get; }
+    public ReportSummary? LatestAvailableReport { get; }
     public string FileName { get; }
     public string DeviceId { get; }
     public DateTime LogTime { get; }
@@ -540,11 +805,20 @@ public sealed class AnalysisLogGroupViewModel
     public object? StatusValue { get; }
     public bool CanExecutePrimary { get; }
     public string PrimaryActionText { get; }
+    public bool CanOpenReport => LatestAvailableReport is not null;
+    public bool CanOpenExtractDirectory => CurrentAttempt is not null;
+    public bool CanAnalyzeSingle => SourceExists && !HasActiveTask && StageKey != "invalid";
+    public bool IsBulkEligible => SourceExists && StageKey == "pending";
+    public bool IsInvalidDeleteEligible => SourceExists && !HasActiveTask && StageKey == "invalid";
+    public bool CanDeleteLifecycle => !HasActiveTask && (SourceExists || Attempts.Count > 0);
+    public string SingleAnalysisText => StageKey == "pending" ? "分析" : "重新分析";
+    public bool IsHistoryExpanded { get => _isHistoryExpanded; set => SetProperty(ref _isHistoryExpanded, value); }
     public string SourceStateText => SourceExists ? "原始日志可用" : "原始日志已删除或移动";
     public string InboxError => InboxItem?.ErrorMessage ?? string.Empty;
     public bool HasInboxError => !string.IsNullOrWhiteSpace(InboxError);
 }
 
+/// <summary>刷新期间按源日志归并案例、任务与报告，构造一次性列表快照。</summary>
 internal sealed class AnalysisLogGroupBuilder
 {
     public AnalysisLogGroupBuilder(string sourcePath) => SourcePath = sourcePath;
@@ -552,4 +826,11 @@ internal sealed class AnalysisLogGroupBuilder
     public LogInboxItem? InboxItem { get; set; }
     public List<AnalysisAttemptViewModel> Attempts { get; } = new();
     public AnalysisLogGroupViewModel Build() => new(SourcePath, InboxItem, Attempts);
+}
+
+internal enum AnalysisSubmissionResult
+{
+    Submitted,
+    Skipped,
+    Failed
 }

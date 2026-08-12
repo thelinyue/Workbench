@@ -73,15 +73,14 @@ Config/workspace.json
 直接执行：
 
 ```powershell
-.\installer\build-installer.ps1 -Configuration Release -Version 1.2.0 -PluginBinaryPath '.\插件\log_analyzer.exe'
+.\installer\build-installer.ps1 -Configuration Release -Version 1.2.1 -PluginBinaryPath '.\插件\log_analyzer.exe' -RuleEditorBinaryPath '.\插件\rule_editor.exe'
 ```
 
 输出位于 `installer\dist`：
 
 ```text
-HephaestusWorkbench_Setup_v1.2.0.exe
+HephaestusWorkbench_Setup_v1.2.1.exe
 SHA256SUMS.txt
-log-analyzer-1.50-win-x64.zip
 ```
 
 同一个 Setup 用于首次安装、覆盖升级和修复；卸载入口由 Windows 设置或控制面板管理。应用数据位于程序安装目录之外，升级和卸载默认保留用户数据。

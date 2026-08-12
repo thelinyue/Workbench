@@ -12,6 +12,7 @@ public sealed class ReportsWorkspaceViewModel : ViewModelBase, IDisposable
     private readonly ReportService _reports;
     private readonly SettingsService _settings;
     private readonly WorkbenchLogger _logger;
+    private readonly Func<string, bool> _confirmDelete;
     private readonly Action<string> _openExtractDirectory;
     private readonly Func<string, bool> _confirmCloseOldest;
     private CancellationTokenSource? _saveCancellation;
@@ -22,21 +23,27 @@ public sealed class ReportsWorkspaceViewModel : ViewModelBase, IDisposable
     public ReportsWorkspaceViewModel(
         ReportService reports,
         SettingsService settings,
+        Action<string> openCase,
         Action<string> openExtractDirectory,
         WorkbenchLogger logger,
-        Func<string, bool>? confirmCloseOldest = null)
+        Func<string, bool>? confirmCloseOldest = null,
+        Func<string, bool>? confirmDelete = null)
     {
         _reports = reports;
         _settings = settings;
         _logger = logger;
+        _confirmDelete = confirmDelete ?? (message => Wpf.MessageBox.Show(message, "确认删除案例和报告", Wpf.MessageBoxButton.YesNo, Wpf.MessageBoxImage.Warning) == Wpf.MessageBoxResult.Yes);
         _openExtractDirectory = openExtractDirectory;
         _confirmCloseOldest = confirmCloseOldest ?? (message => Wpf.MessageBox.Show(message, "报告数量已达上限", Wpf.MessageBoxButton.YesNo, Wpf.MessageBoxImage.Question) == Wpf.MessageBoxResult.Yes);
+        // 报告页仍以工作区作为根 DataContext，Library 是实际承载查询、筛选和操作命令的模型。
+        Library = new ReportsViewModel(reports, OpenReportAsync, openCase, openExtractDirectory, DeleteReportAsync);
         ShowLibraryCommand = new DelegateCommand(() => IsLibraryVisible = true);
         OpenTabCommand = new DelegateCommand(parameter => { if (parameter is ReportTabViewModel tab) SelectedTab = tab; });
         CloseTabCommand = new DelegateCommand(parameter => { if (parameter is ReportTabViewModel tab) CloseTab(tab); });
         OpenSelectedExtractDirectoryCommand = new DelegateCommand(OpenSelectedExtractDirectory, () => SelectedTab is not null);
     }
 
+    public ReportsViewModel Library { get; }
     public WorkbenchLogger Logger => _logger;
     public ObservableCollection<ReportTabViewModel> OpenTabs { get; } = new();
     public ICommand ShowLibraryCommand { get; }
@@ -61,6 +68,7 @@ public sealed class ReportsWorkspaceViewModel : ViewModelBase, IDisposable
 
     public async Task InitializeAsync()
     {
+        await RefreshLibraryAsync();
         if (!await _settings.GetReportRestoreEnabledAsync()) return;
         _isRestoring = true;
         try
@@ -96,6 +104,10 @@ public sealed class ReportsWorkspaceViewModel : ViewModelBase, IDisposable
             await SaveNowAsync();
         }
     }
+
+    /// <summary>刷新报告库，供分析中心在后台任务状态变化后同步最新报告。</summary>
+    public Task RefreshLibraryAsync(CancellationToken cancellationToken = default)
+        => Library.LoadAsync(cancellationToken);
 
     public async Task<bool> OpenCaseReportAsync(string caseId)
     {
@@ -174,6 +186,29 @@ public sealed class ReportsWorkspaceViewModel : ViewModelBase, IDisposable
         if (SelectedTab is not null) _openExtractDirectory(SelectedTab.Report.ExtractPath);
     }
 
+    private async Task DeleteReportAsync(ReportSummary report)
+    {
+        var analysisCase = await _reports.GetCaseAsync(report.CaseId);
+        var artifactDetails = analysisCase is null
+            ? "无法读取原始日志和解压目录路径，请谨慎确认。"
+            : $"原始日志：{analysisCase.SourcePath}\n解压目录：{analysisCase.ExtractPath}";
+        var message = $"报告“{report.CaseName}”属于分析案例。\n\n{artifactDetails}\n\n"
+            + "继续将删除该案例、报告、原始日志和解压目录，此操作不可恢复。";
+        if (!_confirmDelete(message)) return;
+
+        CloseCaseTabs(new[] { report.CaseId });
+        try
+        {
+            await _reports.DeleteReportAndCaseAsync(report);
+            await SaveNowAsync();
+        }
+        catch (Exception ex)
+        {
+            _logger.Error("删除报告和案例失败", ex);
+            Wpf.MessageBox.Show($"删除失败：{ex.Message}", "删除失败", Wpf.MessageBoxButton.OK, Wpf.MessageBoxImage.Error);
+        }
+    }
+
     private void OnScrollPositionChanged(object? sender, EventArgs e) => ScheduleSave();
 
     private void ScheduleSave()
@@ -221,5 +256,6 @@ public sealed class ReportsWorkspaceViewModel : ViewModelBase, IDisposable
         _saveCancellation?.Cancel();
         _saveCancellation?.Dispose();
         foreach (var tab in OpenTabs) tab.RequestDispose();
+        Library.Dispose();
     }
 }

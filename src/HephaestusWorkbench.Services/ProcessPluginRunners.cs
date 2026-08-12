@@ -99,7 +99,7 @@ public sealed class LegacyLogAnalyzerRunner : IPluginRunner
             var result = await ProcessPluginRunnerUtilities.ExecuteAsync(
                 manifest.EntryPath,
                 context.WorkingDirectory,
-                new[] { "-d", context.SourcePath, "-o", context.OutputPath },
+                BuildLegacyArguments(context),
                 cancellationToken);
             if (result.ExitCode != 0)
                 return new PluginExecutionResult(result.ExitCode, null, string.IsNullOrWhiteSpace(result.StandardError) ? "日志分析插件执行失败。" : result.StandardError.Trim());
@@ -119,6 +119,19 @@ public sealed class LegacyLogAnalyzerRunner : IPluginRunner
         {
             _logger.Error($"现有日志分析插件执行失败：{manifest.Name}", ex);
             return new PluginExecutionResult(-1, null, $"日志分析插件执行失败：{ex.Message}");
+        }
+    }
+
+    private static IEnumerable<string> BuildLegacyArguments(PluginExecutionContext context)
+    {
+        yield return "-d";
+        yield return context.SourcePath;
+        yield return "-o";
+        yield return context.OutputPath;
+        if (!string.IsNullOrWhiteSpace(context.RulesPath))
+        {
+            yield return "--rules";
+            yield return context.RulesPath;
         }
     }
 }

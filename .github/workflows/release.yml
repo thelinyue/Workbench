@@ -9,7 +9,7 @@ on:
       version:
         description: "要验证的版本号（不带 v）"
         required: true
-        default: "1.2.0"
+        default: "1.2.1"
         type: string
       publish:
         description: "同时发布到公开 Releases 仓库"
@@ -25,9 +25,12 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  PLUGIN_URL: https://github.com/thelinyue/Hephaestus-Workbench-Releases/releases/download/plugin-log-analyzer-v1.50/log-analyzer-1.50-win-x64.zip
-  PLUGIN_SHA256: 98096437b558b5e69c1802538c02a6454b24bd427664a382ad4586e65b086245
-  PLUGIN_SIZE: "1819250"
+  PLUGIN_URL: https://github.com/thelinyue/Hephaestus-Workbench-Releases/releases/download/plugin-log-analyzer-v1.60/log-analyzer-1.60-win-x64.zip
+  PLUGIN_SHA256: a984d5887fe702fed2b241f1499001be2da70523fb85b5e430fb6461f7dcc9b9
+  PLUGIN_SIZE: "1819274"
+  RULE_EDITOR_URL: https://github.com/thelinyue/Hephaestus-Workbench-Releases/releases/download/plugin-log-rule-editor-v1.0.0/log-rule-editor-v1.0.0.zip
+  RULE_EDITOR_SHA256: 5f779d7b73ff262b86cddf77413a21180a5a03c8af6b140a72a68ce2ccbfb834
+  RULE_EDITOR_SIZE: "1632412"
   INNO_URL: https://github.com/jrsoftware/issrc/releases/download/is-6_7_3/innosetup-6.7.3.exe
   INNO_SHA256: 9c73c3bae7ed48d44112a0f48e66742c00090bdb5bef71d9d3c056c66e97b732
   INNO_SIZE: "10592232"
@@ -117,7 +120,7 @@ jobs:
           }
 
           $manifest = Get-Content -Raw -Encoding UTF8 $manifestPath | ConvertFrom-Json
-          if ($manifest.id -ne "log-analyzer" -or $manifest.version -ne "1.50" -or
+          if ($manifest.id -ne "log-analyzer" -or $manifest.version -ne "1.60" -or
               $manifest.type -ne "Exe" -or $manifest.entry -ne "log_analyzer.exe") {
             throw "官方插件清单与固定发行信息不一致。"
           }
@@ -125,13 +128,50 @@ jobs:
           "binary=$binaryPath" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
           Write-Host "官方插件校验通过：$hash"
 
+      - name: 下载并校验官方规则编辑器
+        id: rule_editor
+        shell: pwsh
+        run: |
+          $directory = Join-Path $env:RUNNER_TEMP "official-rule-editor"
+          $archive = Join-Path $directory "log-rule-editor.zip"
+          $expanded = Join-Path $directory "expanded"
+          New-Item -ItemType Directory -Force -Path $directory, $expanded | Out-Null
+          Invoke-WebRequest -Uri $env:RULE_EDITOR_URL -OutFile $archive -TimeoutSec 120
+
+          $file = Get-Item -LiteralPath $archive
+          $hash = (Get-FileHash -Algorithm SHA256 -LiteralPath $archive).Hash.ToLowerInvariant()
+          if ($file.Length -ne [long]$env:RULE_EDITOR_SIZE) {
+            throw "官方规则编辑器包大小错误：实际 $($file.Length)，预期 $env:RULE_EDITOR_SIZE。"
+          }
+          if ($hash -ne $env:RULE_EDITOR_SHA256) {
+            throw "官方规则编辑器包 SHA-256 错误：实际 $hash。"
+          }
+
+          Expand-Archive -LiteralPath $archive -DestinationPath $expanded
+          $manifestPath = Join-Path $expanded "manifest.json"
+          $binaryPath = Join-Path $expanded "rule_editor.exe"
+          if (-not (Test-Path -LiteralPath $manifestPath -PathType Leaf) -or
+              -not (Test-Path -LiteralPath $binaryPath -PathType Leaf)) {
+            throw "官方规则编辑器包缺少 manifest.json 或 rule_editor.exe。"
+          }
+
+          $manifest = Get-Content -Raw -Encoding UTF8 $manifestPath | ConvertFrom-Json
+          if ($manifest.id -ne "log-rule-editor" -or $manifest.version -ne "1.0.0" -or
+              $manifest.type -ne "Exe" -or $manifest.entry -ne "rule_editor.exe") {
+            throw "官方规则编辑器清单与固定发行信息不一致。"
+          }
+
+          "binary=$binaryPath" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          Write-Host "官方规则编辑器校验通过：$hash"
+
       - name: 使用授权插件运行完整测试
         shell: pwsh
         run: |
           dotnet build HephaestusWorkbench.sln `
             -c Release `
             --no-restore `
-            -p:PluginBinaryPath="${{ steps.plugin.outputs.binary }}"
+            -p:PluginBinaryPath="${{ steps.plugin.outputs.binary }}" `
+            -p:RuleEditorBinaryPath="${{ steps.rule_editor.outputs.binary }}"
           if ($LASTEXITCODE -ne 0) { throw "带授权插件的测试构建失败，退出码：$LASTEXITCODE" }
           dotnet test HephaestusWorkbench.sln -c Release --no-build --no-restore
           if ($LASTEXITCODE -ne 0) { throw "自动化测试失败，退出码：$LASTEXITCODE" }
@@ -179,6 +219,7 @@ jobs:
             -Configuration Release `
             -Version "${{ steps.version.outputs.version }}" `
             -PluginBinaryPath "${{ steps.plugin.outputs.binary }}" `
+            -RuleEditorBinaryPath "${{ steps.rule_editor.outputs.binary }}" `
             -InnoCompilerPath "${{ steps.inno.outputs.compiler }}"
           if ($LASTEXITCODE -ne 0) { throw "正式安装包构建失败，退出码：$LASTEXITCODE" }
 
@@ -273,7 +314,6 @@ jobs:
           $setup = Join-Path $directory $setupName
           $checksums = Join-Path $directory "SHA256SUMS.txt"
           $catalogPath = Join-Path $directory "catalog.json"
-          $pluginPath = Join-Path $directory "plugin.zip"
 
           curl.exe -L --fail --silent --show-error `
             -o $setup "https://github.com/$env:RELEASES_REPO/releases/download/$tag/$setupName"
@@ -293,14 +333,18 @@ jobs:
           }
 
           $catalog = Get-Content -Raw -Encoding UTF8 $catalogPath | ConvertFrom-Json
-          $plugin = $catalog.plugins | Where-Object id -eq "log-analyzer" | Select-Object -First 1
-          if ($null -eq $plugin) { throw "公开插件目录缺少 log-analyzer。" }
-          curl.exe -L --fail --silent --show-error -o $pluginPath $plugin.packageUrl
-          if ($LASTEXITCODE -ne 0) { throw "匿名下载官方插件失败，退出码：$LASTEXITCODE" }
-          $pluginHash = (Get-FileHash -Algorithm SHA256 -LiteralPath $pluginPath).Hash.ToLowerInvariant()
-          if ($pluginHash -ne $plugin.sha256 -or
-              (Get-Item -LiteralPath $pluginPath).Length -ne [long]$plugin.packageSize) {
-            throw "匿名下载的官方插件与公开目录不一致。"
+          $verifiedPlugins = foreach ($pluginId in @("log-analyzer", "log-rule-editor")) {
+            $plugin = $catalog.plugins | Where-Object id -eq $pluginId | Select-Object -First 1
+            if ($null -eq $plugin) { throw "公开插件目录缺少 $pluginId。" }
+            $pluginPath = Join-Path $directory "$pluginId.zip"
+            curl.exe -L --fail --silent --show-error -o $pluginPath $plugin.packageUrl
+            if ($LASTEXITCODE -ne 0) { throw "匿名下载官方插件 $pluginId 失败，退出码：$LASTEXITCODE" }
+            $pluginHash = (Get-FileHash -Algorithm SHA256 -LiteralPath $pluginPath).Hash.ToLowerInvariant()
+            if ($pluginHash -ne $plugin.sha256 -or
+                (Get-Item -LiteralPath $pluginPath).Length -ne [long]$plugin.packageSize) {
+              throw "匿名下载的官方插件 $pluginId 与公开目录不一致。"
+            }
+            "$pluginId=$pluginHash"
           }
 
-          Write-Host "匿名下载验收通过：安装包 $setupHash；插件 $pluginHash"
+          Write-Host "匿名下载验收通过：安装包 $setupHash；插件 $($verifiedPlugins -join '，')"
