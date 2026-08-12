@@ -19,6 +19,8 @@ public sealed class AppSettingsConfig
     public string Theme { get; set; } = LightTheme;
     public int MaxReportTabs { get; set; } = 10;
     public bool AutoRestoreReports { get; set; } = true;
+    public bool ManualCleanupEnabled { get; set; }
+    public int CleanupRetentionDays { get; set; } = 7;
 }
 
 /// <summary>插件配置仅记录已登记插件和启用状态，插件文件仍由插件目录管理。</summary>

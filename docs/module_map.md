@@ -105,7 +105,7 @@ SSH ──> not implemented
 - schema 迁移必须幂等且不能覆盖用户历史数据。
 - `plugin_info` 已有表和仓储，但生产启动流程没有完整登记发现结果。
 - 报告查询依赖 `plugin_info` 名称回填，数据缺失时会显示插件 ID 或“未知插件”。
-- `ReportsDirectory` 已被创建，但当前 Case 报告主要位于 `Cases/<CaseId>/Report`，需要保持目录语义一致。
+- 报告统一位于实际解压目录下的 `report` 子目录，独立 Reports 目录不再创建。
 
 ## 6. Configuration、Settings 与 Initialization 模块
 
@@ -258,15 +258,15 @@ SSH ──> not implemented
 ## 13. Storage 模块
 
 名称：存储统计与清理  
-路径：`src/HephaestusWorkbench.Services/StorageService.cs`、`src/HephaestusWorkbench.App/ViewModels/StorageViewModel.cs`  
-职责：统计数据根目录、日志、Extract、Report 的空间占用，并按 Case 删除原始日志和 Extract。  
-入口文件：`StorageService.GetSummaryAsync`、`StorageService.CleanCaseDataAsync`。  
+路径：`src/HephaestusWorkbench.Services/StorageService.cs`、`src/HephaestusWorkbench.App/ViewModels/AnalysisCenterViewModel.cs`
+职责：统计数据根目录、日志、Extract、Report 的空间占用，并为分析中心提供手动到期生命周期清理统计。
+入口文件：`StorageService.GetSummaryAsync`、`CaseAnalysisService.CleanupExpiredAsync`。
 依赖：DataPaths、Case repository、FileUtilities。  
 输入：数据根目录、Case ID、用户确认。  
 输出：`StorageSummary`、删除后的文件系统状态和 UI 统计。  
 风险点：
 
-- 清理只保留报告，用户必须能明确看到删除/保留边界。
+- 清理按 1–7 天保留期限筛选，删除报告、源日志、解压目录和全部分析记录。
 - 目录统计可能受大文件、网络路径、访问权限和文件并发变化影响。
 - `FileUtilities.DeleteDirectoryIfExists` 是递归删除，调用前必须严格校验路径来源。
 

@@ -26,11 +26,10 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
             new("dashboard", "首页", "\uE80F"),
             new("analysis", "分析中心", "\uE896"),
             new("plugins", "插件", "\uECAA"),
-            new("storage", "存储", "\uEDA2"),
             new("settings", "设置", "\uE713")
         };
         var reportWorkspace = new ReportsWorkspaceViewModel(reports, settings, OpenCase, OpenExtractDirectory, logger);
-        AnalysisCenter = new AnalysisCenterViewModel(inbox, analysis, reports, reportWorkspace, OpenExtractDirectory, logger);
+        AnalysisCenter = new AnalysisCenterViewModel(inbox, analysis, reports, storage, settings, reportWorkspace, OpenExtractDirectory, logger);
         TaskPanel = new TaskPanelViewModel(analysis, OpenCase);
         OpenGlobalWarningCommand = new DelegateCommand(() => SelectNavigation("plugins"));
         Dashboard = new DashboardViewModel(
@@ -43,7 +42,6 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
             OpenQuickReportAsync,
             OpenExtractDirectory,
             logger);
-        Storage = new StorageViewModel(storage, analysis);
         Settings = new SettingsViewModel(settings, inbox, () => AnalysisCenter.Reports.OpenTabCount, applyTheme);
         Plugins = new MarketplacePluginsViewModel(plugins, marketplace, logger, rules, new HttpRulePublisher(Environment.GetEnvironmentVariable("HEPHAESTUS_RULE_PUBLISH_URL"), Environment.GetEnvironmentVariable("HEPHAESTUS_RULE_PUBLISH_TOKEN"), logger, protectedTokenPath: rules.RulePublisherTokenPath));
         _selectedNavigationItem = NavigationItems[0];
@@ -59,14 +57,13 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
     public DashboardViewModel Dashboard { get; }
     public AnalysisCenterViewModel AnalysisCenter { get; }
     public TaskPanelViewModel TaskPanel { get; }
-    public StorageViewModel Storage { get; }
     public SettingsViewModel Settings { get; }
     public MarketplacePluginsViewModel Plugins { get; }
     public string GlobalWarningText { get => _globalWarningText; private set { if (SetProperty(ref _globalWarningText, value)) OnPropertyChanged(nameof(HasGlobalWarning)); } }
     public bool HasGlobalWarning => !string.IsNullOrWhiteSpace(GlobalWarningText);
     public string StatusMessage { get; private set; } = string.Empty;
     public string AppVersion => AppVersionInfo.DisplayVersion;
-    public string WindowTitle => $"赫菲斯托斯工程工作台（赫工） {AppVersion}";
+    public string WindowTitle => "Hephaestus工作台";
     public ICommand OpenGlobalWarningCommand { get; }
 
     public NavigationItem? SelectedNavigationItem
@@ -78,7 +75,6 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
             CurrentPage = value.Key switch
             {
                 "analysis" => AnalysisCenter,
-                "storage" => Storage,
                 "plugins" => Plugins,
                 "settings" => Settings,
                 _ => Dashboard
@@ -96,7 +92,7 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
             OnPropertyChanged(nameof(PageContext));
         }
     }
-    public string PageTitle => SelectedNavigationItem?.Title ?? "赫菲斯托斯工程工作台";
+    public string PageTitle => SelectedNavigationItem?.Title ?? "Hephaestus工作台";
     public string PageContext => SelectedNavigationItem?.Key == "analysis" && !AnalysisCenter.Reports.IsLibraryVisible && AnalysisCenter.Reports.SelectedTab is not null
         ? $"· {AnalysisCenter.Reports.SelectedTab.Title}"
         : string.Empty;

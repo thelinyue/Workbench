@@ -12,6 +12,9 @@ internal static class FileUtilities
         return current;
     }
 
+    /// <summary>返回解压目录下的统一报告目录，不再使用独立案例报告目录。</summary>
+    public static string GetReportDirectory(string extractPath) => Path.Combine(Path.GetFullPath(extractPath), "report");
+
     /// <summary>
     /// 删除案例关联的原始数据。路径来自数据库，删除前必须验证它们仍然符合“源文件同目录下的同名解压目录”约定，
     /// 避免异常数据导致递归删除监控根目录或其他用户目录。
@@ -88,6 +91,18 @@ internal static class FileUtilities
     {
         if (!Directory.Exists(path)) return 0;
         return Directory.EnumerateFiles(path, "*", SearchOption.AllDirectories).Sum(file => new FileInfo(file).Length);
+    }
+
+    public static long GetDirectorySizeExcluding(string path, IReadOnlyList<string> excludedDirectories)
+    {
+        if (!Directory.Exists(path)) return 0;
+        return Directory.EnumerateFiles(path, "*", SearchOption.AllDirectories)
+            .Where(file => !excludedDirectories.Any(excluded =>
+            {
+                var normalized = Path.GetFullPath(excluded).TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar;
+                return file.StartsWith(normalized, StringComparison.OrdinalIgnoreCase);
+            }))
+            .Sum(file => new FileInfo(file).Length);
     }
 
     public static long GetFileSize(string path) => File.Exists(path) ? new FileInfo(path).Length : 0;

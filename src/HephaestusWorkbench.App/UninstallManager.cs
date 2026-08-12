@@ -33,14 +33,14 @@ internal static class UninstallManager
         var installDirectory = Path.GetFullPath(AppContext.BaseDirectory);
         if (string.Equals(Path.GetPathRoot(installDirectory), installDirectory, StringComparison.OrdinalIgnoreCase))
         {
-            System.Windows.MessageBox.Show("无法确认程序目录，已取消卸载。", "赫工", System.Windows.MessageBoxButton.OK, System.Windows.MessageBoxImage.Error);
+            System.Windows.MessageBox.Show("无法确认程序目录，已取消卸载。", "Hephaestus工作台", System.Windows.MessageBoxButton.OK, System.Windows.MessageBoxImage.Error);
             return;
         }
 
         var dataRoot = LoadDataRoot();
         var deleteData = System.Windows.MessageBox.Show(
             $"是否删除分析数据？\n\n{dataRoot ?? "未找到数据目录，默认保留"}\n\n选择“否”将保留日志、案例和报告。",
-            "卸载赫工",
+            "卸载 Hephaestus工作台",
             System.Windows.MessageBoxButton.YesNo,
             System.Windows.MessageBoxImage.Warning) == System.Windows.MessageBoxResult.Yes;
 
@@ -84,8 +84,8 @@ internal static class UninstallManager
     {
         foreach (var path in new[]
         {
-            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory), "赫工.lnk"),
-            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.StartMenu), "Programs", "赫工.lnk")
+            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory), "Hephaestus工作台.lnk"),
+            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.StartMenu), "Programs", "Hephaestus工作台.lnk")
         })
         {
             if (File.Exists(path)) File.Delete(path);

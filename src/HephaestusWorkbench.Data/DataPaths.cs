@@ -10,7 +10,6 @@ public sealed class DataPaths
         Root = Path.GetFullPath(root);
         DatabaseDirectory = Path.Combine(Root, "Database");
         CasesDirectory = Path.Combine(Root, "Cases");
-        ReportsDirectory = Path.Combine(Root, "Reports");
         InboxDirectory = Path.Combine(Root, "Inbox");
         PluginsDirectory = Path.Combine(Root, "Plugins");
         RulesDirectory = Path.Combine(Root, "Rules");
@@ -33,7 +32,6 @@ public sealed class DataPaths
     public string DatabaseDirectory { get; }
     public string DatabaseFile { get; }
     public string CasesDirectory { get; }
-    public string ReportsDirectory { get; }
     public string InboxDirectory { get; }
     public string PluginsDirectory { get; }
     public string RulesDirectory { get; }
@@ -53,13 +51,13 @@ public sealed class DataPaths
     public string GetCaseDirectory(string caseId) => Path.Combine(CasesDirectory, caseId);
     public string GetCaseSourceDirectory(string caseId) => Path.Combine(GetCaseDirectory(caseId), "Source");
     public string GetCaseExtractDirectory(string caseId) => Path.Combine(GetCaseDirectory(caseId), "Extract");
-    public string GetCaseReportDirectory(string caseId) => Path.Combine(GetCaseDirectory(caseId), "Report");
+    /// <summary>报告统一放在实际解压目录下，便于工程师用一个目录管理原始内容和分析结果。</summary>
+    public string GetReportDirectory(string extractPath) => Path.Combine(Path.GetFullPath(extractPath), "report");
 
     public void EnsureCreated()
     {
         Directory.CreateDirectory(DatabaseDirectory);
         Directory.CreateDirectory(CasesDirectory);
-        Directory.CreateDirectory(ReportsDirectory);
         Directory.CreateDirectory(InboxDirectory);
         Directory.CreateDirectory(PluginsDirectory);
         Directory.CreateDirectory(RulesDirectory);

@@ -67,13 +67,14 @@ public sealed class SqliteRepositoryTests
             var sessions = new SqliteReportSessionRepository(factory);
             var plugins = new SqlitePluginInfoRepository(factory);
             var now = DateTime.Now;
-            var reportDirectory = Path.Combine(root, "Cases", "case-report", "Report");
+            var extractDirectory = Path.Combine(root, "Extract");
+            var reportDirectory = Path.Combine(extractDirectory, "report");
             Directory.CreateDirectory(reportDirectory);
             await File.WriteAllTextAsync(Path.Combine(reportDirectory, "report.html"), "<html></html>");
             await cases.InsertAsync(new AnalysisCase
             {
                 Id = "case-report", DisplayName = "客户A网络异常", OriginalName = "diag_A.tgz", DeviceId = "EC661JJ",
-                LogTime = now, Status = CaseStatus.Completed, SourcePath = "source", ExtractPath = "extract",
+                LogTime = now, Status = CaseStatus.Completed, SourcePath = Path.Combine(root, "source.tgz"), ExtractPath = extractDirectory,
                 ReportPath = reportDirectory, CreateTime = now, UpdateTime = now
             });
             await plugins.UpsertAsync(new PluginInfo { Id = "network", Name = "Network Analyzer", Version = "1", Type = "exe", Path = "plugin", Entry = "run.exe" });
@@ -82,7 +83,7 @@ public sealed class SqliteRepositoryTests
             var filtered = await reports.ListAsync(new ReportQuery("客户A", "EC661", "network", now.Date, now.Date));
             Assert.Single(filtered);
             Assert.True(filtered[0].IsAvailable);
-            Assert.Equal("extract", filtered[0].ExtractPath);
+            Assert.Equal(extractDirectory, filtered[0].ExtractPath);
             Assert.Equal("Network Analyzer", filtered[0].PluginName);
 
             await sessions.ReplaceAsync(new[] { new ReportSession { Id = "session-1", ReportId = "report-1", OrderIndex = 0, IsActive = true, ScrollPosition = 321.5, LastOpenTime = now } });

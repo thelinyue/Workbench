@@ -5,7 +5,7 @@ using HephaestusWorkbench.Services;
 
 namespace HephaestusWorkbench.App.ViewModels;
 
-/// <summary>设置页模型，管理多个日志监控目录和报告查看偏好。</summary>
+/// <summary>设置页模型，管理日志监控、清理策略和界面偏好。</summary>
 public sealed class SettingsViewModel : ViewModelBase
 {
     private readonly SettingsService _settings;
@@ -17,7 +17,8 @@ public sealed class SettingsViewModel : ViewModelBase
     private bool _directoryFeedbackIsError;
     private readonly Func<int> _getOpenReportCount;
     private readonly Func<string, string?> _applyTheme;
-    private bool _reportRestoreEnabled = true;
+    private bool _cleanupEnabled;
+    private int _cleanupRetentionDays = 7;
     private int _maxOpenReports = 10;
     private string _selectedTheme = "Light";
 
@@ -69,8 +70,9 @@ public sealed class SettingsViewModel : ViewModelBase
     public ICommand SaveCommand { get; }
     public ICommand AddWatchDirectoryCommand { get; }
     public ICommand RemoveWatchDirectoryCommand { get; }
-    public bool ReportRestoreEnabled { get => _reportRestoreEnabled; set => SetProperty(ref _reportRestoreEnabled, value); }
     public int MaxOpenReports { get => _maxOpenReports; set => SetProperty(ref _maxOpenReports, value); }
+    public bool CleanupEnabled { get => _cleanupEnabled; set => SetProperty(ref _cleanupEnabled, value); }
+    public int CleanupRetentionDays { get => _cleanupRetentionDays; set => SetProperty(ref _cleanupRetentionDays, value); }
     public string SelectedTheme { get => _selectedTheme; set => SetProperty(ref _selectedTheme, value); }
 
     public void AddWatchDirectory()
@@ -146,8 +148,9 @@ public sealed class SettingsViewModel : ViewModelBase
             OnPropertyChanged(nameof(WatchDirectoryCountText));
             OnPropertyChanged(nameof(RemoveWatchDirectoryHint));
             (RemoveWatchDirectoryCommand as DelegateCommand)?.RaiseCanExecuteChanged();
-            ReportRestoreEnabled = await _settings.GetReportRestoreEnabledAsync();
             MaxOpenReports = await _settings.GetReportMaxTabsAsync();
+            CleanupEnabled = await _settings.GetManualCleanupEnabledAsync();
+            CleanupRetentionDays = await _settings.GetCleanupRetentionDaysAsync();
             SelectedTheme = await _settings.GetThemeAsync();
         }
         catch (Exception ex) { Message = $"读取设置失败：{ex.Message}"; }
@@ -162,6 +165,11 @@ public sealed class SettingsViewModel : ViewModelBase
                 Message = "最大打开报告数量必须在 1 到 10 之间。";
                 return;
             }
+            if (CleanupRetentionDays is < 1 or > 7)
+            {
+                Message = "清理保留天数必须在 1 到 7 天之间。";
+                return;
+            }
             if (WatchDirectories.Count == 0)
             {
                 Message = "至少需要一个日志监控目录。";
@@ -173,8 +181,9 @@ public sealed class SettingsViewModel : ViewModelBase
                 return;
             }
             await _inbox.SetWatchDirectoriesAsync(WatchDirectories);
-            await _settings.SetReportRestoreEnabledAsync(ReportRestoreEnabled);
             await _settings.SetReportMaxTabsAsync(MaxOpenReports);
+            await _settings.SetManualCleanupEnabledAsync(CleanupEnabled);
+            await _settings.SetCleanupRetentionDaysAsync(CleanupRetentionDays);
             await _settings.SetThemeAsync(SelectedTheme);
             if (_applyTheme(SelectedTheme) is { } themeError)
             {

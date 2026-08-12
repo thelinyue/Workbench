@@ -24,6 +24,8 @@ public sealed class CaseAnalysisService
     private readonly RuleSetService? _rules;
     public event EventHandler? StateChanged;
 
+    public sealed record CleanupResult(int Deleted, int Skipped, int Failed);
+
     public CaseAnalysisService(
         DataPaths paths,
         IAnalysisCaseRepository cases,
@@ -81,7 +83,7 @@ public sealed class CaseAnalysisService
         var sourcePath = Path.GetFullPath(item.FilePath);
         var sourceDirectory = Path.GetDirectoryName(sourcePath) ?? throw new InvalidOperationException("原始日志路径没有父目录。");
         var extractDirectory = Path.Combine(sourceDirectory, FileUtilities.RemoveAllExtensions(Path.GetFileName(sourcePath)));
-        var reportDirectory = _paths.GetCaseReportDirectory(caseId);
+        var reportDirectory = FileUtilities.GetReportDirectory(extractDirectory);
 
         var now = DateTime.Now;
         var analysisCase = new AnalysisCase
@@ -216,6 +218,49 @@ public sealed class CaseAnalysisService
         StateChanged?.Invoke(this, EventArgs.Empty);
     }
 
+    /// <summary>
+    /// 手动清理超过保留期限的完整分析生命周期。候选只包含已有报告且没有活动任务的日志，
+    /// 每个源日志独立处理，单条失败不会阻断其他候选项。
+    /// </summary>
+    public async Task<CleanupResult> CleanupExpiredAsync(int retentionDays, CancellationToken cancellationToken = default)
+    {
+        if (retentionDays is < 1 or > 7)
+            throw new ArgumentOutOfRangeException(nameof(retentionDays), "清理保留天数必须在 1 到 7 天之间。");
+
+        var cutoff = DateTime.Now.AddDays(-retentionDays);
+        var cases = await _cases.ListAsync(cancellationToken);
+        var tasks = await _tasks.ListAsync(cancellationToken);
+        var reports = await _reports.ListAsync(new ReportQuery(), cancellationToken);
+        var activeCaseIds = tasks.Where(x => x.Status is AnalysisTaskStatus.Waiting or AnalysisTaskStatus.Running)
+            .Select(x => x.CaseId)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var caseById = cases.ToDictionary(x => x.Id, StringComparer.OrdinalIgnoreCase);
+        var targets = reports
+            .Where(x => x.CreateTime < cutoff && caseById.ContainsKey(x.CaseId) && !activeCaseIds.Contains(x.CaseId))
+            .Select(x => caseById[x.CaseId].SourcePath)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+
+        var deleted = 0;
+        var failed = 0;
+        foreach (var sourcePath in targets)
+        {
+            try
+            {
+                await DeleteLifecycleAsync(sourcePath, cancellationToken);
+                deleted++;
+            }
+            catch (Exception ex)
+            {
+                failed++;
+                _logger.Error($"自动清理到期分析失败：{sourcePath}", ex);
+            }
+        }
+
+        var skipped = reports.Count(x => x.CreateTime >= cutoff || !caseById.ContainsKey(x.CaseId) || activeCaseIds.Contains(x.CaseId));
+        return new CleanupResult(deleted, skipped, failed);
+    }
+
     private static string NormalizePath(string path)
     {
         if (string.IsNullOrWhiteSpace(path)) throw new ArgumentException("源日志路径不能为空。", nameof(path));
@@ -235,7 +280,7 @@ public sealed class CaseAnalysisService
         var context = new PluginExecutionContext(
             analysisCase.Id,
             analysisCase.SourcePath,
-            _paths.GetCaseReportDirectory(analysisCase.Id),
+            FileUtilities.GetReportDirectory(analysisCase.ExtractPath),
             analysisCase.ExtractPath,
             Path.GetDirectoryName(analysisCase.SourcePath) ?? _paths.Root,
             _rules?.HasActiveRules == true ? _rules.ActiveRulesPath : null);
@@ -244,8 +289,6 @@ public sealed class CaseAnalysisService
         task.EndTime = DateTime.Now;
         task.ReportPath = result.ReportPath;
         task.ErrorMessage = result.ErrorMessage;
-        task.Status = result.Cancelled ? AnalysisTaskStatus.Cancelled : result.ReportPath is null ? AnalysisTaskStatus.Failed : AnalysisTaskStatus.Completed;
-        await _tasks.UpdateAsync(task);
 
         analysisCase.Status = result.ReportPath is null ? CaseStatus.Failed : CaseStatus.Completed;
         analysisCase.ReportPath = result.ReportPath;
@@ -263,6 +306,10 @@ public sealed class CaseAnalysisService
                 CreateTime = DateTime.Now
             });
         }
+
+        // 只有报告记录和案例状态都落库后，任务才对外呈现为完成，避免调用方读取到半完成状态。
+        task.Status = result.Cancelled ? AnalysisTaskStatus.Cancelled : result.ReportPath is null ? AnalysisTaskStatus.Failed : AnalysisTaskStatus.Completed;
+        await _tasks.UpdateAsync(task);
         StateChanged?.Invoke(this, EventArgs.Empty);
     }
 }

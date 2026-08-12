@@ -86,7 +86,8 @@ public sealed class SqliteReportRepository : IReportRepository
         await using var reader = await command.ExecuteReaderAsync(cancellationToken);
         while (await reader.ReadAsync(cancellationToken))
         {
-            var path = reader.GetString(4);
+            // 报告路径不再信任历史记录中的独立目录，统一按当前解压目录下的 report 子目录计算。
+            var path = Path.Combine(reader.GetString(5), "report");
             result.Add(new ReportSummary
             {
                 Id = reader.GetString(0),

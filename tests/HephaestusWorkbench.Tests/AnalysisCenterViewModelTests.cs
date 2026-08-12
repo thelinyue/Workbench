@@ -27,7 +27,7 @@ public sealed class AnalysisCenterViewModelTests
         await environment.Cases.InsertAsync(current);
         await environment.Tasks.InsertAsync(CreateTask("task-old", older.Id, AnalysisTaskStatus.Failed, "旧任务失败"));
         await environment.Tasks.InsertAsync(CreateTask("task-current", current.Id, AnalysisTaskStatus.Completed));
-        var reportPath = environment.Paths.GetCaseReportDirectory(current.Id);
+        var reportPath = environment.Paths.GetReportDirectory(extractPath);
         Directory.CreateDirectory(reportPath);
         await File.WriteAllTextAsync(Path.Combine(reportPath, "report.html"), "<html>ok</html>");
         await environment.Reports.InsertAsync(new Report { Id = "report-current", CaseId = current.Id, Path = reportPath, PluginId = "test-plugin", CreateTime = DateTime.Now });
@@ -42,10 +42,7 @@ public sealed class AnalysisCenterViewModelTests
         Assert.Equal("打开报告", group.PrimaryActionText);
         Assert.Equal("case-current", group.CurrentAttempt?.Case.Id);
 
-        center.Keyword = "case-old";
         Assert.Single(center.Items);
-        center.SelectedStatus = center.StatusOptions.First(x => x.Key == "failed");
-        Assert.Empty(center.Items);
     }
 
     [Fact]
@@ -63,7 +60,7 @@ public sealed class AnalysisCenterViewModelTests
             CaseStatus.Completed,
             DateTime.Now);
         await environment.Cases.InsertAsync(reportCase);
-        var reportPath = environment.Paths.GetCaseReportDirectory(reportCase.Id);
+        var reportPath = environment.Paths.GetReportDirectory(reportCase.ExtractPath);
         Directory.CreateDirectory(reportPath);
         await File.WriteAllTextAsync(Path.Combine(reportPath, "report.html"), "<html>ok</html>");
         await environment.Reports.InsertAsync(new Report
@@ -82,7 +79,7 @@ public sealed class AnalysisCenterViewModelTests
     }
 
     [Fact]
-    public async Task AnalyzeAllPendingCommand_SubmitsOnlyFilteredPendingLogs()
+    public async Task AnalyzeAllPendingCommand_SubmitsAllPendingLogs()
     {
         await using var environment = await TestEnvironment.CreateAsync();
         var first = Path.Combine(environment.Paths.InboxDirectory, "diag_DEVICE01_2608111530.tgz");
@@ -93,27 +90,27 @@ public sealed class AnalysisCenterViewModelTests
 
         using var center = environment.CreateAnalysisCenter();
         await center.InitializeAsync();
-        center.DeviceId = "DEVICE01";
-
-        Assert.Equal(1, center.BulkEligibleCount);
+        Assert.Equal(2, center.BulkEligibleCount);
         center.AnalyzeAllPendingCommand.Execute(null);
         await WaitUntilAsync(async () =>
         {
             var tasks = await environment.Tasks.ListAsync();
-            return (await environment.Cases.ListAsync()).Count == 1
-                && tasks.Count == 1
+            return (await environment.Cases.ListAsync()).Count == 2
+                && tasks.Count == 2
                 && tasks.All(x => x.Status is not AnalysisTaskStatus.Waiting and not AnalysisTaskStatus.Running)
                 && !center.IsBulkOperationActive
                 && !string.IsNullOrWhiteSpace(center.Message);
         });
 
-        var created = Assert.Single(await environment.Cases.ListAsync());
-        Assert.Equal(Path.GetFullPath(first), created.SourcePath);
-        Assert.Contains("成功 1 个", center.Message);
+        var created = await environment.Cases.ListAsync();
+        Assert.Equal(2, created.Count);
+        Assert.Contains(created, item => string.Equals(Path.GetFullPath(first), item.SourcePath, StringComparison.OrdinalIgnoreCase));
+        Assert.Contains(created, item => string.Equals(Path.GetFullPath(second), item.SourcePath, StringComparison.OrdinalIgnoreCase));
+        Assert.Contains("成功 2 个", center.Message);
     }
 
     [Fact]
-    public async Task DeleteFilteredInvalidCommand_DeletesOnlyFilteredInvalidLifecycle()
+    public async Task DeleteInvalidCommand_DeletesAllInvalidLifecycle()
     {
         await using var environment = await TestEnvironment.CreateAsync();
         var invalid = Path.Combine(environment.Paths.InboxDirectory, "diag_BAD01_2608111530.tgz");
@@ -126,28 +123,29 @@ public sealed class AnalysisCenterViewModelTests
         Directory.CreateDirectory(extract);
         var residualCase = CreateCase("case-invalid", invalid, extract, CaseStatus.Failed, DateTime.Now);
         await environment.Cases.InsertAsync(residualCase);
-        var reportPath = environment.Paths.GetCaseReportDirectory(residualCase.Id);
+        var reportPath = environment.Paths.GetReportDirectory(residualCase.ExtractPath);
         Directory.CreateDirectory(reportPath);
         await File.WriteAllTextAsync(Path.Combine(reportPath, "report.html"), "<html>old</html>");
         await environment.Reports.InsertAsync(new Report { Id = "report-invalid", CaseId = residualCase.Id, Path = reportPath, PluginId = "test-plugin", CreateTime = DateTime.Now });
 
         using var center = environment.CreateAnalysisCenter();
         await center.InitializeAsync();
-        center.DeviceId = "BAD01";
-
-        Assert.Equal(1, center.InvalidDeleteCount);
-        center.DeleteFilteredInvalidCommand.Execute(null);
-        await WaitUntilAsync(() => Task.FromResult(!File.Exists(invalid) && !center.IsBulkOperationActive && !string.IsNullOrWhiteSpace(center.Message)));
+        Assert.Equal(2, center.InvalidDeleteCount);
+        center.DeleteInvalidCommand.Execute(null);
+        await WaitUntilAsync(() => Task.FromResult(!File.Exists(invalid)
+            && !File.Exists(otherInvalid)
+            && !center.IsBulkOperationActive
+            && !string.IsNullOrWhiteSpace(center.Message)));
 
         Assert.False(Directory.Exists(extract));
         Assert.False(Directory.Exists(reportPath));
         Assert.Null(await environment.Cases.GetAsync(residualCase.Id));
-        Assert.True(File.Exists(otherInvalid));
-        Assert.Contains("成功 1 个", center.Message);
+        Assert.False(File.Exists(otherInvalid));
+        Assert.Contains("成功 2 个", center.Message);
     }
 
     [Fact]
-    public async Task DeleteFilteredInvalidCommand_WhenConfirmationIsCancelled_DoesNothing()
+    public async Task DeleteInvalidCommand_WhenConfirmationIsCancelled_DoesNothing()
     {
         await using var environment = await TestEnvironment.CreateAsync();
         var invalid = Path.Combine(environment.Paths.InboxDirectory, "diag_BAD01_2608111530.tgz");
@@ -156,7 +154,7 @@ public sealed class AnalysisCenterViewModelTests
 
         using var center = environment.CreateAnalysisCenter(confirmDeleteLifecycle: _ => false);
         await center.InitializeAsync();
-        center.DeleteFilteredInvalidCommand.Execute(null);
+        center.DeleteInvalidCommand.Execute(null);
         await Task.Delay(50);
 
         Assert.True(File.Exists(invalid));
@@ -164,7 +162,7 @@ public sealed class AnalysisCenterViewModelTests
     }
 
     [Fact]
-    public async Task DeleteFilteredInvalidCommand_WhenOneFileIsLocked_ContinuesAndReportsFailure()
+    public async Task DeleteInvalidCommand_WhenOneFileIsLocked_ContinuesAndReportsFailure()
     {
         await using var environment = await TestEnvironment.CreateAsync();
         var locked = Path.Combine(environment.Paths.InboxDirectory, "diag_BAD01_2608111530.tgz");
@@ -176,7 +174,7 @@ public sealed class AnalysisCenterViewModelTests
 
         using var center = environment.CreateAnalysisCenter();
         await center.InitializeAsync();
-        center.DeleteFilteredInvalidCommand.Execute(null);
+        center.DeleteInvalidCommand.Execute(null);
         await WaitUntilAsync(() => Task.FromResult(!File.Exists(deletable)
             && !center.IsBulkOperationActive
             && center.Message.Contains("失败 1 个", StringComparison.Ordinal)));
@@ -193,7 +191,7 @@ public sealed class AnalysisCenterViewModelTests
         var source = Path.Combine(environment.Root, "diag_DEVICE01_2608111530.tgz");
         var reportCase = CreateCase("case-report", source, Path.Combine(environment.Root, "diag_DEVICE01_2608111530"), CaseStatus.Completed, DateTime.Now);
         await environment.Cases.InsertAsync(reportCase);
-        var reportPath = environment.Paths.GetCaseReportDirectory(reportCase.Id);
+        var reportPath = environment.Paths.GetReportDirectory(reportCase.ExtractPath);
         Directory.CreateDirectory(reportPath);
         await File.WriteAllTextAsync(Path.Combine(reportPath, "report.html"), "<html>ok</html>");
         await environment.Reports.InsertAsync(new Report { Id = "report-row", CaseId = reportCase.Id, Path = reportPath, PluginId = "test-plugin", CreateTime = DateTime.Now });
@@ -220,7 +218,7 @@ public sealed class AnalysisCenterViewModelTests
         var oldCase = CreateCase("case-old-report", source, Path.Combine(environment.Root, "diag_DEVICE01_2608111530"), CaseStatus.Completed, DateTime.Now.AddMinutes(-1));
         await environment.Cases.InsertAsync(oldCase);
         await environment.Tasks.InsertAsync(CreateTask("task-old-report", oldCase.Id, AnalysisTaskStatus.Completed));
-        var oldReportPath = environment.Paths.GetCaseReportDirectory(oldCase.Id);
+        var oldReportPath = environment.Paths.GetReportDirectory(oldCase.ExtractPath);
         Directory.CreateDirectory(oldReportPath);
         await File.WriteAllTextAsync(Path.Combine(oldReportPath, "report.html"), "<html>old-report</html>");
         await environment.Reports.InsertAsync(new Report
@@ -384,7 +382,8 @@ public sealed class AnalysisCenterViewModelTests
             var reportService = new ReportService(Reports, Sessions, Analysis);
             var settings = new SettingsService(SettingsStore, Paths.InboxDirectory);
             var workspace = new ReportsWorkspaceViewModel(reportService, settings, _ => { }, _ => { }, Logger, _ => true);
-            return new AnalysisCenterViewModel(Inbox, Analysis, reportService, workspace, _ => { }, Logger, _ => true, confirmDeleteLifecycle ?? (_ => true));
+            var storage = new StorageService(Paths, Cases, Logger);
+            return new AnalysisCenterViewModel(Inbox, Analysis, reportService, storage, settings, workspace, _ => { }, Logger, confirmDeleteLifecycle ?? (_ => true));
         }
 
         public ValueTask DisposeAsync()

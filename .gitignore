@@ -4,6 +4,7 @@ publish/
 .dotnet/
 .dotnet-home/
 .nuget/
+.nuget-packages/
 .plugin-integration-test/
 插件/
 installer/.staging/

@@ -6,7 +6,7 @@ using Wpf = System.Windows;
 
 namespace HephaestusWorkbench.App.ViewModels;
 
-/// <summary>分析中心内的报告查看工作区，统一维护 Tab 上限和可恢复会话。</summary>
+/// <summary>分析中心内的报告查看工作区，仅维护当前进程中的临时 Tab。</summary>
 public sealed class ReportsWorkspaceViewModel : ViewModelBase, IDisposable
 {
     private readonly ReportService _reports;
@@ -15,10 +15,8 @@ public sealed class ReportsWorkspaceViewModel : ViewModelBase, IDisposable
     private readonly Func<string, bool> _confirmDelete;
     private readonly Action<string> _openExtractDirectory;
     private readonly Func<string, bool> _confirmCloseOldest;
-    private CancellationTokenSource? _saveCancellation;
     private ReportTabViewModel? _selectedTab;
     private bool _isLibraryVisible = true;
-    private bool _isRestoring;
 
     public ReportsWorkspaceViewModel(
         ReportService reports,
@@ -59,50 +57,14 @@ public sealed class ReportsWorkspaceViewModel : ViewModelBase, IDisposable
         set
         {
             if (!SetProperty(ref _selectedTab, value) || value is null) return;
-            value.LastOpenTime = DateTime.Now;
             IsLibraryVisible = false;
             ((DelegateCommand)OpenSelectedExtractDirectoryCommand).RaiseCanExecuteChanged();
-            ScheduleSave();
         }
     }
 
     public async Task InitializeAsync()
     {
         await RefreshLibraryAsync();
-        if (!await _settings.GetReportRestoreEnabledAsync()) return;
-        _isRestoring = true;
-        try
-        {
-            var maximum = await _settings.GetReportMaxTabsAsync();
-            var sessions = (await _reports.LoadSessionAsync()).OrderBy(x => x.OrderIndex).Take(maximum).ToArray();
-            foreach (var session in sessions)
-            {
-                var summary = await _reports.GetSummaryAsync(session.ReportId);
-                if (summary is null || !summary.IsAvailable)
-                {
-                    _logger.Error($"跳过无法恢复的报告：{session.ReportId}");
-                    continue;
-                }
-                var tab = CreateTab(summary, session.Id);
-                tab.ScrollPosition = session.ScrollPosition;
-                tab.LastOpenTime = session.LastOpenTime;
-                OpenTabs.Add(tab);
-                if (session.IsActive) _selectedTab = tab;
-            }
-            if (_selectedTab is null) _selectedTab = OpenTabs.LastOrDefault();
-            if (_selectedTab is not null)
-            {
-                OnPropertyChanged(nameof(SelectedTab));
-                IsLibraryVisible = false;
-            }
-            ((DelegateCommand)OpenSelectedExtractDirectoryCommand).RaiseCanExecuteChanged();
-            RaiseTabProperties();
-        }
-        finally
-        {
-            _isRestoring = false;
-            await SaveNowAsync();
-        }
     }
 
     /// <summary>刷新报告库，供分析中心在后台任务状态变化后同步最新报告。</summary>
@@ -152,7 +114,6 @@ public sealed class ReportsWorkspaceViewModel : ViewModelBase, IDisposable
         var index = OpenTabs.IndexOf(tab);
         if (index < 0) return;
         tab.RequestDispose();
-        tab.ScrollPositionChanged -= OnScrollPositionChanged;
         OpenTabs.RemoveAt(index);
         if (ReferenceEquals(SelectedTab, tab))
             SelectedTab = OpenTabs.Count == 0 ? null : OpenTabs[Math.Min(index, OpenTabs.Count - 1)];
@@ -164,7 +125,6 @@ public sealed class ReportsWorkspaceViewModel : ViewModelBase, IDisposable
         }
         ((DelegateCommand)OpenSelectedExtractDirectoryCommand).RaiseCanExecuteChanged();
         RaiseTabProperties();
-        ScheduleSave();
     }
 
     /// <summary>生命周期删除前关闭所有关联报告，确保 WebView2 不再占用即将删除的报告文件。</summary>
@@ -174,11 +134,9 @@ public sealed class ReportsWorkspaceViewModel : ViewModelBase, IDisposable
         foreach (var tab in OpenTabs.Where(x => ids.Contains(x.Report.CaseId)).ToArray()) CloseTab(tab);
     }
 
-    private ReportTabViewModel CreateTab(ReportSummary report, string? sessionId = null)
+    private ReportTabViewModel CreateTab(ReportSummary report)
     {
-        var tab = new ReportTabViewModel(report, sessionId);
-        tab.ScrollPositionChanged += OnScrollPositionChanged;
-        return tab;
+        return new ReportTabViewModel(report);
     }
 
     private void OpenSelectedExtractDirectory()
@@ -200,7 +158,6 @@ public sealed class ReportsWorkspaceViewModel : ViewModelBase, IDisposable
         try
         {
             await _reports.DeleteReportAndCaseAsync(report);
-            await SaveNowAsync();
         }
         catch (Exception ex)
         {
@@ -209,41 +166,7 @@ public sealed class ReportsWorkspaceViewModel : ViewModelBase, IDisposable
         }
     }
 
-    private void OnScrollPositionChanged(object? sender, EventArgs e) => ScheduleSave();
-
-    private void ScheduleSave()
-    {
-        if (_isRestoring) return;
-        _saveCancellation?.Cancel();
-        _saveCancellation?.Dispose();
-        _saveCancellation = new CancellationTokenSource();
-        _ = DelaySaveAsync(_saveCancellation.Token);
-    }
-
-    private async Task DelaySaveAsync(CancellationToken cancellationToken)
-    {
-        try
-        {
-            await Task.Delay(500, cancellationToken);
-            await SaveNowAsync(cancellationToken);
-        }
-        catch (OperationCanceledException) { }
-        catch (Exception ex) { _logger.Error("保存报告工作区失败", ex); }
-    }
-
-    public Task SaveNowAsync(CancellationToken cancellationToken = default)
-    {
-        var sessions = OpenTabs.Select((tab, index) => new ReportSession
-        {
-            Id = tab.SessionId,
-            ReportId = tab.Report.Id,
-            OrderIndex = index,
-            IsActive = ReferenceEquals(tab, SelectedTab),
-            ScrollPosition = tab.ScrollPosition,
-            LastOpenTime = tab.LastOpenTime
-        }).ToArray();
-        return _reports.SaveSessionAsync(sessions, cancellationToken);
-    }
+    public Task SaveNowAsync(CancellationToken cancellationToken = default) => Task.CompletedTask;
 
     private void RaiseTabProperties()
     {
@@ -253,8 +176,6 @@ public sealed class ReportsWorkspaceViewModel : ViewModelBase, IDisposable
 
     public void Dispose()
     {
-        _saveCancellation?.Cancel();
-        _saveCancellation?.Dispose();
         foreach (var tab in OpenTabs) tab.RequestDispose();
         Library.Dispose();
     }

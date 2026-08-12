@@ -47,10 +47,8 @@ dotnet publish .\src\HephaestusWorkbench.App\HephaestusWorkbench.App.csproj -c R
 Database/workbench.db
 Cases/<CaseId>/Source
 Cases/<CaseId>/Extract
-Cases/<CaseId>/Report
 Inbox
 Plugins
-Reports
 Logs
 Config
 Temp
@@ -96,7 +94,7 @@ SHA256SUMS.txt
 
 首页文件选择和拖放均为原地接管：工作台不会复制日志，插件在原文件旁生成同名解压目录；以后清理或删除案例时会删除原日志及该解压目录。执行删除前，确认框会显示实际绝对路径。
 
-完整日志浏览、异常日志、案例、任务历史和报告统一在“分析中心”管理；当前后台任务可从右上角任务面板查看和取消。默认最多同时打开 10 个报告。
+完整日志浏览、异常日志、案例、任务历史和报告统一在“分析中心”管理；报告生成在实际解压目录下的 `report` 子目录中，当前后台任务可从右上角任务面板查看和取消。默认最多同时打开 10 个报告，报告标签不会跨启动恢复。
 
 ## 说明
 

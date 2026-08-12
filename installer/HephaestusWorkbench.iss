@@ -12,21 +12,21 @@
 ; Inno Setup 再将完整的 self-contained 主程序压缩进一个标准离线安装包。
 [Setup]
 AppId={{3D79B409-48B0-48D0-81AC-B57784210F32}
-AppName=赫菲斯托斯工程工作台
+AppName=Hephaestus工作台
 AppVersion={#MyAppVersion}
-AppVerName=赫菲斯托斯工程工作台 {#MyAppVersion}
+AppVerName=Hephaestus工作台
 AppPublisher=thelinyue
 AppPublisherURL=https://github.com/thelinyue/Hephaestus-Workbench-Releases
 AppSupportURL=https://github.com/thelinyue/Hephaestus-Workbench-Releases/issues
 AppUpdatesURL=https://github.com/thelinyue/Hephaestus-Workbench-Releases/releases
 DefaultDirName={autopf}\HephaestusWorkbench
-DefaultGroupName=赫菲斯托斯工程工作台
+DefaultGroupName=Hephaestus工作台
 DisableProgramGroupPage=no
 LicenseFile=..\distribution\public\DISTRIBUTION-LICENSE.md
 OutputDir={#OutputDir}
 OutputBaseFilename=HephaestusWorkbench_Setup_v{#MyAppVersion}
 SetupIconFile=..\src\HephaestusWorkbench.App\Assets\AppIcon\app-icon.ico
-UninstallDisplayName=赫菲斯托斯工程工作台
+UninstallDisplayName=Hephaestus工作台
 UninstallDisplayIcon={app}\HephaestusWorkbench.exe
 Compression=lzma2/ultra64
 SolidCompression=yes
@@ -41,8 +41,8 @@ RestartApplications=no
 SetupLogging=yes
 VersionInfoVersion={#MyAppVersion}.0
 VersionInfoCompany=thelinyue
-VersionInfoDescription=赫菲斯托斯工程工作台安装程序
-VersionInfoProductName=赫菲斯托斯工程工作台
+VersionInfoDescription=Hephaestus工作台安装程序
+VersionInfoProductName=Hephaestus工作台
 VersionInfoProductVersion={#MyAppVersion}
 
 [Languages]
@@ -56,8 +56,8 @@ Name: "desktopicon"; Description: "创建桌面快捷方式"; GroupDescription: 
 Source: "{#AppSource}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 [Icons]
-Name: "{group}\赫菲斯托斯工程工作台"; Filename: "{app}\HephaestusWorkbench.exe"; WorkingDir: "{app}"
-Name: "{autodesktop}\赫菲斯托斯工程工作台"; Filename: "{app}\HephaestusWorkbench.exe"; WorkingDir: "{app}"; Tasks: desktopicon
+Name: "{group}\Hephaestus工作台"; Filename: "{app}\HephaestusWorkbench.exe"; WorkingDir: "{app}"
+Name: "{autodesktop}\Hephaestus工作台"; Filename: "{app}\HephaestusWorkbench.exe"; WorkingDir: "{app}"; Tasks: desktopicon
 
 [Run]
-Filename: "{app}\HephaestusWorkbench.exe"; Description: "启动赫菲斯托斯工程工作台"; Flags: nowait postinstall skipifsilent
+Filename: "{app}\HephaestusWorkbench.exe"; Description: "启动 Hephaestus工作台"; Flags: nowait postinstall skipifsilent

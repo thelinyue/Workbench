@@ -9,6 +9,9 @@ public sealed class InstallerDefinitionTests
 
         Assert.Contains("WizardStyle=modern", script);
         Assert.Contains("LicenseFile=", script);
+        Assert.Contains("AppName=Hephaestus工作台", script);
+        Assert.Contains("AppVerName=Hephaestus工作台", script);
+        Assert.Contains("VersionInfoProductName=Hephaestus工作台", script);
         Assert.Contains("OutputBaseFilename=HephaestusWorkbench_Setup_v{#MyAppVersion}", script);
         Assert.Contains("VersionInfoProductVersion={#MyAppVersion}", script);
         Assert.Contains("Source: \"{#AppSource}\\*\"", script);

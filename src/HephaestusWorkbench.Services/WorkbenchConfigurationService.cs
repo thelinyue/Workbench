@@ -190,6 +190,7 @@ public sealed class WorkbenchConfigurationService
                 ? AppSettingsConfig.LightTheme
                 : AppSettingsConfig.LightTheme;
         settings.MaxReportTabs = Math.Clamp(settings.MaxReportTabs, 1, 10);
+        settings.CleanupRetentionDays = Math.Clamp(settings.CleanupRetentionDays, 1, 7);
     }
 
     private static void NormalizePluginConfig(PluginConfig config)

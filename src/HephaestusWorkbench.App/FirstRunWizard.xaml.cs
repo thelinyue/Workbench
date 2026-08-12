@@ -28,7 +28,7 @@ public partial class FirstRunWizard : Window
 
     private void BrowseDataPath()
     {
-        using var dialog = CreateFolderDialog("请选择赫工数据目录", _viewModel.DataPath);
+        using var dialog = CreateFolderDialog("请选择 Hephaestus工作台数据目录", _viewModel.DataPath);
         if (dialog.ShowDialog() == Forms.DialogResult.OK) _viewModel.DataPath = dialog.SelectedPath;
     }
 
@@ -47,7 +47,7 @@ public partial class FirstRunWizard : Window
         }
         catch (Exception ex)
         {
-            System.Windows.MessageBox.Show($"无法打开插件目录：{ex.Message}", "赫工", MessageBoxButton.OK, MessageBoxImage.Error);
+            System.Windows.MessageBox.Show($"无法打开插件目录：{ex.Message}", "Hephaestus工作台", MessageBoxButton.OK, MessageBoxImage.Error);
         }
     }
 

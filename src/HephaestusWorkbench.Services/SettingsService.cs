@@ -113,6 +113,46 @@ public sealed class SettingsService
         await _store.SetAsync("report_max_tabs", value.ToString(), cancellationToken);
     }
 
+    public async Task<bool> GetManualCleanupEnabledAsync(CancellationToken cancellationToken = default)
+    {
+        if (_configuration is not null)
+            return (await _configuration.EnsureAppSettingsAsync(_store, cancellationToken)).ManualCleanupEnabled;
+
+        return bool.TryParse(await _store.GetAsync("manual_cleanup_enabled", cancellationToken), out var enabled) && enabled;
+    }
+
+    public async Task SetManualCleanupEnabledAsync(bool enabled, CancellationToken cancellationToken = default)
+    {
+        if (_configuration is not null)
+        {
+            var settings = await _configuration.EnsureAppSettingsAsync(_store, cancellationToken);
+            settings.ManualCleanupEnabled = enabled;
+            await _configuration.SaveAppSettingsAsync(settings, cancellationToken);
+        }
+        await _store.SetAsync("manual_cleanup_enabled", enabled.ToString(), cancellationToken);
+    }
+
+    public async Task<int> GetCleanupRetentionDaysAsync(CancellationToken cancellationToken = default)
+    {
+        if (_configuration is not null)
+            return (await _configuration.EnsureAppSettingsAsync(_store, cancellationToken)).CleanupRetentionDays;
+
+        var raw = await _store.GetAsync("cleanup_retention_days", cancellationToken);
+        return int.TryParse(raw, out var value) ? Math.Clamp(value, 1, 7) : 7;
+    }
+
+    public async Task SetCleanupRetentionDaysAsync(int value, CancellationToken cancellationToken = default)
+    {
+        if (value is < 1 or > 7) throw new ArgumentOutOfRangeException(nameof(value), "清理保留天数必须在 1 到 7 天之间。");
+        if (_configuration is not null)
+        {
+            var settings = await _configuration.EnsureAppSettingsAsync(_store, cancellationToken);
+            settings.CleanupRetentionDays = value;
+            await _configuration.SaveAppSettingsAsync(settings, cancellationToken);
+        }
+        await _store.SetAsync("cleanup_retention_days", value.ToString(), cancellationToken);
+    }
+
     /// <summary>
     /// 读取界面主题。新配置以 appsettings.json 为准，旧版键值仅作为兼容读取来源。
     /// </summary>

@@ -5,15 +5,33 @@ namespace HephaestusWorkbench.Tests;
 public sealed class AnalysisCenterXamlTests
 {
     [Fact]
-    public void CountButtons_UseContentStringFormatForChineseLabels()
+    public void TopActionRow_ContainsActionsAndNoLegacyFilters()
     {
         var document = LoadAnalysisCenterXaml();
         XNamespace presentation = "http://schemas.microsoft.com/winfx/2006/xaml/presentation";
-        var formats = document.Descendants(presentation + "Button")
+        var bindings = document.Descendants()
+            .Attributes()
+            .Select(attribute => attribute.Value)
+            .ToArray();
+
+        Assert.DoesNotContain(bindings, value => value.Contains("Keyword", StringComparison.Ordinal));
+        Assert.DoesNotContain(bindings, value => value.Contains("SelectedStatus", StringComparison.Ordinal));
+        Assert.DoesNotContain(bindings, value => value.Contains("SelectedPlugin", StringComparison.Ordinal));
+        Assert.DoesNotContain(bindings, value => value.Contains("StartDate", StringComparison.Ordinal));
+        Assert.DoesNotContain(bindings, value => value.Contains("EndDate", StringComparison.Ordinal));
+
+        var buttons = document.Descendants(presentation + "Button").ToArray();
+        Assert.Contains(buttons, element => (string?)element.Attribute("Command") == "{Binding AnalyzeAllPendingCommand}");
+        Assert.Contains(buttons, element => (string?)element.Attribute("Command") == "{Binding DeleteInvalidCommand}");
+        Assert.Contains(buttons, element => (string?)element.Attribute("Command") == "{Binding RefreshCommand}");
+        Assert.Contains(document.Descendants(presentation + "Grid"), grid =>
+            grid.Descendants(presentation + "Button").Any(button => (string?)button.Attribute("Command") == "{Binding AnalyzeAllPendingCommand}")
+            && grid.Descendants(presentation + "Button").Any(button => (string?)button.Attribute("Command") == "{Binding RefreshCommand}"));
+
+        var formats = buttons
             .Select(element => (string?)element.Attribute("ContentStringFormat"))
             .Where(value => value is not null)
             .ToArray();
-
         Assert.Contains("分析全部待分析（{0}）", formats);
         Assert.Contains("删除异常日志（{0}）", formats);
         Assert.Contains("{}{0} 次", formats);
@@ -54,7 +72,7 @@ public sealed class AnalysisCenterXamlTests
             .Select(value => value!)
             .ToArray();
 
-        Assert.Equal(2, commands.Length);
+        Assert.Single(commands);
         Assert.All(commands, command => Assert.Contains("ElementName=Root", command));
         Assert.DoesNotContain(commands, command => command.Contains("AncestorType=Menu", StringComparison.Ordinal));
     }

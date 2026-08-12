@@ -21,6 +21,7 @@ public sealed class DashboardViewModel : ViewModelBase, IDisposable
     private readonly Action<string> _openExtractDirectory;
     private readonly WorkbenchLogger _logger;
     private readonly SemaphoreSlim _loadLock = new(1, 1);
+    private readonly object _loadLifecycleSync = new();
     private readonly SemaphoreSlim _trackedTaskLock = new(1, 1);
     private string? _trackedTaskId;
     private string? _trackedCaseId;
@@ -30,6 +31,7 @@ public sealed class DashboardViewModel : ViewModelBase, IDisposable
     private bool _quickStatusIsError;
     private int _invalidInboxCount;
     private bool _disposed;
+    private int _pendingLoadOperations;
 
     public DashboardViewModel(
         CaseAnalysisService analysis,
@@ -186,10 +188,14 @@ public sealed class DashboardViewModel : ViewModelBase, IDisposable
 
     public async Task LoadAsync()
     {
+        lock (_loadLifecycleSync)
+        {
+            if (_disposed) return;
+            _pendingLoadOperations++;
+        }
         await _loadLock.WaitAsync();
         try
         {
-            if (_disposed) return;
             var cases = await _analysis.ListCasesAsync();
             var tasks = await _analysis.ListTasksAsync();
             var summary = await _storage.GetSummaryAsync();
@@ -215,6 +221,7 @@ public sealed class DashboardViewModel : ViewModelBase, IDisposable
         finally
         {
             _loadLock.Release();
+            Interlocked.Decrement(ref _pendingLoadOperations);
         }
     }
 
@@ -418,10 +425,14 @@ public sealed class DashboardViewModel : ViewModelBase, IDisposable
 
     public void Dispose()
     {
-        _disposed = true;
+        lock (_loadLifecycleSync) _disposed = true;
         _inbox.ConfigurationChanged -= OnConfigurationChanged;
         _inbox.ItemsChanged -= OnInboxItemsChanged;
         _analysis.StateChanged -= OnAnalysisStateChanged;
+        while (Volatile.Read(ref _pendingLoadOperations) > 0)
+            Thread.Sleep(10);
+        _loadLock.Dispose();
+        _trackedTaskLock.Dispose();
     }
 }
 

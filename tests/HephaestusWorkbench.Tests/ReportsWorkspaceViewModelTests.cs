@@ -27,7 +27,6 @@ public sealed class ReportsWorkspaceViewModelTests
             var taskCenter = new TaskCenter(tasks);
             var analysis = new CaseAnalysisService(paths, cases, tasks, reports, catalog, new LegacyLogAnalyzerRunner(logger), new StandardExePluginRunner(logger), taskCenter, logger);
             var settings = new SettingsService(settingsStore, paths.InboxDirectory);
-            await settings.SetReportRestoreEnabledAsync(false);
             await settings.SetReportMaxTabsAsync(10);
             var openedExtractPaths = new List<string>();
             using var workspace = new ReportsWorkspaceViewModel(new ReportService(reports, sessions, analysis), settings, _ => { }, openedExtractPaths.Add, logger, _ => true);
@@ -72,8 +71,7 @@ public sealed class ReportsWorkspaceViewModelTests
             var logger = new WorkbenchLogger(root);
             var analysis = new CaseAnalysisService(paths, cases, tasks, reports, new PluginCatalog(paths, logger), new LegacyLogAnalyzerRunner(logger), new StandardExePluginRunner(logger), new TaskCenter(tasks), logger);
             var settings = new SettingsService(settingsStore, paths.InboxDirectory);
-            await settings.SetReportRestoreEnabledAsync(false);
-            var reportPath = paths.GetCaseReportDirectory("case-report");
+            var reportPath = paths.GetReportDirectory(Path.Combine(root, "extract"));
             Directory.CreateDirectory(reportPath);
             await File.WriteAllTextAsync(Path.Combine(reportPath, "report.html"), "<html>ok</html>");
             await cases.InsertAsync(new AnalysisCase

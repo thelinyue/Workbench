@@ -7,7 +7,7 @@ namespace HephaestusWorkbench.Tests;
 public sealed class StorageServiceTests
 {
     [Fact]
-    public async Task CleanCaseDataAsync_RemovesOriginalArtifactsAndKeepsReport()
+    public async Task GetSummaryAsync_DoesNotDoubleCountReportInsideExtract()
     {
         var root = Path.Combine(Path.GetTempPath(), "HephaestusWorkbenchTests", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(root);
@@ -21,7 +21,7 @@ public sealed class StorageServiceTests
             var sourceDirectory = Path.Combine(root, "OriginalLogs");
             var sourcePath = Path.Combine(sourceDirectory, "diag_A_202608111200.tgz");
             var extractPath = Path.Combine(sourceDirectory, "diag_A_202608111200");
-            var reportPath = paths.GetCaseReportDirectory("case-1");
+            var reportPath = paths.GetReportDirectory(extractPath);
             Directory.CreateDirectory(sourceDirectory);
             Directory.CreateDirectory(extractPath);
             Directory.CreateDirectory(reportPath);
@@ -43,11 +43,11 @@ public sealed class StorageServiceTests
                 UpdateTime = now
             });
 
-            await new StorageService(paths, cases).CleanCaseDataAsync("case-1");
-
-            Assert.False(File.Exists(sourcePath));
-            Assert.False(Directory.Exists(extractPath));
-            Assert.True(File.Exists(Path.Combine(reportPath, "report.html")));
+            var summary = await new StorageService(paths, cases).GetSummaryAsync();
+            Assert.Equal(new FileInfo(sourcePath).Length, summary.LogBytes);
+            Assert.Equal(new FileInfo(Path.Combine(extractPath, "system.log")).Length, summary.ExtractBytes);
+            Assert.Equal(new FileInfo(Path.Combine(reportPath, "report.html")).Length, summary.ReportBytes);
+            Assert.Equal(summary.LogBytes + summary.ExtractBytes + summary.ReportBytes, summary.ReleasableBytes);
         }
         finally
         {
@@ -86,10 +86,12 @@ public sealed class StorageServiceTests
                 UpdateTime = now
             });
 
-            await Assert.ThrowsAsync<InvalidOperationException>(() => new StorageService(paths, cases).CleanCaseDataAsync("case-1"));
+            var service = new StorageService(paths, cases);
+            var summary = await service.GetSummaryAsync();
 
             Assert.True(File.Exists(sourcePath));
             Assert.True(Directory.Exists(sourceDirectory));
+            Assert.True(summary.LogBytes > 0);
         }
         finally
         {

@@ -24,8 +24,9 @@ public sealed class CaseAnalysisLifecycleTests
                 var item = Case(id, source, extract, CaseStatus.Completed);
                 await environment.Cases.InsertAsync(item);
                 await environment.Tasks.InsertAsync(Task(id, AnalysisTaskStatus.Completed));
-                Directory.CreateDirectory(environment.Paths.GetCaseReportDirectory(id));
-                await File.WriteAllTextAsync(Path.Combine(environment.Paths.GetCaseReportDirectory(id), "report.html"), "report");
+                var reportPath = environment.Paths.GetReportDirectory(extract);
+                Directory.CreateDirectory(reportPath);
+                await File.WriteAllTextAsync(Path.Combine(reportPath, "report.html"), "report");
             }
 
             await environment.Analysis.DeleteLifecycleAsync(source);
@@ -70,6 +71,43 @@ public sealed class CaseAnalysisLifecycleTests
         }
     }
 
+    [Fact]
+    public async Task CleanupExpiredAsync_DeletesExpiredCompletedLifecycle()
+    {
+        var environment = await CreateEnvironmentAsync();
+        try
+        {
+            var source = Path.Combine(environment.Root, "Inbox", "diag_DEVICE01_2608111530.tgz");
+            var extract = Path.Combine(environment.Root, "Inbox", "diag_DEVICE01_2608111530");
+            var reportPath = environment.Paths.GetReportDirectory(extract);
+            var old = DateTime.Now.AddDays(-8);
+            Directory.CreateDirectory(reportPath);
+            await File.WriteAllTextAsync(source, "source");
+            await File.WriteAllTextAsync(Path.Combine(extract, "extract.log"), "extract");
+            await File.WriteAllTextAsync(Path.Combine(reportPath, "report.html"), "report");
+            await environment.Cases.InsertAsync(new AnalysisCase
+            {
+                Id = "case-old", DisplayName = "case-old", OriginalName = Path.GetFileName(source), DeviceId = "DEVICE01",
+                LogTime = old, Status = CaseStatus.Completed, SourcePath = source, ExtractPath = extract,
+                ReportPath = reportPath, CreateTime = old, UpdateTime = old
+            });
+            await environment.Tasks.InsertAsync(Task("case-old", AnalysisTaskStatus.Completed));
+            await environment.Reports.InsertAsync(new Report { Id = "report-old", CaseId = "case-old", Path = Path.Combine(environment.Root, "Cases", "case-old", "Report"), CreateTime = old });
+
+            var result = await environment.Analysis.CleanupExpiredAsync(7);
+
+            Assert.Equal(1, result.Deleted);
+            Assert.False(File.Exists(source));
+            Assert.False(Directory.Exists(extract));
+            Assert.Null(await environment.Cases.GetAsync("case-old"));
+            Assert.Empty(await environment.Reports.ListAsync(new ReportQuery()));
+        }
+        finally
+        {
+            if (Directory.Exists(environment.Root)) Directory.Delete(environment.Root, recursive: true);
+        }
+    }
+
     private static async Task<TestEnvironment> CreateEnvironmentAsync()
     {
         var root = Path.Combine(Path.GetTempPath(), "HephaestusWorkbenchTests", Guid.NewGuid().ToString("N"));
@@ -81,7 +119,7 @@ public sealed class CaseAnalysisLifecycleTests
         var reports = new SqliteReportRepository(factory);
         var logger = new WorkbenchLogger(root);
         var analysis = new CaseAnalysisService(paths, cases, tasks, reports, new PluginCatalog(paths, logger), new LegacyLogAnalyzerRunner(logger), new StandardExePluginRunner(logger), new TaskCenter(tasks), logger);
-        return new TestEnvironment(root, paths, cases, tasks, analysis);
+        return new TestEnvironment(root, paths, cases, tasks, reports, analysis);
     }
 
     private static AnalysisCase Case(string id, string source, string extract, CaseStatus status) => new()
@@ -109,5 +147,5 @@ public sealed class CaseAnalysisLifecycleTests
         EndTime = status == AnalysisTaskStatus.Completed ? DateTime.Now : null
     };
 
-    private sealed record TestEnvironment(string Root, DataPaths Paths, SqliteCaseRepository Cases, SqliteTaskRepository Tasks, CaseAnalysisService Analysis);
+    private sealed record TestEnvironment(string Root, DataPaths Paths, SqliteCaseRepository Cases, SqliteTaskRepository Tasks, SqliteReportRepository Reports, CaseAnalysisService Analysis);
 }

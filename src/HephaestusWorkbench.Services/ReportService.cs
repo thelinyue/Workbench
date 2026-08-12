@@ -35,7 +35,13 @@ public sealed class ReportService
     public Task SaveSessionAsync(IReadOnlyList<ReportSession> sessions, CancellationToken cancellationToken = default)
         => _sessions.ReplaceAsync(sessions, cancellationToken);
 
-    /// <summary>产品约定：从报告中心删除报告等价于删除所属案例及其全部数据。</summary>
+    /// <summary>从报告中心删除报告等价于删除其源日志的完整生命周期。</summary>
     public Task DeleteReportAndCaseAsync(ReportSummary report, CancellationToken cancellationToken = default)
-        => _analysis.DeleteAsync(report.CaseId, cancellationToken);
+        => DeleteReportLifecycleAsync(report.CaseId, cancellationToken);
+
+    private async Task DeleteReportLifecycleAsync(string caseId, CancellationToken cancellationToken)
+    {
+        var item = await _analysis.GetCaseAsync(caseId, cancellationToken);
+        if (item is not null) await _analysis.DeleteLifecycleAsync(item.SourcePath, cancellationToken);
+    }
 }

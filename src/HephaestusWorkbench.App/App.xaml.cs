@@ -22,7 +22,7 @@ public partial class App : System.Windows.Application
             try { UninstallManager.Run(); }
             catch (Exception ex)
             {
-                System.Windows.MessageBox.Show($"卸载失败：{ex.Message}", "赫工", MessageBoxButton.OK, MessageBoxImage.Error);
+                System.Windows.MessageBox.Show($"卸载失败：{ex.Message}", "Hephaestus工作台", MessageBoxButton.OK, MessageBoxImage.Error);
             }
             Shutdown(0);
             return;
@@ -43,7 +43,7 @@ public partial class App : System.Windows.Application
         }
         catch (Exception ex)
         {
-            System.Windows.MessageBox.Show($"赫菲斯托斯工程工作台启动失败：{ex.Message}", "赫工", MessageBoxButton.OK, MessageBoxImage.Error);
+            System.Windows.MessageBox.Show($"Hephaestus工作台启动失败：{ex.Message}", "Hephaestus工作台", MessageBoxButton.OK, MessageBoxImage.Error);
             Shutdown(1);
         }
     }
@@ -184,7 +184,7 @@ internal sealed class WorkbenchHost : IDisposable
             Logger.Error($"检测到数据库损坏，旧数据库已备份到：{backup}", ex);
             var choice = System.Windows.MessageBox.Show(
                 $"数据库无法打开，已备份旧文件。\n\n是否创建新的数据库继续运行？\n\n备份：{backup}",
-                "赫工数据恢复",
+                "Hephaestus工作台数据恢复",
                 MessageBoxButton.YesNo,
                 MessageBoxImage.Warning,
                 MessageBoxResult.No);

@@ -61,9 +61,18 @@
                 <Border Style="{StaticResource CardStyle}">
                     <StackPanel>
                         <TextBlock Text="报告查看" Style="{StaticResource SectionTitleStyle}"/>
-                        <CheckBox Content="启动时恢复上次打开的报告" IsChecked="{Binding ReportRestoreEnabled}"/>
+                        <TextBlock Text="报告仅在当前运行期间保留，程序重启后不恢复报告标签。" Style="{StaticResource MutedTextStyle}" TextWrapping="Wrap"/>
                         <TextBlock Text="最大打开报告数量（1–10）" Style="{StaticResource MutedTextStyle}" Margin="0,10,0,5"/>
                         <TextBox Text="{Binding MaxOpenReports, UpdateSourceTrigger=PropertyChanged}" Width="100" HorizontalAlignment="Left"/>
+                    </StackPanel>
+                </Border>
+                <Border Style="{StaticResource CardStyle}" Margin="0,10,0,0">
+                    <StackPanel>
+                        <TextBlock Text="手动清理" Style="{StaticResource SectionTitleStyle}"/>
+                        <CheckBox Content="启用到期报告清理" IsChecked="{Binding CleanupEnabled}"/>
+                        <TextBlock Text="保留天数（1–7 天）" Style="{StaticResource MutedTextStyle}" Margin="0,10,0,5"/>
+                        <TextBox Text="{Binding CleanupRetentionDays, UpdateSourceTrigger=PropertyChanged}" Width="100" HorizontalAlignment="Left"/>
+                        <TextBlock Text="启用后可在分析中心手动清理到期报告，不会后台自动删除。" Style="{StaticResource MutedTextStyle}" TextWrapping="Wrap" Margin="0,8,0,0"/>
                     </StackPanel>
                 </Border>
             </StackPanel>
