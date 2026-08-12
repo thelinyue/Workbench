@@ -73,13 +73,13 @@ Config/workspace.json
 直接执行：
 
 ```powershell
-.\installer\build-installer.ps1 -Configuration Release -Version 1.1.2 -PluginBinaryPath '.\插件\log_analyzer.exe'
+.\installer\build-installer.ps1 -Configuration Release -Version 1.2.0 -PluginBinaryPath '.\插件\log_analyzer.exe'
 ```
 
 输出位于 `installer\dist`：
 
 ```text
-HephaestusWorkbench_Setup_v1.1.2.exe
+HephaestusWorkbench_Setup_v1.2.0.exe
 SHA256SUMS.txt
 log-analyzer-1.50-win-x64.zip
 ```
