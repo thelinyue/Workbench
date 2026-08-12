@@ -18,6 +18,22 @@ internal static class FileUtilities
     /// </summary>
     public static void DeleteCaseArtifacts(AnalysisCase item, DataPaths paths, bool deleteReport)
     {
+        var artifacts = ValidateCaseArtifacts(item, paths);
+        if (File.Exists(artifacts.SourcePath)) File.Delete(artifacts.SourcePath);
+        DeleteDirectoryIfExists(artifacts.ExtractPath);
+
+        if (deleteReport)
+        {
+            DeleteDirectoryIfExists(artifacts.CaseDirectory);
+        }
+    }
+
+    /// <summary>
+    /// 在执行任何删除前验证案例关联的全部路径。生命周期批量删除会先验证所有案例，
+    /// 避免某个异常记录导致操作已经删除部分数据后才失败。
+    /// </summary>
+    public static ValidatedCaseArtifacts ValidateCaseArtifacts(AnalysisCase item, DataPaths paths)
+    {
         var caseDirectory = Path.GetFullPath(paths.GetCaseDirectory(item.Id));
         if (!IsStrictChildPath(caseDirectory, paths.CasesDirectory))
             throw new InvalidOperationException("案例目录路径不安全，已拒绝删除。");
@@ -31,14 +47,8 @@ internal static class FileUtilities
 
         EnsureNotReparsePoint(sourcePath, "源文件");
         EnsureNotReparsePoint(extractPath, "解压目录");
-        if (File.Exists(sourcePath)) File.Delete(sourcePath);
-        DeleteDirectoryIfExists(extractPath);
-
-        if (deleteReport)
-        {
-            EnsureNotReparsePoint(caseDirectory, "案例目录");
-            DeleteDirectoryIfExists(caseDirectory);
-        }
+        EnsureNotReparsePoint(caseDirectory, "案例目录");
+        return new ValidatedCaseArtifacts(sourcePath, extractPath, caseDirectory);
     }
 
     private static string ValidateArtifactPath(string path, string description)
@@ -82,3 +92,5 @@ internal static class FileUtilities
 
     public static long GetFileSize(string path) => File.Exists(path) ? new FileInfo(path).Length : 0;
 }
+
+internal sealed record ValidatedCaseArtifacts(string SourcePath, string ExtractPath, string CaseDirectory);

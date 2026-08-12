@@ -16,6 +16,7 @@ public sealed class ReportsViewModel : ViewModelBase, IDisposable
     private readonly ReportService _reports;
     private readonly Func<ReportSummary, Task> _openReport;
     private readonly Action<string> _openCase;
+    private readonly Action<string> _openExtractDirectory;
     private readonly Func<ReportSummary, Task> _deleteReport;
     private CancellationTokenSource? _searchCancellation;
     private string _keyword = string.Empty;
@@ -25,16 +26,18 @@ public sealed class ReportsViewModel : ViewModelBase, IDisposable
     private DateTime? _endDate;
     private string _message = string.Empty;
 
-    public ReportsViewModel(ReportService reports, Func<ReportSummary, Task> openReport, Action<string> openCase, Func<ReportSummary, Task> deleteReport)
+    public ReportsViewModel(ReportService reports, Func<ReportSummary, Task> openReport, Action<string> openCase, Action<string> openExtractDirectory, Func<ReportSummary, Task> deleteReport)
     {
         _reports = reports;
         _openReport = openReport;
         _openCase = openCase;
+        _openExtractDirectory = openExtractDirectory;
         _deleteReport = deleteReport;
         RefreshCommand = new DelegateCommand(() => _ = LoadAsync());
         OpenCommand = new DelegateCommand(parameter => { if (parameter is ReportSummary item) _ = _openReport(item); });
         OpenCaseCommand = new DelegateCommand(parameter => { if (parameter is ReportSummary item) _openCase(item.CaseId); });
         OpenFolderCommand = new DelegateCommand(parameter => { if (parameter is ReportSummary item) OpenFolder(item); });
+        OpenExtractDirectoryCommand = new DelegateCommand(parameter => { if (parameter is ReportSummary item) _openExtractDirectory(item.ExtractPath); });
         DeleteCommand = new DelegateCommand(parameter => { if (parameter is ReportSummary item) _ = DeleteAsync(item); });
     }
 
@@ -44,6 +47,7 @@ public sealed class ReportsViewModel : ViewModelBase, IDisposable
     public ICommand OpenCommand { get; }
     public ICommand OpenCaseCommand { get; }
     public ICommand OpenFolderCommand { get; }
+    public ICommand OpenExtractDirectoryCommand { get; }
     public ICommand DeleteCommand { get; }
     public bool ShowEmptyState => Items.Count == 0;
     public string Message { get => _message; private set => SetProperty(ref _message, value); }

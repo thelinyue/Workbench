@@ -8,6 +8,7 @@ public sealed class ReportSummary
     public required string CaseName { get; init; }
     public required string DeviceId { get; init; }
     public required string Path { get; init; }
+    public required string ExtractPath { get; init; }
     public string? PluginId { get; init; }
     public string PluginName { get; init; } = "未知插件";
     public DateTime CreateTime { get; init; }

@@ -6,14 +6,14 @@ using Wpf = System.Windows;
 
 namespace HephaestusWorkbench.App.ViewModels;
 
-/// <summary>长生命周期报告工作区，统一维护报告库、Tab 上限和可恢复会话。</summary>
+/// <summary>分析中心内的报告查看工作区，统一维护 Tab 上限和可恢复会话。</summary>
 public sealed class ReportsWorkspaceViewModel : ViewModelBase, IDisposable
 {
     private readonly ReportService _reports;
     private readonly SettingsService _settings;
     private readonly WorkbenchLogger _logger;
+    private readonly Action<string> _openExtractDirectory;
     private readonly Func<string, bool> _confirmCloseOldest;
-    private readonly Func<string, bool> _confirmDelete;
     private CancellationTokenSource? _saveCancellation;
     private ReportTabViewModel? _selectedTab;
     private bool _isLibraryVisible = true;
@@ -22,28 +22,27 @@ public sealed class ReportsWorkspaceViewModel : ViewModelBase, IDisposable
     public ReportsWorkspaceViewModel(
         ReportService reports,
         SettingsService settings,
-        Action<string> openCase,
+        Action<string> openExtractDirectory,
         WorkbenchLogger logger,
-        Func<string, bool>? confirmCloseOldest = null,
-        Func<string, bool>? confirmDelete = null)
+        Func<string, bool>? confirmCloseOldest = null)
     {
         _reports = reports;
         _settings = settings;
         _logger = logger;
+        _openExtractDirectory = openExtractDirectory;
         _confirmCloseOldest = confirmCloseOldest ?? (message => Wpf.MessageBox.Show(message, "报告数量已达上限", Wpf.MessageBoxButton.YesNo, Wpf.MessageBoxImage.Question) == Wpf.MessageBoxResult.Yes);
-        _confirmDelete = confirmDelete ?? (message => Wpf.MessageBox.Show(message, "确认删除案例和报告", Wpf.MessageBoxButton.YesNo, Wpf.MessageBoxImage.Warning) == Wpf.MessageBoxResult.Yes);
-        Library = new ReportsViewModel(reports, OpenReportAsync, openCase, DeleteAsync);
         ShowLibraryCommand = new DelegateCommand(() => IsLibraryVisible = true);
         OpenTabCommand = new DelegateCommand(parameter => { if (parameter is ReportTabViewModel tab) SelectedTab = tab; });
         CloseTabCommand = new DelegateCommand(parameter => { if (parameter is ReportTabViewModel tab) CloseTab(tab); });
+        OpenSelectedExtractDirectoryCommand = new DelegateCommand(OpenSelectedExtractDirectory, () => SelectedTab is not null);
     }
 
-    public ReportsViewModel Library { get; }
     public WorkbenchLogger Logger => _logger;
     public ObservableCollection<ReportTabViewModel> OpenTabs { get; } = new();
     public ICommand ShowLibraryCommand { get; }
     public ICommand OpenTabCommand { get; }
     public ICommand CloseTabCommand { get; }
+    public ICommand OpenSelectedExtractDirectoryCommand { get; }
     public int OpenTabCount => OpenTabs.Count;
     public bool HasOpenTabs => OpenTabs.Count > 0;
     public bool IsLibraryVisible { get => _isLibraryVisible; set => SetProperty(ref _isLibraryVisible, value); }
@@ -55,13 +54,13 @@ public sealed class ReportsWorkspaceViewModel : ViewModelBase, IDisposable
             if (!SetProperty(ref _selectedTab, value) || value is null) return;
             value.LastOpenTime = DateTime.Now;
             IsLibraryVisible = false;
+            ((DelegateCommand)OpenSelectedExtractDirectoryCommand).RaiseCanExecuteChanged();
             ScheduleSave();
         }
     }
 
     public async Task InitializeAsync()
     {
-        await Library.LoadAsync();
         if (!await _settings.GetReportRestoreEnabledAsync()) return;
         _isRestoring = true;
         try
@@ -88,6 +87,7 @@ public sealed class ReportsWorkspaceViewModel : ViewModelBase, IDisposable
                 OnPropertyChanged(nameof(SelectedTab));
                 IsLibraryVisible = false;
             }
+            ((DelegateCommand)OpenSelectedExtractDirectoryCommand).RaiseCanExecuteChanged();
             RaiseTabProperties();
         }
         finally
@@ -150,8 +150,16 @@ public sealed class ReportsWorkspaceViewModel : ViewModelBase, IDisposable
             OnPropertyChanged(nameof(SelectedTab));
             IsLibraryVisible = true;
         }
+        ((DelegateCommand)OpenSelectedExtractDirectoryCommand).RaiseCanExecuteChanged();
         RaiseTabProperties();
         ScheduleSave();
+    }
+
+    /// <summary>生命周期删除前关闭所有关联报告，确保 WebView2 不再占用即将删除的报告文件。</summary>
+    public void CloseCaseTabs(IEnumerable<string> caseIds)
+    {
+        var ids = caseIds.ToHashSet(StringComparer.OrdinalIgnoreCase);
+        foreach (var tab in OpenTabs.Where(x => ids.Contains(x.Report.CaseId)).ToArray()) CloseTab(tab);
     }
 
     private ReportTabViewModel CreateTab(ReportSummary report, string? sessionId = null)
@@ -161,27 +169,9 @@ public sealed class ReportsWorkspaceViewModel : ViewModelBase, IDisposable
         return tab;
     }
 
-    private async Task DeleteAsync(ReportSummary report)
+    private void OpenSelectedExtractDirectory()
     {
-        var analysisCase = await _reports.GetCaseAsync(report.CaseId);
-        var artifactDetails = analysisCase is null
-            ? "无法读取原始日志和解压目录路径，请谨慎确认。"
-            : $"原始日志：{analysisCase.SourcePath}\n解压目录：{analysisCase.ExtractPath}";
-        var message = $"报告“{report.CaseName}”属于分析案例。\n\n{artifactDetails}\n\n"
-            + "继续将删除该案例、报告、原始日志和解压目录，此操作不可恢复。";
-        if (!_confirmDelete(message)) return;
-        foreach (var tab in OpenTabs.Where(x => x.Report.CaseId == report.CaseId).ToArray()) CloseTab(tab);
-        await Wpf.Application.Current.Dispatcher.InvokeAsync(() => { }, Wpf.Threading.DispatcherPriority.ApplicationIdle);
-        try
-        {
-            await _reports.DeleteReportAndCaseAsync(report);
-            await SaveNowAsync();
-        }
-        catch (Exception ex)
-        {
-            _logger.Error("删除报告和案例失败", ex);
-            Wpf.MessageBox.Show($"删除失败：{ex.Message}", "删除失败", Wpf.MessageBoxButton.OK, Wpf.MessageBoxImage.Error);
-        }
+        if (SelectedTab is not null) _openExtractDirectory(SelectedTab.Report.ExtractPath);
     }
 
     private void OnScrollPositionChanged(object? sender, EventArgs e) => ScheduleSave();
@@ -231,6 +221,5 @@ public sealed class ReportsWorkspaceViewModel : ViewModelBase, IDisposable
         _saveCancellation?.Cancel();
         _saveCancellation?.Dispose();
         foreach (var tab in OpenTabs) tab.RequestDispose();
-        Library.Dispose();
     }
 }

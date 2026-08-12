@@ -9,5 +9,11 @@ public partial class MainWindow : Window
     {
         InitializeComponent();
         DataContext = viewModel;
+        PreviewKeyDown += (_, args) =>
+        {
+            if (args.Key != System.Windows.Input.Key.Escape || !viewModel.TaskPanel.IsOpen) return;
+            viewModel.TaskPanel.CloseCommand.Execute(null);
+            args.Handled = true;
+        };
     }
 }

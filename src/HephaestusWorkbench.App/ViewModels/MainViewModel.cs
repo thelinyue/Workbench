@@ -9,72 +9,63 @@ namespace HephaestusWorkbench.App.ViewModels;
 /// <summary>工作台 Shell 模型，负责顶层导航和全局运行状态，不承载页面业务。</summary>
 public sealed class MainViewModel : ViewModelBase, IDisposable
 {
-    private readonly CaseAnalysisService _analysis;
     private readonly LogInboxService _inbox;
-    private readonly StorageService _storage;
     private readonly PluginCatalog _plugins;
+    private readonly DirectoryOpenService _directoryOpen;
     private object? _currentPage;
     private NavigationItem? _selectedNavigationItem;
-    private string _activityStatus = "就绪";
-    private string _pluginStatus = "插件：检查中";
-    private string _storageStatus = "存储：计算中";
+    private string _globalWarningText = string.Empty;
 
     public MainViewModel(CaseAnalysisService analysis, LogInboxService inbox, StorageService storage, SettingsService settings, PluginCatalog plugins, PluginMarketplaceService marketplace, ReportService reports, WorkbenchLogger logger, Func<string, string?> applyTheme)
     {
-        _analysis = analysis;
         _inbox = inbox;
-        _storage = storage;
         _plugins = plugins;
+        _directoryOpen = new DirectoryOpenService(logger);
         NavigationItems = new ObservableCollection<NavigationItem>
         {
             new("dashboard", "首页", "\uE80F"),
-            new("inbox", "日志收件箱", "\uE896"),
-            new("cases", "案例", "\uE8B7"),
-            new("reports", "报告", "\uE8A5"),
-            new("tasks", "任务", "\uE768"),
+            new("analysis", "分析中心", "\uE896"),
             new("plugins", "插件", "\uECAA"),
             new("storage", "存储", "\uEDA2"),
             new("settings", "设置", "\uE713")
         };
-        Reports = new ReportsWorkspaceViewModel(reports, settings, OpenCase, logger);
-        OpenSettingsCommand = new DelegateCommand(OpenSettings);
+        var reportWorkspace = new ReportsWorkspaceViewModel(reports, settings, OpenExtractDirectory, logger);
+        AnalysisCenter = new AnalysisCenterViewModel(inbox, analysis, reports, reportWorkspace, OpenExtractDirectory, logger);
+        TaskPanel = new TaskPanelViewModel(analysis, OpenCase);
+        OpenGlobalWarningCommand = new DelegateCommand(() => SelectNavigation("plugins"));
         Dashboard = new DashboardViewModel(
             analysis,
             storage,
             inbox,
-            () => SelectNavigation("inbox"),
-            () => SelectNavigation("cases"),
+            () => SelectNavigation("analysis"),
+            () => SelectNavigation("analysis"),
             OpenSettings,
             OpenQuickReportAsync,
+            OpenExtractDirectory,
             logger);
-        Inbox = new InboxViewModel(inbox, analysis);
-        Cases = new CasesViewModel(analysis, NavigateToReport);
-        Tasks = new TasksViewModel(analysis);
         Storage = new StorageViewModel(storage, analysis);
-        Settings = new SettingsViewModel(settings, inbox, () => Reports.OpenTabCount, applyTheme);
+        Settings = new SettingsViewModel(settings, inbox, () => AnalysisCenter.Reports.OpenTabCount, applyTheme);
         Plugins = new MarketplacePluginsViewModel(plugins, marketplace, logger);
         _selectedNavigationItem = NavigationItems[0];
         _currentPage = Dashboard;
         UpdateStatusMessage();
         _inbox.ConfigurationChanged += OnConfigurationChanged;
-        _analysis.StateChanged += OnAnalysisStateChanged;
+        AnalysisCenter.Reports.PropertyChanged += OnReportWorkspacePropertyChanged;
+        Plugins.StateChanged += OnPluginStateChanged;
         logger.MessageWritten += OnLogMessage;
     }
 
     public ObservableCollection<NavigationItem> NavigationItems { get; }
     public DashboardViewModel Dashboard { get; }
-    public InboxViewModel Inbox { get; }
-    public CasesViewModel Cases { get; }
-    public ReportsWorkspaceViewModel Reports { get; }
-    public TasksViewModel Tasks { get; }
+    public AnalysisCenterViewModel AnalysisCenter { get; }
+    public TaskPanelViewModel TaskPanel { get; }
     public StorageViewModel Storage { get; }
     public SettingsViewModel Settings { get; }
     public MarketplacePluginsViewModel Plugins { get; }
-    public string ActivityStatus { get => _activityStatus; private set => SetProperty(ref _activityStatus, value); }
-    public string PluginStatus { get => _pluginStatus; private set => SetProperty(ref _pluginStatus, value); }
-    public string StorageStatus { get => _storageStatus; private set => SetProperty(ref _storageStatus, value); }
+    public string GlobalWarningText { get => _globalWarningText; private set { if (SetProperty(ref _globalWarningText, value)) OnPropertyChanged(nameof(HasGlobalWarning)); } }
+    public bool HasGlobalWarning => !string.IsNullOrWhiteSpace(GlobalWarningText);
     public string StatusMessage { get; private set; } = string.Empty;
-    public ICommand OpenSettingsCommand { get; }
+    public ICommand OpenGlobalWarningCommand { get; }
 
     public NavigationItem? SelectedNavigationItem
     {
@@ -84,10 +75,7 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
             if (!SetProperty(ref _selectedNavigationItem, value) || value is null) return;
             CurrentPage = value.Key switch
             {
-                "inbox" => Inbox,
-                "cases" => Cases,
-                "reports" => Reports,
-                "tasks" => Tasks,
+                "analysis" => AnalysisCenter,
                 "storage" => Storage,
                 "plugins" => Plugins,
                 "settings" => Settings,
@@ -96,55 +84,67 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
         }
     }
 
-    public object? CurrentPage { get => _currentPage; private set { if (SetProperty(ref _currentPage, value)) OnPropertyChanged(nameof(PageTitle)); } }
+    public object? CurrentPage
+    {
+        get => _currentPage;
+        private set
+        {
+            if (!SetProperty(ref _currentPage, value)) return;
+            OnPropertyChanged(nameof(PageTitle));
+            OnPropertyChanged(nameof(PageContext));
+        }
+    }
     public string PageTitle => SelectedNavigationItem?.Title ?? "赫菲斯托斯工程工作台";
+    public string PageContext => SelectedNavigationItem?.Key == "analysis" && !AnalysisCenter.Reports.IsLibraryVisible && AnalysisCenter.Reports.SelectedTab is not null
+        ? $"· {AnalysisCenter.Reports.SelectedTab.Title}"
+        : string.Empty;
 
     public async Task InitializeAsync()
     {
-        await Reports.InitializeAsync();
-        await RefreshHeaderAsync();
-    }
-
-    private void NavigateToReport(string caseId, string path)
-    {
-        SelectedNavigationItem = NavigationItems.First(x => x.Key == "reports");
-        _ = Reports.OpenCaseReportAsync(caseId);
+        await AnalysisCenter.InitializeAsync();
+        await TaskPanel.LoadAsync();
+        await RefreshGlobalWarningAsync();
     }
 
     private async Task<bool> OpenQuickReportAsync(string caseId)
     {
-        var opened = await Reports.OpenCaseReportAsync(caseId);
-        if (opened) SelectedNavigationItem = NavigationItems.First(x => x.Key == "reports");
+        var opened = await AnalysisCenter.OpenCaseReportAsync(caseId);
+        if (opened) SelectedNavigationItem = NavigationItems.First(x => x.Key == "analysis");
         return opened;
     }
 
     private void OpenCase(string caseId)
     {
-        SelectedNavigationItem = NavigationItems.First(x => x.Key == "cases");
-        _ = Cases.SelectCaseAsync(caseId);
+        SelectedNavigationItem = NavigationItems.First(x => x.Key == "analysis");
+        _ = AnalysisCenter.SelectCaseAsync(caseId);
     }
 
     private void OpenSettings() => SelectedNavigationItem = NavigationItems.First(x => x.Key == "settings");
     private void SelectNavigation(string key) => SelectedNavigationItem = NavigationItems.First(x => x.Key == key);
 
-    private void OnConfigurationChanged(object? sender, EventArgs e) => RunOnUi(UpdateStatusMessage);
-    private void OnAnalysisStateChanged(object? sender, EventArgs e) => RunOnUi(() => _ = RefreshHeaderAsync());
-    private void OnLogMessage(object? sender, string message) => RunOnUi(() => { StatusMessage = message; OnPropertyChanged(nameof(StatusMessage)); });
+    private void OpenExtractDirectory(string path)
+    {
+        var result = _directoryOpen.OpenExtractDirectory(path);
+        if (!result.Succeeded)
+            Wpf.MessageBox.Show(result.ErrorMessage ?? "无法打开解压目录。", "无法打开解压目录", Wpf.MessageBoxButton.OK, Wpf.MessageBoxImage.Information);
+    }
 
-    private async Task RefreshHeaderAsync()
+    private void OnConfigurationChanged(object? sender, EventArgs e) => RunOnUi(UpdateStatusMessage);
+    private void OnLogMessage(object? sender, string message) => RunOnUi(() => { StatusMessage = message; OnPropertyChanged(nameof(StatusMessage)); });
+    private void OnPluginStateChanged(object? sender, EventArgs e) => RunOnUi(() => _ = RefreshGlobalWarningAsync());
+    private void OnReportWorkspacePropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName is nameof(ReportsWorkspaceViewModel.SelectedTab) or nameof(ReportsWorkspaceViewModel.IsLibraryVisible))
+            RunOnUi(() => OnPropertyChanged(nameof(PageContext)));
+    }
+
+    private async Task RefreshGlobalWarningAsync()
     {
         try
         {
-            var tasks = await _analysis.ListTasksAsync();
-            var cases = await _analysis.ListCasesAsync();
-            var current = tasks.FirstOrDefault(x => x.Status is HephaestusWorkbench.Core.Models.TaskStatus.Running or HephaestusWorkbench.Core.Models.TaskStatus.Waiting);
-            var currentCase = current is null ? null : cases.FirstOrDefault(x => x.Id == current.CaseId);
-            ActivityStatus = current is null ? "就绪" : current.Status == HephaestusWorkbench.Core.Models.TaskStatus.Running ? $"正在分析：{currentCase?.DisplayName ?? current.CaseId}" : $"等待分析：{currentCase?.DisplayName ?? current.CaseId}";
-            PluginStatus = $"插件：{(await _plugins.ScanAsync()).Count} 个可用";
-            var summary = await _storage.GetSummaryAsync();
-            StorageStatus = $"存储：{ViewModelFormatting.Size(summary.TotalBytes)}";
+            GlobalWarningText = (await _plugins.ScanAsync()).Count == 0 ? "没有可用的日志分析插件" : string.Empty;
         }
-        catch { ActivityStatus = "状态暂不可用"; }
+        catch (Exception ex) { GlobalWarningText = $"读取插件状态失败：{ex.Message}"; }
     }
 
     private void UpdateStatusMessage()
@@ -163,8 +163,10 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
     public void Dispose()
     {
         _inbox.ConfigurationChanged -= OnConfigurationChanged;
-        _analysis.StateChanged -= OnAnalysisStateChanged;
+        AnalysisCenter.Reports.PropertyChanged -= OnReportWorkspacePropertyChanged;
+        Plugins.StateChanged -= OnPluginStateChanged;
         Dashboard.Dispose();
-        Reports.Dispose();
+        TaskPanel.Dispose();
+        AnalysisCenter.Dispose();
     }
 }

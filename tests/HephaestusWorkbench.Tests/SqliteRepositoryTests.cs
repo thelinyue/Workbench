@@ -82,6 +82,7 @@ public sealed class SqliteRepositoryTests
             var filtered = await reports.ListAsync(new ReportQuery("客户A", "EC661", "network", now.Date, now.Date));
             Assert.Single(filtered);
             Assert.True(filtered[0].IsAvailable);
+            Assert.Equal("extract", filtered[0].ExtractPath);
             Assert.Equal("Network Analyzer", filtered[0].PluginName);
 
             await sessions.ReplaceAsync(new[] { new ReportSession { Id = "session-1", ReportId = "report-1", OrderIndex = 0, IsActive = true, ScrollPosition = 321.5, LastOpenTime = now } });

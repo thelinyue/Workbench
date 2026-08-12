@@ -10,17 +10,20 @@ public sealed class CasesViewModel : ViewModelBase
 {
     private readonly CaseAnalysisService _analysis;
     private readonly Action<string, string> _openReport;
+    private readonly Action<string> _openExtractDirectory;
     private AnalysisCase? _selectedCase;
     private string _newName = string.Empty;
 
-    public CasesViewModel(CaseAnalysisService analysis, Action<string, string> openReport)
+    public CasesViewModel(CaseAnalysisService analysis, Action<string, string> openReport, Action<string> openExtractDirectory)
     {
         _analysis = analysis;
         _openReport = openReport;
+        _openExtractDirectory = openExtractDirectory;
         RefreshCommand = new DelegateCommand(() => _ = LoadAsync());
         RenameCommand = new DelegateCommand(() => _ = RenameAsync(), () => SelectedCase is not null && !string.IsNullOrWhiteSpace(NewName));
         DeleteCommand = new DelegateCommand(() => _ = DeleteAsync(), () => SelectedCase is not null);
         OpenReportCommand = new DelegateCommand(() => OpenReport(), () => SelectedCase?.Status == CaseStatus.Completed && !string.IsNullOrWhiteSpace(SelectedCase.ReportPath));
+        OpenExtractDirectoryCommand = new DelegateCommand(() => OpenExtractDirectory(), () => SelectedCase is not null);
         _ = LoadAsync();
     }
 
@@ -44,6 +47,7 @@ public sealed class CasesViewModel : ViewModelBase
     public ICommand RenameCommand { get; }
     public ICommand DeleteCommand { get; }
     public ICommand OpenReportCommand { get; }
+    public ICommand OpenExtractDirectoryCommand { get; }
     public bool ShowEmptyState => Items.Count == 0;
 
     public async Task LoadAsync()
@@ -89,10 +93,16 @@ public sealed class CasesViewModel : ViewModelBase
         if (SelectedCase is { ReportPath: not null } item) _openReport(item.Id, item.ReportPath);
     }
 
+    private void OpenExtractDirectory()
+    {
+        if (SelectedCase is not null) _openExtractDirectory(SelectedCase.ExtractPath);
+    }
+
     private void RaiseCommands()
     {
         ((DelegateCommand)RenameCommand).RaiseCanExecuteChanged();
         ((DelegateCommand)DeleteCommand).RaiseCanExecuteChanged();
         ((DelegateCommand)OpenReportCommand).RaiseCanExecuteChanged();
+        ((DelegateCommand)OpenExtractDirectoryCommand).RaiseCanExecuteChanged();
     }
 }

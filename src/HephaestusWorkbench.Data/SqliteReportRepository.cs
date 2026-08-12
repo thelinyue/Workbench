@@ -74,7 +74,7 @@ public sealed class SqliteReportRepository : IReportRepository
         }
 
         command.CommandText = $"""
-            SELECT r.id, r.case_id, c.display_name, c.device_id, r.path, r.plugin_id,
+            SELECT r.id, r.case_id, c.display_name, c.device_id, r.path, c.extract_path, r.plugin_id,
                    COALESCE(p.name, r.plugin_id, '未知插件'), r.create_time
             FROM reports r
             INNER JOIN analysis_cases c ON c.id = r.case_id
@@ -94,9 +94,10 @@ public sealed class SqliteReportRepository : IReportRepository
                 CaseName = reader.GetString(2),
                 DeviceId = reader.GetString(3),
                 Path = path,
-                PluginId = reader.IsDBNull(5) ? null : reader.GetString(5),
-                PluginName = reader.GetString(6),
-                CreateTime = SqliteValue.ParseDate(reader.GetValue(7)),
+                ExtractPath = reader.GetString(5),
+                PluginId = reader.IsDBNull(6) ? null : reader.GetString(6),
+                PluginName = reader.GetString(7),
+                CreateTime = SqliteValue.ParseDate(reader.GetValue(8)),
                 IsAvailable = File.Exists(Path.Combine(path, "report.html"))
             });
         }

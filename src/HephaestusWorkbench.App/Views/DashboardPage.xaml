@@ -81,7 +81,10 @@
                                         <StackPanel Grid.Column="1" Margin="16,0,0,0"><TextBlock Text="设备" Style="{StaticResource MutedTextStyle}"/><TextBlock Text="{Binding DeviceId}" Margin="0,3,0,0"/></StackPanel>
                                         <StackPanel Grid.Column="2" Margin="16,0,0,0"><TextBlock Text="日志时间" Style="{StaticResource MutedTextStyle}"/><TextBlock Text="{Binding LogTime, StringFormat={}{0:MM-dd HH:mm}}" Margin="0,3,0,0"/><TextBlock Text="{Binding FileSizeText}" Style="{StaticResource MutedTextStyle}" Margin="0,2,0,0"/></StackPanel>
                                         <Border Grid.Column="3" Background="{Binding State, Converter={StaticResource StatusBrushConverter}}" CornerRadius="10" Padding="8,3" HorizontalAlignment="Left" VerticalAlignment="Center"><TextBlock Text="{Binding StatusText}" FontSize="12"/></Border>
-                                        <Button Grid.Column="4" Content="{Binding ActionText}" Command="{Binding PrimaryCommand}" Style="{StaticResource PrimaryButtonStyle}" MinWidth="84" VerticalAlignment="Center" Margin="8,0,0,0"/>
+                                        <WrapPanel Grid.Column="4" VerticalAlignment="Center" Margin="8,0,0,0">
+                                            <Button Content="{Binding ActionText}" Command="{Binding PrimaryCommand}" Style="{StaticResource PrimaryButtonStyle}" MinWidth="84" Margin="0"/>
+                                            <Button Content="解压目录" Command="{Binding OpenExtractDirectoryCommand}" Margin="6,0,0,0" Visibility="{Binding HasExtractDirectory, Converter={StaticResource BooleanToVisibilityConverter}}"/>
+                                        </WrapPanel>
                                     </Grid>
                                 </Border>
                             </DataTemplate>

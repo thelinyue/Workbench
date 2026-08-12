@@ -6,7 +6,8 @@
         <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
         <Border Style="{StaticResource CardStyle}" Padding="8" Margin="0,0,0,10" Visibility="{Binding HasOpenTabs, Converter={StaticResource BooleanToVisibilityConverter}}">
             <DockPanel>
-                <Button DockPanel.Dock="Left" Content="报告库" Command="{Binding ShowLibraryCommand}" Margin="0,0,8,0"/>
+                <Button DockPanel.Dock="Left" Content="分析列表" Command="{Binding ShowLibraryCommand}" Margin="0,0,8,0" ToolTip="返回分析中心列表"/>
+                <Button DockPanel.Dock="Right" Content="打开解压目录" Command="{Binding OpenSelectedExtractDirectoryCommand}" Margin="8,0,0,0" Visibility="{Binding IsLibraryVisible, Converter={StaticResource InverseBooleanToVisibilityConverter}}"/>
                 <ItemsControl ItemsSource="{Binding OpenTabs}">
                     <ItemsControl.ItemsPanel><ItemsPanelTemplate><StackPanel Orientation="Horizontal"/></ItemsPanelTemplate></ItemsControl.ItemsPanel>
                     <ItemsControl.ItemTemplate><DataTemplate>
@@ -49,7 +50,8 @@
                                 <WrapPanel Grid.Column="3" VerticalAlignment="Center">
                                     <Button Content="打开" Style="{StaticResource PrimaryButtonStyle}" Command="{Binding DataContext.OpenCommand, RelativeSource={RelativeSource AncestorType=ListBox}}" CommandParameter="{Binding}"/>
                                     <Button Content="案例" Command="{Binding DataContext.OpenCaseCommand, RelativeSource={RelativeSource AncestorType=ListBox}}" CommandParameter="{Binding}"/>
-                                    <Button Content="位置" Command="{Binding DataContext.OpenFolderCommand, RelativeSource={RelativeSource AncestorType=ListBox}}" CommandParameter="{Binding}"/>
+                                    <Button Content="报告位置" Command="{Binding DataContext.OpenFolderCommand, RelativeSource={RelativeSource AncestorType=ListBox}}" CommandParameter="{Binding}"/>
+                                    <Button Content="解压目录" Command="{Binding DataContext.OpenExtractDirectoryCommand, RelativeSource={RelativeSource AncestorType=ListBox}}" CommandParameter="{Binding}"/>
                                     <Button Content="删除" Style="{StaticResource DangerButtonStyle}" Command="{Binding DataContext.DeleteCommand, RelativeSource={RelativeSource AncestorType=ListBox}}" CommandParameter="{Binding}" Margin="0"/>
                                 </WrapPanel>
                             </Grid>

@@ -5,24 +5,62 @@
         WindowStartupLocation="CenterScreen"
         Icon="Assets/AppIcon/app-icon.ico">
     <Grid Background="{DynamicResource WorkbenchBackgroundBrush}">
-        <Grid.RowDefinitions><RowDefinition Height="56"/><RowDefinition Height="*"/><RowDefinition Height="24"/></Grid.RowDefinitions>
+        <Grid.RowDefinitions><RowDefinition Height="44"/><RowDefinition Height="*"/><RowDefinition Height="24"/></Grid.RowDefinitions>
         <Grid.ColumnDefinitions><ColumnDefinition Width="220"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
 
         <Border Grid.Row="0" Grid.ColumnSpan="2" Background="{DynamicResource WorkbenchSurfaceBrush}" BorderBrush="{DynamicResource WorkbenchBorderBrush}" BorderThickness="0,0,0,1">
-            <Grid Margin="16,0">
-                <Grid.ColumnDefinitions><ColumnDefinition Width="300"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
-                <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
-                    <Border Width="28" Height="28" Background="{DynamicResource WorkbenchPrimaryBrush}" CornerRadius="3" Margin="0,0,10,0"><TextBlock Text="赫工" Foreground="{DynamicResource WorkbenchOnPrimaryBrush}" FontSize="11" FontWeight="Bold" HorizontalAlignment="Center" VerticalAlignment="Center"/></Border>
-                    <StackPanel><TextBlock Text="赫菲斯托斯工程工作台" FontSize="16" FontWeight="SemiBold"/><TextBlock Text="Hephaestus Workbench · 日志分析工作台" Style="{StaticResource MutedTextStyle}"/></StackPanel>
+            <Grid Margin="20,0,12,0">
+                <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                <StackPanel Orientation="Horizontal" VerticalAlignment="Center" MinWidth="0">
+                    <TextBlock Text="{Binding PageTitle}" FontSize="17" FontWeight="SemiBold" VerticalAlignment="Center"/>
+                    <TextBlock Text="{Binding PageContext}" Style="{StaticResource MutedTextStyle}" FontSize="13" Margin="7,1,0,0" VerticalAlignment="Center"/>
                 </StackPanel>
-                <StackPanel Grid.Column="1" Orientation="Horizontal" HorizontalAlignment="Center" VerticalAlignment="Center">
-                    <Ellipse Width="8" Height="8" Fill="{DynamicResource WorkbenchAccentBrush}" Margin="0,0,8,0"/>
-                    <TextBlock Text="{Binding ActivityStatus}" VerticalAlignment="Center"/>
-                </StackPanel>
-                <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center">
-                    <TextBlock Text="{Binding PluginStatus}" Style="{StaticResource MutedTextStyle}" VerticalAlignment="Center" Margin="0,0,16,0"/>
-                    <TextBlock Text="{Binding StorageStatus}" Style="{StaticResource MutedTextStyle}" VerticalAlignment="Center" Margin="0,0,12,0"/>
-                    <Button Command="{Binding OpenSettingsCommand}" Padding="8,5" Margin="0" ToolTip="设置"><TextBlock Text="&#xE713;" FontFamily="Segoe Fluent Icons"/></Button>
+                <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+                    <Button Content="&#xEA8F;" FontFamily="Segoe Fluent Icons" Command="{Binding OpenGlobalWarningCommand}" ToolTip="{Binding GlobalWarningText}" AutomationProperties.Name="全局异常提醒" Padding="9,6" Margin="0,0,6,0" Visibility="{Binding HasGlobalWarning, Converter={StaticResource BooleanToVisibilityConverter}}" Foreground="{DynamicResource WorkbenchWarningBrush}"/>
+                    <Button x:Name="TaskButton" Command="{Binding TaskPanel.ToggleCommand}" ToolTip="{Binding TaskPanel.ButtonToolTip}" AutomationProperties.Name="后台任务" Padding="9,5" Margin="0">
+                        <Grid>
+                            <TextBlock Text="&#xE768;" FontFamily="Segoe Fluent Icons" FontSize="16" VerticalAlignment="Center"/>
+                            <Border Background="{DynamicResource WorkbenchDangerBrush}" CornerRadius="8" MinWidth="16" Height="16" Padding="3,0" HorizontalAlignment="Right" VerticalAlignment="Top" Margin="12,-7,-8,0" Visibility="{Binding TaskPanel.HasActiveTasks, Converter={StaticResource BooleanToVisibilityConverter}}">
+                                <TextBlock Text="{Binding TaskPanel.ActiveTaskCount}" Foreground="White" FontSize="10" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                            </Border>
+                        </Grid>
+                    </Button>
+                    <Popup PlacementTarget="{Binding ElementName=TaskButton}" Placement="Bottom" HorizontalOffset="-330" VerticalOffset="4" AllowsTransparency="True" StaysOpen="False" DataContext="{Binding TaskPanel}" IsOpen="{Binding IsOpen, Mode=TwoWay}">
+                        <Border Width="380" MaxHeight="520" Background="{DynamicResource WorkbenchSurfaceBrush}" BorderBrush="{DynamicResource WorkbenchBorderBrush}" BorderThickness="1" CornerRadius="4" Padding="12">
+                            <Grid>
+                                <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
+                                <DockPanel Margin="0,0,0,10">
+                                    <Button DockPanel.Dock="Right" Content="刷新" Command="{Binding RefreshCommand}" Padding="8,4" Margin="8,0,0,0"/>
+                                    <StackPanel><TextBlock Text="后台任务" FontSize="16" FontWeight="SemiBold"/><TextBlock Text="活动任务与最近结果" Style="{StaticResource MutedTextStyle}" Margin="0,3,0,0"/></StackPanel>
+                                </DockPanel>
+                                <Grid Grid.Row="1">
+                                    <ScrollViewer VerticalScrollBarVisibility="Auto">
+                                        <ItemsControl ItemsSource="{Binding Items}">
+                                            <ItemsControl.ItemTemplate><DataTemplate>
+                                                <Border BorderBrush="{DynamicResource WorkbenchBorderBrush}" BorderThickness="0,0,0,1" Padding="0,9">
+                                                    <Grid>
+                                                        <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                                                        <Button Command="{Binding DataContext.OpenTaskCommand, RelativeSource={RelativeSource AncestorType=ItemsControl}}" CommandParameter="{Binding}" Background="Transparent" BorderThickness="0" Padding="0" HorizontalContentAlignment="Left">
+                                                            <StackPanel>
+                                                                <TextBlock Text="{Binding CaseName}" FontWeight="SemiBold"/>
+                                                                <StackPanel Orientation="Horizontal" Margin="0,4,0,0"><TextBlock Text="{Binding PluginId}" Style="{StaticResource MutedTextStyle}"/><TextBlock Text=" · " Style="{StaticResource MutedTextStyle}"/><TextBlock Text="{Binding TimeText}" Style="{StaticResource MutedTextStyle}"/></StackPanel>
+                                                                <TextBlock Text="{Binding ErrorMessage}" Foreground="{DynamicResource WorkbenchDangerBrush}" FontSize="12" TextWrapping="Wrap" Margin="0,4,8,0" Visibility="{Binding HasError, Converter={StaticResource BooleanToVisibilityConverter}}"/>
+                                                            </StackPanel>
+                                                        </Button>
+                                                        <StackPanel Grid.Column="1" HorizontalAlignment="Right">
+                                                            <Border Background="{Binding StatusValue, Converter={StaticResource StatusBrushConverter}}" CornerRadius="10" Padding="8,3"><TextBlock Text="{Binding StatusValue, Converter={StaticResource StatusTextConverter}}" FontSize="12"/></Border>
+                                                            <Button Content="取消" Command="{Binding DataContext.CancelTaskCommand, RelativeSource={RelativeSource AncestorType=ItemsControl}}" CommandParameter="{Binding}" Padding="7,3" Margin="0,5,0,0" Visibility="{Binding IsActive, Converter={StaticResource BooleanToVisibilityConverter}}"/>
+                                                        </StackPanel>
+                                                    </Grid>
+                                                </Border>
+                                            </DataTemplate></ItemsControl.ItemTemplate>
+                                        </ItemsControl>
+                                    </ScrollViewer>
+                                    <TextBlock Text="暂无后台任务" Style="{StaticResource MutedTextStyle}" HorizontalAlignment="Center" Margin="0,24" Visibility="{Binding ShowEmptyState, Converter={StaticResource BooleanToVisibilityConverter}}"/>
+                                </Grid>
+                            </Grid>
+                        </Border>
+                    </Popup>
                 </StackPanel>
             </Grid>
         </Border>
@@ -40,13 +78,11 @@
         </Border>
 
         <Grid Grid.Row="1" Grid.Column="1" Margin="20,16,20,16">
-            <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
-            <TextBlock Text="{Binding PageTitle}" FontSize="20" FontWeight="SemiBold" Margin="0,0,0,14"/>
-            <ContentControl Grid.Row="1" Content="{Binding CurrentPage}"/>
+            <ContentControl Content="{Binding CurrentPage}"/>
         </Grid>
 
-        <Border Grid.Row="2" Grid.ColumnSpan="2" Background="{DynamicResource WorkbenchPrimaryBrush}" Padding="8,0">
-            <DockPanel><TextBlock Text="赫工 · Hephaestus Workbench" Foreground="{DynamicResource WorkbenchOnPrimaryBrush}" FontSize="12" VerticalAlignment="Center"/><TextBlock DockPanel.Dock="Right" Text="{Binding StatusMessage}" Foreground="{DynamicResource WorkbenchOnPrimaryBrush}" FontSize="12" VerticalAlignment="Center"/></DockPanel>
+        <Border Grid.Row="2" Grid.ColumnSpan="2" Background="{DynamicResource WorkbenchSurfaceAltBrush}" BorderBrush="{DynamicResource WorkbenchBorderBrush}" BorderThickness="0,1,0,0" Padding="10,0">
+            <TextBlock Text="{Binding StatusMessage}" ToolTip="{Binding StatusMessage}" Foreground="{DynamicResource WorkbenchMutedTextBrush}" FontSize="12" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
         </Border>
     </Grid>
 </Window>

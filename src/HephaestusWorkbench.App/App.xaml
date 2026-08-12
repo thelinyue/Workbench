@@ -13,9 +13,7 @@
         <local:StatusTextConverter x:Key="StatusTextConverter" xmlns:local="clr-namespace:HephaestusWorkbench.App" />
         <local:StatusBrushConverter x:Key="StatusBrushConverter" xmlns:local="clr-namespace:HephaestusWorkbench.App" />
         <DataTemplate DataType="{x:Type vm:DashboardViewModel}"><views:DashboardPage /></DataTemplate>
-        <DataTemplate DataType="{x:Type vm:InboxViewModel}"><views:InboxPage /></DataTemplate>
-        <DataTemplate DataType="{x:Type vm:CasesViewModel}"><views:CasesPage /></DataTemplate>
-        <DataTemplate DataType="{x:Type vm:TasksViewModel}"><views:TasksPage /></DataTemplate>
+        <DataTemplate DataType="{x:Type vm:AnalysisCenterViewModel}"><views:AnalysisCenterPage /></DataTemplate>
         <DataTemplate DataType="{x:Type vm:StorageViewModel}"><views:StoragePage /></DataTemplate>
         <DataTemplate DataType="{x:Type vm:SettingsViewModel}"><views:SettingsPage /></DataTemplate>
         <DataTemplate DataType="{x:Type vm:MarketplacePluginsViewModel}"><views:MarketplacePluginsPage /></DataTemplate>

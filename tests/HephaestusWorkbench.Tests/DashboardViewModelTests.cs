@@ -21,10 +21,13 @@ public sealed class DashboardViewModelTests
         var completedCase = AnalysisCase("case-completed", item, CaseStatus.Completed, "report");
         var failedCase = AnalysisCase("case-failed", item, CaseStatus.Failed, error: "插件执行失败");
 
-        var fresh = new HomeLogItemViewModel(item, null, null, _ => Task.CompletedTask);
-        var running = new HomeLogItemViewModel(item, runningCase, AnalysisTask("task-running", runningCase.Id, AnalysisTaskStatus.Running), _ => Task.CompletedTask);
-        var completed = new HomeLogItemViewModel(item, completedCase, AnalysisTask("task-completed", completedCase.Id, AnalysisTaskStatus.Completed), _ => Task.CompletedTask);
-        var failed = new HomeLogItemViewModel(item, failedCase, AnalysisTask("task-failed", failedCase.Id, AnalysisTaskStatus.Failed, "规则执行失败"), _ => Task.CompletedTask);
+        Directory.CreateDirectory(completedCase.ExtractPath);
+        string? openedExtractPath = null;
+        Action<string> openExtractDirectory = path => openedExtractPath = path;
+        var fresh = new HomeLogItemViewModel(item, null, null, _ => Task.CompletedTask, openExtractDirectory);
+        var running = new HomeLogItemViewModel(item, runningCase, AnalysisTask("task-running", runningCase.Id, AnalysisTaskStatus.Running), _ => Task.CompletedTask, openExtractDirectory);
+        var completed = new HomeLogItemViewModel(item, completedCase, AnalysisTask("task-completed", completedCase.Id, AnalysisTaskStatus.Completed), _ => Task.CompletedTask, openExtractDirectory);
+        var failed = new HomeLogItemViewModel(item, failedCase, AnalysisTask("task-failed", failedCase.Id, AnalysisTaskStatus.Failed, "规则执行失败"), _ => Task.CompletedTask, openExtractDirectory);
 
         Assert.Equal("分析并查看", fresh.ActionText);
         Assert.True(fresh.CanAnalyze);
@@ -32,8 +35,13 @@ public sealed class DashboardViewModelTests
         Assert.False(running.CanAnalyze);
         Assert.Equal("查看报告", completed.ActionText);
         Assert.True(completed.CanOpenReport);
+        Assert.True(completed.HasExtractDirectory);
+        completed.OpenExtractDirectoryCommand.Execute(null);
+        Assert.Equal(completedCase.ExtractPath, openedExtractPath);
         Assert.Equal("重新分析", failed.ActionText);
         Assert.Equal("规则执行失败", failed.DetailMessage);
+        var caseRoot = Path.GetDirectoryName(item.FilePath)!;
+        if (Directory.Exists(caseRoot)) Directory.Delete(caseRoot, recursive: true);
     }
 
     [Fact]
@@ -93,7 +101,7 @@ public sealed class DashboardViewModelTests
 
     private static LogInboxItem InboxItem(string fileName) => new()
     {
-        FilePath = Path.Combine(Path.GetTempPath(), fileName),
+        FilePath = Path.Combine(Path.GetTempPath(), "HephaestusWorkbenchTests", Guid.NewGuid().ToString("N"), fileName),
         FileName = fileName,
         DeviceId = "DEVICE01",
         LogTime = new DateTime(2026, 8, 11, 15, 30, 0),
@@ -189,7 +197,7 @@ public sealed class DashboardViewModelTests
         }
 
         public DashboardViewModel CreateDashboard(Func<string, Task<bool>> openReport)
-            => new(Analysis, Storage, Inbox, () => { }, () => { }, () => { }, openReport, Logger);
+            => new(Analysis, Storage, Inbox, () => { }, () => { }, () => { }, openReport, _ => { }, Logger);
 
         public ValueTask DisposeAsync()
         {

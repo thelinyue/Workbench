@@ -76,6 +76,7 @@ public sealed class MarketplacePluginsViewModel : ViewModelBase
     public bool ShowIssues => Issues.Count > 0;
     public bool ShowInstalledEmpty => InstalledItems.Count == 0;
     public bool ShowOnlineEmpty => OnlineItems.Count == 0;
+    public event EventHandler? StateChanged;
 
     private async Task LoadAsync()
     {
@@ -152,6 +153,7 @@ public sealed class MarketplacePluginsViewModel : ViewModelBase
         OnPropertyChanged(nameof(ShowIssues));
         OnPropertyChanged(nameof(ShowInstalledEmpty));
         OnPropertyChanged(nameof(ShowOnlineEmpty));
+        StateChanged?.Invoke(this, EventArgs.Empty);
     }
 
     private void RaiseCommandStates()

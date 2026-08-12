@@ -18,6 +18,7 @@ public sealed class DashboardViewModel : ViewModelBase, IDisposable
     private readonly StorageService _storage;
     private readonly LogInboxService _inbox;
     private readonly Func<string, Task<bool>> _openReport;
+    private readonly Action<string> _openExtractDirectory;
     private readonly WorkbenchLogger _logger;
     private readonly SemaphoreSlim _loadLock = new(1, 1);
     private readonly SemaphoreSlim _trackedTaskLock = new(1, 1);
@@ -38,12 +39,14 @@ public sealed class DashboardViewModel : ViewModelBase, IDisposable
         Action openCases,
         Action openSettings,
         Func<string, Task<bool>> openReport,
+        Action<string> openExtractDirectory,
         WorkbenchLogger logger)
     {
         _analysis = analysis;
         _storage = storage;
         _inbox = inbox;
         _openReport = openReport;
+        _openExtractDirectory = openExtractDirectory;
         _logger = logger;
         OpenSettingsCommand = new DelegateCommand(openSettings);
         OpenInboxCommand = new DelegateCommand(openInbox);
@@ -152,7 +155,7 @@ public sealed class DashboardViewModel : ViewModelBase, IDisposable
                 else
                 {
                     _logger.Error($"打开所选日志的已有报告失败：案例 {existingCase.Id}，日志 {inspection.Item.FilePath}");
-                    SetQuickStatus("已有报告不存在或无法打开，请到案例页面查看详情。", isError: true);
+                    SetQuickStatus("已有报告不存在或无法打开，请到分析中心查看详情。", isError: true);
                 }
                 return;
             }
@@ -222,7 +225,7 @@ public sealed class DashboardViewModel : ViewModelBase, IDisposable
         {
             var latestCase = cases.FirstOrDefault(x => PathsEqual(x.SourcePath, inboxItem.FilePath));
             var latestTask = latestCase is null ? null : tasks.FirstOrDefault(x => x.CaseId == latestCase.Id);
-            var row = new HomeLogItemViewModel(inboxItem, latestCase, latestTask, ExecuteRecentLogAsync);
+            var row = new HomeLogItemViewModel(inboxItem, latestCase, latestTask, ExecuteRecentLogAsync, _openExtractDirectory);
             row.SetQuickAnalysisAvailable(!IsQuickAnalysisActive);
             RecentLogs.Add(row);
         }
@@ -243,7 +246,7 @@ public sealed class DashboardViewModel : ViewModelBase, IDisposable
                 }
                 else
                 {
-                    var message = "对应报告不存在或无法打开，请到案例页面查看详情。";
+                    var message = "对应报告不存在或无法打开，请到分析中心查看详情。";
                     _logger.Error($"首页打开已有报告失败：案例 {row.CaseId}，日志 {row.Item.FilePath}");
                     SetQuickStatus(message, isError: true);
                 }
@@ -300,7 +303,7 @@ public sealed class DashboardViewModel : ViewModelBase, IDisposable
             {
                 _trackedTaskId = null;
                 _trackedCaseId = null;
-                FinishQuickAnalysis("快捷分析任务不存在，请到任务页面查看详情。", isError: true);
+                FinishQuickAnalysis("快捷分析任务不存在，请到右上角任务面板查看详情。", isError: true);
                 return;
             }
 
@@ -337,7 +340,7 @@ public sealed class DashboardViewModel : ViewModelBase, IDisposable
                     }
                     else
                     {
-                        var message = "分析已完成，但报告不存在或无法打开，请到案例页面查看详情。";
+                        var message = "分析已完成，但报告不存在或无法打开，请到分析中心查看详情。";
                         _logger.Error($"快捷分析完成后打开报告失败：案例 {caseId}");
                         SetQuickStatus(message, isError: true);
                     }
@@ -436,10 +439,13 @@ public sealed class HomeLogItemViewModel
         LogInboxItem item,
         AnalysisCase? latestCase,
         AnalysisTask? latestTask,
-        Func<HomeLogItemViewModel, Task> execute)
+        Func<HomeLogItemViewModel, Task> execute,
+        Action<string> openExtractDirectory)
     {
         Item = item;
         CaseId = latestCase?.Id;
+        ExtractPath = latestCase?.ExtractPath;
+        HasExtractDirectory = !string.IsNullOrWhiteSpace(ExtractPath) && Directory.Exists(ExtractPath);
         var taskStatus = latestTask?.Status;
         State = (object?)taskStatus ?? latestCase?.Status;
         CanOpenReport = latestCase?.Status == CaseStatus.Completed && !string.IsNullOrWhiteSpace(latestCase.ReportPath);
@@ -475,6 +481,10 @@ public sealed class HomeLogItemViewModel
         _hasOperation = CanAnalyze || CanOpenReport;
         _primaryCommand = new DelegateCommand(() => _ = execute(this), () => _quickAnalysisAvailable && _hasOperation);
         PrimaryCommand = _primaryCommand;
+        OpenExtractDirectoryCommand = new DelegateCommand(() =>
+        {
+            if (ExtractPath is not null) openExtractDirectory(ExtractPath);
+        });
     }
 
     public LogInboxItem Item { get; }
@@ -483,6 +493,8 @@ public sealed class HomeLogItemViewModel
     public DateTime LogTime => Item.LogTime;
     public string FileSizeText => Item.FileSizeText;
     public string? CaseId { get; }
+    public string? ExtractPath { get; }
+    public bool HasExtractDirectory { get; }
     public object? State { get; }
     public string StatusText { get; }
     public string DetailMessage { get; }
@@ -491,6 +503,7 @@ public sealed class HomeLogItemViewModel
     public bool CanOpenReport { get; }
     public string ActionText { get; }
     public ICommand PrimaryCommand { get; }
+    public ICommand OpenExtractDirectoryCommand { get; }
 
     public void SetQuickAnalysisAvailable(bool available)
     {

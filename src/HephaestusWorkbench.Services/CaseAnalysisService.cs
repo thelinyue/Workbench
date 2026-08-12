@@ -164,6 +164,51 @@ public sealed class CaseAnalysisService
         StateChanged?.Invoke(this, EventArgs.Empty);
     }
 
+    /// <summary>
+    /// 删除同一源日志形成的完整生命周期。所有关联案例路径会在真正删除前统一校验，
+    /// 并且只要存在等待或运行中的任务就拒绝执行，防止插件仍在读写时破坏数据。
+    /// </summary>
+    public async Task DeleteLifecycleAsync(string sourcePath, CancellationToken cancellationToken = default)
+    {
+        var normalizedSourcePath = NormalizePath(sourcePath);
+        var cases = (await _cases.ListAsync(cancellationToken))
+            .Where(x => string.Equals(NormalizePath(x.SourcePath), normalizedSourcePath, StringComparison.OrdinalIgnoreCase))
+            .ToArray();
+        if (cases.Length == 0) return;
+
+        var caseIds = cases.Select(x => x.Id).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var hasActiveTask = (await _tasks.ListAsync(cancellationToken)).Any(x => caseIds.Contains(x.CaseId)
+            && x.Status is AnalysisTaskStatus.Waiting or AnalysisTaskStatus.Running);
+        if (hasActiveTask)
+            throw new InvalidOperationException("该日志仍有等待或运行中的分析任务，无法删除全部数据。");
+
+        // 必须先完成整组校验，之后才允许产生任何文件系统副作用。
+        foreach (var item in cases) FileUtilities.ValidateCaseArtifacts(item, _paths);
+
+        try
+        {
+            foreach (var item in cases)
+            {
+                FileUtilities.DeleteCaseArtifacts(item, _paths, deleteReport: true);
+                await _cases.DeleteAsync(item.Id, cancellationToken);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.Error($"删除日志完整生命周期失败：{normalizedSourcePath}", ex);
+            throw new InvalidOperationException($"删除日志完整生命周期失败：{ex.Message}", ex);
+        }
+
+        _logger.Info($"删除完成：日志完整生命周期，共 {cases.Length} 个案例，{normalizedSourcePath}");
+        StateChanged?.Invoke(this, EventArgs.Empty);
+    }
+
+    private static string NormalizePath(string path)
+    {
+        if (string.IsNullOrWhiteSpace(path)) throw new ArgumentException("源日志路径不能为空。", nameof(path));
+        return Path.GetFullPath(path.Trim());
+    }
+
     private async Task RunAsync(AnalysisCase analysisCase, AnalysisTask task, PluginManifest plugin, CancellationToken cancellationToken)
     {
         task.Status = AnalysisTaskStatus.Running;
