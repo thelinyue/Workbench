@@ -10,7 +10,9 @@ namespace HephaestusWorkbench.App;
 public sealed class InverseBooleanToVisibilityConverter : IValueConverter
 {
     public object Convert(object value, Type targetType, object parameter, CultureInfo culture)
-        => value is true ? Visibility.Collapsed : Visibility.Visible;
+        // 只有明确的 false 才显示。绑定失败产生的 UnsetValue 必须保持折叠，
+        // 否则覆盖层会在数据上下文错误时永久遮挡主界面。
+        => value is bool actual && !actual ? Visibility.Visible : Visibility.Collapsed;
     public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture) => System.Windows.Data.Binding.DoNothing;
 }
 

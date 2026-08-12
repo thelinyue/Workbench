@@ -23,12 +23,13 @@
         <Style x:Key="MoreMenuItemStyle" TargetType="MenuItem">
             <Setter Property="Foreground" Value="{DynamicResource WorkbenchTextBrush}"/>
             <Setter Property="Background" Value="{DynamicResource WorkbenchSurfaceAltBrush}"/>
+            <Setter Property="FontFamily" Value="Segoe UI"/>
             <Setter Property="Padding" Value="8,5"/>
         </Style>
     </UserControl.Resources>
 
     <Grid>
-        <Grid Visibility="{Binding Reports.IsLibraryVisible, Converter={StaticResource BooleanToVisibilityConverter}}">
+        <Grid x:Name="AnalysisListHost" Visibility="{Binding Reports.IsLibraryVisible, Converter={StaticResource BooleanToVisibilityConverter}}">
             <Grid.RowDefinitions>
                 <RowDefinition Height="Auto"/>
                 <RowDefinition Height="*"/>
@@ -73,10 +74,12 @@
 
                     <DockPanel Margin="0,2,0,0">
                         <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
-                            <Button Content="{Binding BulkEligibleCount, StringFormat=分析全部待分析（{0}）}"
+                            <Button Content="{Binding BulkEligibleCount}"
+                                    ContentStringFormat="分析全部待分析（{0}）"
                                     Style="{StaticResource PrimaryButtonStyle}"
                                     Command="{Binding AnalyzeAllPendingCommand}"/>
-                            <Button Content="{Binding InvalidDeleteCount, StringFormat=删除异常日志（{0}）}"
+                            <Button Content="{Binding InvalidDeleteCount}"
+                                    ContentStringFormat="删除异常日志（{0}）"
                                     Style="{StaticResource DangerButtonStyle}"
                                     Command="{Binding DeleteFilteredInvalidCommand}"
                                     Margin="0"/>
@@ -150,7 +153,8 @@
                                             </StackPanel>
 
                                             <Button Grid.Column="3"
-                                                    Content="{Binding Attempts.Count, StringFormat={}{0} 次}"
+                                                    Content="{Binding Attempts.Count}"
+                                                    ContentStringFormat="{}{0} 次"
                                                     Style="{StaticResource CompactButtonStyle}"
                                                     Command="{Binding DataContext.ToggleHistoryCommand, ElementName=Root}"
                                                     CommandParameter="{Binding}"
@@ -167,12 +171,15 @@
                                                         Command="{Binding DataContext.OpenExtractDirectoryCommand, ElementName=Root}"
                                                         CommandParameter="{Binding}"/>
                                                 <Menu Style="{StaticResource MoreMenuStyle}" ToolTip="更多操作">
-                                                    <MenuItem Header="&#xE712;" FontFamily="Segoe Fluent Icons" Style="{StaticResource MoreMenuItemStyle}">
+                                                    <MenuItem Style="{StaticResource MoreMenuItemStyle}">
+                                                        <MenuItem.Header>
+                                                            <TextBlock Text="&#xE712;" FontFamily="Segoe Fluent Icons"/>
+                                                        </MenuItem.Header>
                                                         <MenuItem Header="{Binding SingleAnalysisText}" Command="{Binding DataContext.AnalyzeSingleCommand, RelativeSource={RelativeSource AncestorType=Menu}}" CommandParameter="{Binding}"/>
                                                         <Separator/>
                                                         <MenuItem Header="报告位置" Command="{Binding DataContext.OpenReportFolderCommand, RelativeSource={RelativeSource AncestorType=Menu}}" CommandParameter="{Binding}"/>
-                                                        <MenuItem Header="仅删除原始日志" Command="{Binding DataContext.DeleteSourceCommand, RelativeSource={RelativeSource AncestorType=Menu}}" CommandParameter="{Binding}"/>
-                                                        <MenuItem Header="删除全部数据" Foreground="{DynamicResource WorkbenchDangerBrush}" Command="{Binding DataContext.DeleteLifecycleCommand, RelativeSource={RelativeSource AncestorType=Menu}}" CommandParameter="{Binding}"/>
+                                                        <MenuItem Header="仅删除原始日志" Command="{Binding DataContext.DeleteSourceCommand, ElementName=Root}" CommandParameter="{Binding}"/>
+                                                        <MenuItem Header="删除全部数据" Foreground="{DynamicResource WorkbenchDangerBrush}" Command="{Binding DataContext.DeleteLifecycleCommand, ElementName=Root}" CommandParameter="{Binding}"/>
                                                     </MenuItem>
                                                 </Menu>
                                             </StackPanel>
@@ -214,7 +221,10 @@
                                                                     <StackPanel Grid.Column="3" Orientation="Horizontal" VerticalAlignment="Center">
                                                                         <Button Content="打开报告" Style="{StaticResource CompactPrimaryButtonStyle}" Command="{Binding DataContext.OpenAttemptReportCommand, ElementName=Root}" CommandParameter="{Binding}"/>
                                                                         <Menu Style="{StaticResource MoreMenuStyle}" ToolTip="更多操作">
-                                                                            <MenuItem Header="&#xE712;" FontFamily="Segoe Fluent Icons" Style="{StaticResource MoreMenuItemStyle}">
+                                                                            <MenuItem Style="{StaticResource MoreMenuItemStyle}">
+                                                                                <MenuItem.Header>
+                                                                                    <TextBlock Text="&#xE712;" FontFamily="Segoe Fluent Icons"/>
+                                                                                </MenuItem.Header>
                                                                                 <MenuItem Header="重命名" Command="{Binding DataContext.BeginRenameCommand, RelativeSource={RelativeSource AncestorType=Menu}}" CommandParameter="{Binding}"/>
                                                                                 <MenuItem Header="打开解压目录" Command="{Binding DataContext.OpenExtractDirectoryCommand, RelativeSource={RelativeSource AncestorType=Menu}}" CommandParameter="{Binding}"/>
                                                                                 <MenuItem Header="报告位置" Command="{Binding DataContext.OpenReportFolderCommand, RelativeSource={RelativeSource AncestorType=Menu}}" CommandParameter="{Binding}"/>
@@ -243,6 +253,8 @@
             </Grid>
         </Grid>
 
-        <views:ReportPage DataContext="{Binding Reports}" Visibility="{Binding Reports.IsLibraryVisible, Converter={StaticResource InverseBooleanToVisibilityConverter}}"/>
+        <views:ReportPage x:Name="ReportWorkspaceHost"
+                          DataContext="{Binding Reports}"
+                          Visibility="{Binding DataContext.Reports.IsLibraryVisible, ElementName=Root, Converter={StaticResource InverseBooleanToVisibilityConverter}}"/>
     </Grid>
 </UserControl>

@@ -65,6 +65,8 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
     public string GlobalWarningText { get => _globalWarningText; private set { if (SetProperty(ref _globalWarningText, value)) OnPropertyChanged(nameof(HasGlobalWarning)); } }
     public bool HasGlobalWarning => !string.IsNullOrWhiteSpace(GlobalWarningText);
     public string StatusMessage { get; private set; } = string.Empty;
+    public string AppVersion => AppVersionInfo.DisplayVersion;
+    public string WindowTitle => $"赫菲斯托斯工程工作台（赫工） {AppVersion}";
     public ICommand OpenGlobalWarningCommand { get; }
 
     public NavigationItem? SelectedNavigationItem

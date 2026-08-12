@@ -1,4 +1,5 @@
 using System.Collections.ObjectModel;
+using System.ComponentModel;
 using System.Threading;
 using System.Windows;
 using System.Windows.Input;
@@ -53,7 +54,7 @@ public sealed class MarketplacePluginsPageTests
     }
 
     [Fact]
-    public void InstalledPluginCard_RendersReadOnlyFieldsWithoutBindingException()
+    public void CriticalPages_RenderWithoutBindingRegressionAndKeepAnalysisViewsExclusive()
     {
         Exception? failure = null;
         var thread = new Thread(() =>
@@ -73,6 +74,23 @@ public sealed class MarketplacePluginsPageTests
                 page.Measure(new Size(1200, 720));
                 page.Arrange(new Rect(0, 0, 1200, 720));
                 page.UpdateLayout();
+
+                var analysisData = new AnalysisPageData();
+                var analysisPage = new AnalysisCenterPage { DataContext = analysisData };
+                analysisPage.Measure(new Size(1200, 720));
+                analysisPage.Arrange(new Rect(0, 0, 1200, 720));
+                analysisPage.UpdateLayout();
+
+                var analysisList = Assert.IsAssignableFrom<FrameworkElement>(analysisPage.FindName("AnalysisListHost"));
+                var reportWorkspace = Assert.IsAssignableFrom<FrameworkElement>(analysisPage.FindName("ReportWorkspaceHost"));
+                // 复现生产截图中的覆盖问题：列表与报告工作区必须始终严格互斥。
+                Assert.Equal(Visibility.Visible, analysisList.Visibility);
+                Assert.Equal(Visibility.Collapsed, reportWorkspace.Visibility);
+
+                analysisData.Reports.IsLibraryVisible = false;
+                analysisPage.UpdateLayout();
+                Assert.Equal(Visibility.Collapsed, analysisList.Visibility);
+                Assert.Equal(Visibility.Visible, reportWorkspace.Visibility);
             }
             catch (Exception ex)
             {
@@ -124,5 +142,36 @@ public sealed class MarketplacePluginsPageTests
         public ICommand UninstallCommand { get; } = ApplicationCommands.NotACommand;
         public ICommand OpenPluginDirectoryCommand { get; } = ApplicationCommands.NotACommand;
         public ICommand OpenDocumentationCommand { get; } = ApplicationCommands.NotACommand;
+    }
+
+    private sealed class AnalysisPageData
+    {
+        public ReportWorkspaceData Reports { get; } = new();
+    }
+
+    private sealed class ReportWorkspaceData : INotifyPropertyChanged
+    {
+        private bool _isLibraryVisible = true;
+
+        public event PropertyChangedEventHandler? PropertyChanged;
+
+        public bool IsLibraryVisible
+        {
+            get => _isLibraryVisible;
+            set
+            {
+                if (_isLibraryVisible == value) return;
+                _isLibraryVisible = value;
+                PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(IsLibraryVisible)));
+            }
+        }
+
+        public bool HasOpenTabs => false;
+        public object Library { get; } = new();
+        public ObservableCollection<object> OpenTabs { get; } = new();
+        public ICommand ShowLibraryCommand { get; } = ApplicationCommands.NotACommand;
+        public ICommand OpenTabCommand { get; } = ApplicationCommands.NotACommand;
+        public ICommand CloseTabCommand { get; } = ApplicationCommands.NotACommand;
+        public ICommand OpenSelectedExtractDirectoryCommand { get; } = ApplicationCommands.NotACommand;
     }
 }

@@ -36,6 +36,11 @@ public sealed record MarketplaceCatalogResult(
     string? Warning);
 
 /// <summary>
+/// 在线插件安装进度。下载阶段提供字节数，解压和校验阶段只提供阶段文字，避免展示没有依据的百分比。
+/// </summary>
+public sealed record PluginInstallProgress(string Stage, long BytesReceived, long? TotalBytes);
+
+/// <summary>
 /// 官方插件市场服务。网络数据在进入插件目录前必须通过目录字段、哈希、压缩包边界和本地清单四层校验。
 /// 安装采用同盘暂存与目录切换，避免下载中断或解压失败破坏当前可用插件。
 /// </summary>
@@ -96,7 +101,7 @@ public sealed partial class PluginMarketplaceService
     public Task<PluginConfig> GetConfigurationAsync(CancellationToken cancellationToken = default)
         => _configuration.EnsurePluginConfigAsync(cancellationToken);
 
-    public async Task InstallOrUpdateAsync(MarketplacePlugin item, CancellationToken cancellationToken = default)
+    public async Task InstallOrUpdateAsync(MarketplacePlugin item, CancellationToken cancellationToken = default, IProgress<PluginInstallProgress>? progress = null)
     {
         ValidateItem(item);
         if (_tasks.IsPluginActive(item.Id)) throw new InvalidOperationException("插件正在执行分析任务，暂时不能安装或更新。");
@@ -113,7 +118,9 @@ public sealed partial class PluginMarketplaceService
         var swapped = false;
         try
         {
-            await DownloadPackageAsync(item, packagePath, cancellationToken);
+            progress?.Report(new PluginInstallProgress("正在下载插件…", 0, item.PackageSize > 0 ? item.PackageSize : null));
+            await DownloadPackageAsync(item, packagePath, cancellationToken, progress);
+            progress?.Report(new PluginInstallProgress("正在解压并校验插件…", 0, null));
             ExtractAndValidate(packagePath, staging, item);
 
             if (Directory.Exists(target)) Directory.Move(target, backup);
@@ -263,7 +270,7 @@ public sealed partial class PluginMarketplaceService
         return catalog;
     }
 
-    private async Task DownloadPackageAsync(MarketplacePlugin item, string destination, CancellationToken cancellationToken)
+    private async Task DownloadPackageAsync(MarketplacePlugin item, string destination, CancellationToken cancellationToken, IProgress<PluginInstallProgress>? progress)
     {
         using var response = await _http.GetAsync(item.PackageUrl, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
         response.EnsureSuccessStatusCode();
@@ -283,6 +290,7 @@ public sealed partial class PluginMarketplaceService
             if (total > MaximumPackageBytes) throw new InvalidDataException("插件安装包超过 200 MB 限制。");
             hash.AppendData(buffer, 0, read);
             await output.WriteAsync(buffer.AsMemory(0, read), cancellationToken);
+            progress?.Report(new PluginInstallProgress("正在下载插件…", total, item.PackageSize > 0 ? item.PackageSize : response.Content.Headers.ContentLength));
         }
         if (item.PackageSize > 0 && total != item.PackageSize)
             throw new InvalidDataException($"插件安装包大小不符，期望 {item.PackageSize} 字节，实际 {total} 字节。");
