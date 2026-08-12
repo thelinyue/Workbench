@@ -210,6 +210,48 @@ public sealed class AnalysisCenterViewModelTests
     }
 
     [Fact]
+    public async Task AnalyzeSingleCommand_ReanalyzesAndOpensNewReport()
+    {
+        await using var environment = await TestEnvironment.CreateAsync(new SuccessfulRunner());
+        var source = Path.Combine(environment.Paths.InboxDirectory, "diag_DEVICE01_2608111530.tgz");
+        await WriteValidArchiveAsync(source);
+        await environment.Inbox.StartAsync();
+
+        var oldCase = CreateCase("case-old-report", source, Path.Combine(environment.Root, "diag_DEVICE01_2608111530"), CaseStatus.Completed, DateTime.Now.AddMinutes(-1));
+        await environment.Cases.InsertAsync(oldCase);
+        await environment.Tasks.InsertAsync(CreateTask("task-old-report", oldCase.Id, AnalysisTaskStatus.Completed));
+        var oldReportPath = environment.Paths.GetCaseReportDirectory(oldCase.Id);
+        Directory.CreateDirectory(oldReportPath);
+        await File.WriteAllTextAsync(Path.Combine(oldReportPath, "report.html"), "<html>old-report</html>");
+        await environment.Reports.InsertAsync(new Report
+        {
+            Id = "report-old",
+            CaseId = oldCase.Id,
+            Path = oldReportPath,
+            PluginId = "test-plugin",
+            CreateTime = DateTime.Now.AddMinutes(-1)
+        });
+
+        using var center = environment.CreateAnalysisCenter();
+        await center.InitializeAsync();
+        center.AnalyzeSingleCommand.Execute(Assert.Single(center.Items));
+
+        await WaitUntilAsync(async () =>
+        {
+            var cases = await environment.Cases.ListAsync();
+            var reports = await environment.Reports.ListAsync(new ReportQuery());
+            return cases.Count == 2
+                && reports.Count == 2
+                && !center.IsBulkOperationActive;
+        });
+
+        var latest = (await environment.Reports.ListAsync(new ReportQuery())).OrderByDescending(x => x.CreateTime).First();
+        Assert.NotEqual("report-old", latest.Id);
+        Assert.Equal("<html>new-report</html>", await File.ReadAllTextAsync(latest.ReportFile));
+        Assert.Equal(latest.Id, center.Reports.OpenTabs.Last().Report.Id);
+    }
+
+    [Fact]
     public async Task TaskPanel_ShowsAllActiveAndOnlyTenRecentTasksThenNavigatesToCase()
     {
         await using var environment = await TestEnvironment.CreateAsync();
@@ -319,7 +361,7 @@ public sealed class AnalysisCenterViewModelTests
         public CaseAnalysisService Analysis { get; }
         public WorkbenchLogger Logger { get; }
 
-        public static async Task<TestEnvironment> CreateAsync()
+        public static async Task<TestEnvironment> CreateAsync(IPluginRunner? runner = null)
         {
             var root = Path.Combine(Path.GetTempPath(), "HephaestusWorkbenchTests", Guid.NewGuid().ToString("N"));
             var paths = new DataPaths(root);
@@ -331,7 +373,8 @@ public sealed class AnalysisCenterViewModelTests
             var sessions = new SqliteReportSessionRepository(factory);
             var settingsStore = new SqliteSettingsStore(factory);
             var logger = new WorkbenchLogger(root);
-            var analysis = new CaseAnalysisService(paths, cases, tasks, reports, new TestPluginCatalog(), new FailedRunner(), new FailedRunner(), new TaskCenter(tasks), logger);
+            runner ??= new FailedRunner();
+            var analysis = new CaseAnalysisService(paths, cases, tasks, reports, new TestPluginCatalog(), runner, runner, new TaskCenter(tasks), logger);
             var inbox = new LogInboxService(new LogFileParser(), new ArchiveValidator(), new MemorySettingsStore(), logger, paths.InboxDirectory);
             return new TestEnvironment(root, paths, cases, tasks, reports, sessions, settingsStore, inbox, analysis, logger);
         }
@@ -374,6 +417,16 @@ public sealed class AnalysisCenterViewModelTests
     {
         public Task<PluginExecutionResult> RunAsync(PluginManifest manifest, PluginExecutionContext context, CancellationToken cancellationToken = default)
             => Task.FromResult(new PluginExecutionResult(1, null, "测试结束"));
+    }
+
+    private sealed class SuccessfulRunner : IPluginRunner
+    {
+        public Task<PluginExecutionResult> RunAsync(PluginManifest manifest, PluginExecutionContext context, CancellationToken cancellationToken = default)
+        {
+            Directory.CreateDirectory(context.OutputPath);
+            File.WriteAllText(Path.Combine(context.OutputPath, "report.html"), "<html>new-report</html>");
+            return Task.FromResult(new PluginExecutionResult(0, context.OutputPath, null));
+        }
     }
 
     private sealed class MemorySettingsStore : ISettingsStore

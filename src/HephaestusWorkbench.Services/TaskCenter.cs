@@ -10,6 +10,7 @@ public sealed class TaskCenter
     private readonly SemaphoreSlim _slots = new(2, 2);
     private readonly Dictionary<string, CancellationTokenSource> _cancellations = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, string> _taskPlugins = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, TaskCompletionSource<object?>> _completions = new(StringComparer.OrdinalIgnoreCase);
     private readonly object _sync = new();
 
     public TaskCenter(IAnalysisTaskRepository tasks) => _tasks = tasks;
@@ -18,10 +19,12 @@ public sealed class TaskCenter
     public Task EnqueueAsync(AnalysisTask task, Func<CancellationToken, Task> action)
     {
         var cancellation = new CancellationTokenSource();
+        var completion = new TaskCompletionSource<object?>(TaskCreationOptions.RunContinuationsAsynchronously);
         lock (_sync)
         {
             _cancellations[task.Id] = cancellation;
             _taskPlugins[task.Id] = task.PluginId;
+            _completions[task.Id] = completion;
         }
         return Task.Run(async () =>
         {
@@ -31,8 +34,17 @@ public sealed class TaskCenter
                 await _slots.WaitAsync(cancellation.Token);
                 acquired = true;
                 await action(cancellation.Token);
+                completion.TrySetResult(null);
             }
-            catch (OperationCanceledException) { }
+            catch (OperationCanceledException)
+            {
+                completion.TrySetCanceled();
+            }
+            catch (Exception ex)
+            {
+                completion.TrySetException(ex);
+                throw;
+            }
             finally
             {
                 if (acquired) _slots.Release();
@@ -41,10 +53,21 @@ public sealed class TaskCenter
                 {
                     _cancellations.Remove(task.Id);
                     _taskPlugins.Remove(task.Id);
+                    _completions.Remove(task.Id);
                 }
                 TaskChanged?.Invoke(this, EventArgs.Empty);
             }
         });
+    }
+
+    /// <summary>
+    /// 等待指定分析任务真正结束，避免重新分析时仍然打开旧报告。
+    /// </summary>
+    public Task WaitForCompletionAsync(string taskId, CancellationToken cancellationToken = default)
+    {
+        Task? completion;
+        lock (_sync) completion = _completions.GetValueOrDefault(taskId)?.Task;
+        return completion is null ? Task.CompletedTask : completion.WaitAsync(cancellationToken);
     }
 
     public bool Cancel(string taskId)

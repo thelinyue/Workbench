@@ -352,13 +352,20 @@ public sealed class AnalysisCenterViewModel : ViewModelBase, IDisposable
         var feedback = string.Empty;
         try
         {
-            var result = await SubmitAnalysisAsync(item);
-            feedback = result switch
+            var submission = await SubmitAnalysisCoreAsync(item, waitForCompletion: true);
+            feedback = submission.Result switch
             {
                 AnalysisSubmissionResult.Submitted => $"已提交分析任务：{item.FileName}",
                 AnalysisSubmissionResult.Skipped => $"日志状态已变化，未提交：{item.FileName}",
                 _ => $"提交分析任务失败：{item.FileName}"
             };
+            if (submission.Result == AnalysisSubmissionResult.Submitted
+                && submission.Task is { CaseId: var caseId, ReportPath: not null })
+            {
+                await LoadAsync();
+                if (await Reports.OpenCaseReportAsync(caseId))
+                    feedback = $"重新分析完成，已打开最新报告：{item.FileName}";
+            }
         }
         catch (Exception ex)
         {
@@ -418,12 +425,28 @@ public sealed class AnalysisCenterViewModel : ViewModelBase, IDisposable
 
     private async Task<AnalysisSubmissionResult> SubmitAnalysisAsync(AnalysisLogGroupViewModel item)
     {
-        if (!File.Exists(item.SourcePath) || item.HasActiveTask) return AnalysisSubmissionResult.Skipped;
+        return (await SubmitAnalysisCoreAsync(item, waitForCompletion: false)).Result;
+    }
+
+    /// <summary>
+    /// 统一处理单条和批量分析的提交，单条重新分析可选择等待后台任务完成。
+    /// </summary>
+    private async Task<(AnalysisSubmissionResult Result, AnalysisTask? Task)> SubmitAnalysisCoreAsync(
+        AnalysisLogGroupViewModel item,
+        bool waitForCompletion)
+    {
+        if (!File.Exists(item.SourcePath) || item.HasActiveTask) return (AnalysisSubmissionResult.Skipped, null);
         var inspection = await _inbox.InspectFileAsync(item.SourcePath);
-        if (!inspection.IsValid || inspection.Item is null) return AnalysisSubmissionResult.Skipped;
-        return await _analysis.StartAsync(inspection.Item) is null
+        if (!inspection.IsValid || inspection.Item is null) return (AnalysisSubmissionResult.Skipped, null);
+
+        var task = waitForCompletion
+            ? await _analysis.StartAndWaitAsync(inspection.Item)
+            : await _analysis.StartAsync(inspection.Item);
+        if (task is null) return (AnalysisSubmissionResult.Failed, null);
+        var result = waitForCompletion && task.Status is not AnalysisTaskStatus.Completed
             ? AnalysisSubmissionResult.Failed
             : AnalysisSubmissionResult.Submitted;
+        return (result, task);
     }
 
     private void ToggleHistory(AnalysisLogGroupViewModel? item)

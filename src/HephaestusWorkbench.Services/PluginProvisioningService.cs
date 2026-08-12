@@ -35,7 +35,7 @@ public sealed class PluginProvisioningService
         var destinationManifest = Path.Combine(destination, "manifest.json");
         var shouldUpdateExecutable = !File.Exists(destinationExe)
             || !File.Exists(destinationManifest)
-            || IsSourceNewer(sourceManifest, destinationManifest);
+            || IsSourceNewer(sourceManifest, destinationManifest, sourceExe, destinationExe);
         if (shouldUpdateExecutable)
         {
             File.Copy(sourceExe, destinationExe, overwrite: true);
@@ -56,7 +56,7 @@ public sealed class PluginProvisioningService
         Directory.CreateDirectory(destination);
         var destinationExe = Path.Combine(destination, "rule_editor.exe");
         var destinationManifest = Path.Combine(destination, "manifest.json");
-        if (!File.Exists(destinationExe) || !File.Exists(destinationManifest) || IsSourceNewer(sourceManifest, destinationManifest))
+        if (!File.Exists(destinationExe) || !File.Exists(destinationManifest) || IsSourceNewer(sourceManifest, destinationManifest, sourceExe, destinationExe))
         {
             File.Copy(sourceExe, destinationExe, true);
             File.Copy(sourceManifest, destinationManifest, true);
@@ -64,22 +64,33 @@ public sealed class PluginProvisioningService
         }
     }
 
-    private static bool IsSourceNewer(string sourceManifest, string destinationManifest)
+    private static bool IsSourceNewer(string sourceManifest, string destinationManifest, string sourceExe, string destinationExe)
     {
         if (!File.Exists(destinationManifest)) return false;
         try
         {
             using var source = JsonDocument.Parse(File.ReadAllText(sourceManifest));
             using var destination = JsonDocument.Parse(File.ReadAllText(destinationManifest));
-            return source.RootElement.TryGetProperty("version", out var sourceVersion)
-                && destination.RootElement.TryGetProperty("version", out var destinationVersion)
-                && Version.TryParse(sourceVersion.GetString(), out var sourceValue)
-                && Version.TryParse(destinationVersion.GetString(), out var destinationValue)
-                && sourceValue > destinationValue;
+            if (!source.RootElement.TryGetProperty("version", out var sourceVersion)
+                || !destination.RootElement.TryGetProperty("version", out var destinationVersion)
+                || !Version.TryParse(sourceVersion.GetString(), out var sourceValue)
+                || !Version.TryParse(destinationVersion.GetString(), out var destinationValue))
+                return false;
+            if (sourceValue > destinationValue) return true;
+            if (sourceValue < destinationValue) return false;
+
+            // 同一版本也可能替换了报告模板；版本相同时比较实际 EXE 内容。
+            return !string.Equals(ComputeSha256(sourceExe), ComputeSha256(destinationExe), StringComparison.OrdinalIgnoreCase);
         }
         catch
         {
             return true;
         }
+    }
+
+    private static string ComputeSha256(string path)
+    {
+        using var stream = File.OpenRead(path);
+        return Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(stream));
     }
 }

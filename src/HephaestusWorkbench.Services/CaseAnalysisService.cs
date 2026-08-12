@@ -113,6 +113,16 @@ public sealed class CaseAnalysisService
         return task;
     }
 
+    /// <summary>
+    /// 提交并等待一次分析完成，供需要立即展示新报告的重新分析操作使用。
+    /// </summary>
+    public async Task<AnalysisTask?> StartAndWaitAsync(LogInboxItem item, CancellationToken cancellationToken = default)
+    {
+        var task = await StartAsync(item, cancellationToken);
+        if (task is not null) await _taskCenter.WaitForCompletionAsync(task.Id, cancellationToken);
+        return task;
+    }
+
     public async Task<bool> CancelAsync(string taskId)
     {
         var result = _taskCenter.Cancel(taskId);
