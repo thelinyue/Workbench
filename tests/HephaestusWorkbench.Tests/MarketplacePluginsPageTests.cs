@@ -132,6 +132,11 @@ public sealed class MarketplacePluginsPageTests
         public ObservableCollection<string> Issues { get; } = new();
         public string Message => "测试";
         public string LastRefreshText => "测试";
+        public double ProgressValue => 0;
+        public bool IsProgressIndeterminate => false;
+        public bool IsBusy => false;
+        public bool CanUploadRules => false;
+        public string UploadRulesHint => "测试";
         public bool ShowIssues => false;
         public bool ShowInstalledEmpty => false;
         public bool ShowOnlineEmpty => true;
@@ -142,6 +147,10 @@ public sealed class MarketplacePluginsPageTests
         public ICommand UninstallCommand { get; } = ApplicationCommands.NotACommand;
         public ICommand OpenPluginDirectoryCommand { get; } = ApplicationCommands.NotACommand;
         public ICommand OpenDocumentationCommand { get; } = ApplicationCommands.NotACommand;
+        public ICommand UseRuleEditorCommand { get; } = ApplicationCommands.NotACommand;
+        public ICommand ImportRuleCommand { get; } = ApplicationCommands.NotACommand;
+        public ICommand UploadRuleCommand { get; } = ApplicationCommands.NotACommand;
+        public ICommand OpenRulesDirectoryCommand { get; } = ApplicationCommands.NotACommand;
     }
 
     private sealed class AnalysisPageData

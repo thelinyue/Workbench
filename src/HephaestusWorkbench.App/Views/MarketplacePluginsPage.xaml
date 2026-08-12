@@ -18,13 +18,14 @@
                     <TextBlock Text="插件中心" Style="{StaticResource SectionTitleStyle}" />
                     <TextBlock Text="从官方目录安全安装分析插件，并管理当前默认插件。" Style="{StaticResource MutedTextStyle}" />
                     <TextBlock Text="{Binding Message}" Style="{StaticResource MutedTextStyle}" Margin="0,6,0,0" TextWrapping="Wrap" />
-                    <ProgressBar Value="{Binding ProgressValue}" IsIndeterminate="{Binding IsProgressIndeterminate}" Height="8" Margin="0,8,0,0" Visibility="{Binding IsBusy, Converter={StaticResource BooleanToVisibilityConverter}}" />
+                    <!-- ProgressBar.Value 默认支持双向绑定；进度值由工作台单向推送，必须禁止回写只读属性。 -->
+                    <ProgressBar Value="{Binding ProgressValue, Mode=OneWay}" IsIndeterminate="{Binding IsProgressIndeterminate, Mode=OneWay}" Height="8" Margin="0,8,0,0" Visibility="{Binding IsBusy, Mode=OneWay, Converter={StaticResource BooleanToVisibilityConverter}}" />
                     <TextBlock Text="{Binding LastRefreshText}" Style="{StaticResource MutedTextStyle}" Margin="0,3,0,0" />
                 </StackPanel>
                 <WrapPanel Grid.Column="1" VerticalAlignment="Center">
                     <Button Content="打开规则目录" Command="{Binding OpenRulesDirectoryCommand}" />
                     <Button Content="添加本地规则" Command="{Binding ImportRuleCommand}" />
-                    <Button Content="上传规则" ToolTip="{Binding UploadRulesHint}" Command="{Binding UploadRuleCommand}" IsEnabled="{Binding CanUploadRules}" />
+                    <Button Content="上传规则" ToolTip="{Binding UploadRulesHint, Mode=OneWay}" Command="{Binding UploadRuleCommand}" IsEnabled="{Binding CanUploadRules, Mode=OneWay}" />
                     <Button Content="打开插件目录" Command="{Binding OpenPluginDirectoryCommand}" />
                     <Button Content="开发文档" Command="{Binding OpenDocumentationCommand}" />
                     <Button Content="刷新" Style="{StaticResource PrimaryButtonStyle}" Command="{Binding RefreshCommand}" Margin="0" />
