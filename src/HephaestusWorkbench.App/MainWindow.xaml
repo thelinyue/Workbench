@@ -1,7 +1,7 @@
 <Window x:Class="HephaestusWorkbench.App.MainWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="赫菲斯托斯工程工作台（赫工）" Height="760" Width="1280" MinHeight="600" MinWidth="960"
+        Title="{Binding WindowTitle}" Height="760" Width="1280" MinHeight="600" MinWidth="960"
         WindowStartupLocation="CenterScreen"
         Icon="Assets/AppIcon/app-icon.ico">
     <Grid Background="{DynamicResource WorkbenchBackgroundBrush}">
@@ -16,6 +16,9 @@
                     <TextBlock Text="{Binding PageContext}" Style="{StaticResource MutedTextStyle}" FontSize="13" Margin="7,1,0,0" VerticalAlignment="Center"/>
                 </StackPanel>
                 <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+                    <Border Background="{DynamicResource WorkbenchSurfaceAltBrush}" CornerRadius="10" Padding="7,3" Margin="0,0,8,0" ToolTip="当前客户端版本">
+                        <TextBlock Text="{Binding AppVersion}" Foreground="{DynamicResource WorkbenchMutedTextBrush}" FontSize="11"/>
+                    </Border>
                     <Button Content="&#xEA8F;" FontFamily="Segoe Fluent Icons" Command="{Binding OpenGlobalWarningCommand}" ToolTip="{Binding GlobalWarningText}" AutomationProperties.Name="全局异常提醒" Padding="9,6" Margin="0,0,6,0" Visibility="{Binding HasGlobalWarning, Converter={StaticResource BooleanToVisibilityConverter}}" Foreground="{DynamicResource WorkbenchWarningBrush}"/>
                     <Button x:Name="TaskButton" Command="{Binding TaskPanel.ToggleCommand}" ToolTip="{Binding TaskPanel.ButtonToolTip}" AutomationProperties.Name="后台任务" Padding="9,5" Margin="0">
                         <Grid>

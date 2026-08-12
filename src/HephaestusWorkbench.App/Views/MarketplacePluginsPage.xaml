@@ -18,6 +18,7 @@
                     <TextBlock Text="插件中心" Style="{StaticResource SectionTitleStyle}" />
                     <TextBlock Text="从官方目录安全安装分析插件，并管理当前默认插件。" Style="{StaticResource MutedTextStyle}" />
                     <TextBlock Text="{Binding Message}" Style="{StaticResource MutedTextStyle}" Margin="0,6,0,0" TextWrapping="Wrap" />
+                    <ProgressBar Value="{Binding ProgressValue}" IsIndeterminate="{Binding IsProgressIndeterminate}" Height="8" Margin="0,8,0,0" Visibility="{Binding IsBusy, Converter={StaticResource BooleanToVisibilityConverter}}" />
                     <TextBlock Text="{Binding LastRefreshText}" Style="{StaticResource MutedTextStyle}" Margin="0,3,0,0" />
                 </StackPanel>
                 <WrapPanel Grid.Column="1" VerticalAlignment="Center">

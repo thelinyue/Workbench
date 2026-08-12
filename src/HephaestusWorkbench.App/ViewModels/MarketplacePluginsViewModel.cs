@@ -47,6 +47,8 @@ public sealed class MarketplacePluginsViewModel : ViewModelBase
     private readonly RuleSetService _rules;
     private readonly IRulePublisher _publisher;
     private bool _isBusy;
+    private double _progressValue;
+    private bool _isProgressIndeterminate;
     private string _message = "正在加载插件中心…";
     private DateTime? _lastRefresh;
 
@@ -88,6 +90,8 @@ public sealed class MarketplacePluginsViewModel : ViewModelBase
     public bool CanUploadRules => _publisher.IsConfigured && _rules.HasActiveRules;
     public string UploadRulesHint => _publisher.IsConfigured ? (_rules.HasActiveRules ? "上传当前激活规则" : "请先激活本地规则") : "未配置 HTTPS 规则发布地址";
     public bool IsBusy { get => _isBusy; private set { if (SetProperty(ref _isBusy, value)) RaiseCommandStates(); } }
+    public double ProgressValue { get => _progressValue; private set => SetProperty(ref _progressValue, value); }
+    public bool IsProgressIndeterminate { get => _isProgressIndeterminate; private set => SetProperty(ref _isProgressIndeterminate, value); }
     public string Message { get => _message; private set => SetProperty(ref _message, value); }
     public string LastRefreshText => _lastRefresh is null ? "尚未刷新" : $"最后刷新：{_lastRefresh:yyyy-MM-dd HH:mm:ss}";
     public bool ShowIssues => Issues.Count > 0;
@@ -134,7 +138,16 @@ public sealed class MarketplacePluginsViewModel : ViewModelBase
         finally { IsBusy = false; NotifyState(); }
     }
 
-    private Task InstallAsync(OnlinePluginItem item) => RunOperationAsync($"正在{(item.IsInstalled ? "更新" : "安装")} {item.Plugin.Name}…", () => _marketplace.InstallOrUpdateAsync(item.Plugin));
+    private Task InstallAsync(OnlinePluginItem item)
+    {
+        var progress = new Progress<PluginInstallProgress>(value =>
+        {
+            Message = value.Stage;
+            IsProgressIndeterminate = value.TotalBytes is null;
+            ProgressValue = value.TotalBytes is > 0 ? Math.Clamp(value.BytesReceived * 100d / value.TotalBytes.Value, 0, 100) : 0;
+        });
+        return RunOperationAsync($"正在{(item.IsInstalled ? "更新" : "安装")} {item.Plugin.Name}…", () => _marketplace.InstallOrUpdateAsync(item.Plugin, progress: progress));
+    }
     private Task SetDefaultAsync(InstalledPluginItem item) => RunOperationAsync($"正在将 {item.Manifest.Name} 设为默认插件…", () => _marketplace.SetDefaultAsync(item.Manifest.Id));
     private Task ToggleEnabledAsync(InstalledPluginItem item) => RunOperationAsync($"正在{(item.Enabled ? "禁用" : "启用")} {item.Manifest.Name}…", () => _marketplace.SetEnabledAsync(item.Manifest.Id, !item.Enabled));
 
@@ -186,9 +199,12 @@ public sealed class MarketplacePluginsViewModel : ViewModelBase
     {
         if (IsBusy) return;
         IsBusy = true;
+        IsProgressIndeterminate = true;
+        ProgressValue = 0;
         Message = progress;
         try { await operation(); IsBusy = false; await LoadAsync(); }
         catch (Exception ex) { Message = $"操作失败：{ex.Message}"; _logger.Error("插件中心操作失败", ex); IsBusy = false; }
+        finally { IsProgressIndeterminate = false; ProgressValue = 0; }
     }
 
     private void OpenPath(string path, bool directory)
