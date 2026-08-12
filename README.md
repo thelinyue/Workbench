@@ -19,7 +19,7 @@
 - .NET 8 SDK
 - WebView2 Runtime
 
-当前工作区中的插件位于 `插件/log_analyzer.exe`。构建时会将它作为 `PluginSeed` 复制到发布目录，首次启动时登记到用户数据目录的 `Plugins/log-analyzer`。
+日志分析插件不随源码仓库提供。GitHub Actions 会从官方插件 Releases 仓库获取最新正式版本，将其作为 `PluginSeed` 注入发布目录，首次启动时登记到用户数据目录的 `Plugins/log-analyzer`。
 
 插件开发请参阅 [插件开发文档](docs/plugin-development.md)。v1.1.1 插件中心从独立公开目录 `thelinyue/Hephaestus-Workbench-Plugins` 安装和更新 EXE 插件，并可管理启用状态与默认插件；DLL 插件运行尚未接入。
 
@@ -73,7 +73,7 @@ Config/workspace.json
 直接执行：
 
 ```powershell
-.\installer\build-installer.ps1 -Configuration Release -Version 1.2.1 -PluginBinaryPath '.\插件\log_analyzer.exe' -RuleEditorBinaryPath '.\插件\rule_editor.exe'
+.\installer\build-installer.ps1 -Configuration Release -Version 1.2.1 -PluginBinaryPath '<CI 下载的 log_analyzer.exe>' -RuleEditorBinaryPath '<CI 下载的 rule_editor.exe>'
 ```
 
 输出位于 `installer\dist`：

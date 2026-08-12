@@ -4,10 +4,10 @@ Hephaestus Workbench 的源码仓库保持私有。安装包、官方插件、�
 
 ## 正式构建
 
-正式构建必须显式提供已获授权的插件二进制：
+正式构建由 GitHub Actions 从官方插件 Releases 仓库自动获取最新正式版本，并显式注入授权的插件二进制：
 
 ```powershell
-.\installer\build-installer.ps1 -Configuration Release -Version 1.2.1 -PluginBinaryPath '.\插件\log_analyzer.exe' -RuleEditorBinaryPath '.\插件\rule_editor.exe'
+.\installer\build-installer.ps1 -Configuration Release -Version 1.2.1 -PluginBinaryPath '<CI 下载的 log_analyzer.exe>' -RuleEditorBinaryPath '<CI 下载的 rule_editor.exe>'
 ```
 
 脚本在 `installer/dist` 仅生成名称带版本号的标准离线安装包 `HephaestusWorkbench_Setup_v<版本号>.exe` 及其校验文件。Setup 内含 self-contained 主程序、日志分析插件和规则编辑器，不依赖联网下载应用载荷。没有插件二进制时，普通源码构建仍然可执行，但正式打包会立即返回中文错误。

@@ -20,8 +20,6 @@
   <ItemGroup>
     <None Include="PluginSeed\manifest.json" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
     <None Include="PluginSeed\RuleEditor\manifest.json" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
-    <PluginBinaryCandidate Include="..\..\Hephaestus-Workbench-Plugin-Sources\plugins\log-analyzer-plugin\log_analyzer.exe" Condition="'$(PluginBinaryPath)' == '' and Exists('..\..\Hephaestus-Workbench-Plugin-Sources\plugins\log-analyzer-plugin\log_analyzer.exe')" />
-    <None Include="@(PluginBinaryCandidate)" Link="PluginSeed\log_analyzer.exe" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
     <None Include="$(PluginBinaryPath)" Condition="'$(PluginBinaryPath)' != '' and Exists('$(PluginBinaryPath)')" Link="PluginSeed\log_analyzer.exe" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
     <RuleEditorBinaryCandidate Include="..\..\插件\rule_editor.exe" Condition="'$(RuleEditorBinaryPath)' == '' and Exists('..\..\插件\rule_editor.exe')" />
     <None Include="@(RuleEditorBinaryCandidate)" Link="PluginSeed\RuleEditor\rule_editor.exe" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />

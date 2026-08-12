@@ -9,7 +9,7 @@ C:\Program Files\HephaestusWorkbench
 安装包制作命令：
 
 ```powershell
-.\installer\build-installer.ps1 -Configuration Release -Version 1.2.1 -PluginBinaryPath '.\插件\log_analyzer.exe' -RuleEditorBinaryPath '.\插件\rule_editor.exe'
+.\installer\build-installer.ps1 -Configuration Release -Version 1.2.1 -PluginBinaryPath '<CI 下载的 log_analyzer.exe>' -RuleEditorBinaryPath '<CI 下载的 rule_editor.exe>'
 ```
 
 构建机必须安装 Inno Setup 6。也可通过 `-InnoCompilerPath` 显式传入 `ISCC.exe`。脚本会完成以下工作：
