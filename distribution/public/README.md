@@ -6,12 +6,12 @@
 
 ## 安装
 
-从最新 Release 下载名称中带版本号的安装包（例如 `HephaestusWorkbench_Setup_v1.2.1.exe`）。它是包含 .NET 8 运行时和官方内置插件的单文件离线安装包，提供标准 Windows 安装向导；同一个 Setup 也用于后续升级和修复。卸载请使用 Windows 设置或控制面板中的“已安装的应用”。
+从最新 Release 下载名称中带版本号的安装包（例如 `Hephaestus工作台_v1.2.1.exe`）。它是包含 .NET 8 运行时和官方内置插件的单文件离线安装包，提供标准 Windows 安装向导；同一个安装包也用于后续升级和修复。卸载请使用 Windows 设置或控制面板中的“已安装的应用”。
 
 下载后可使用 PowerShell 验证文件：
 
 ```powershell
-Get-FileHash -Algorithm SHA256 .\HephaestusWorkbench_Setup_v1.2.1.exe
+Get-FileHash -Algorithm SHA256 .\Hephaestus工作台_v1.2.1.exe
 ```
 
 结果应与同一 Release 中的 `SHA256SUMS.txt` 一致。

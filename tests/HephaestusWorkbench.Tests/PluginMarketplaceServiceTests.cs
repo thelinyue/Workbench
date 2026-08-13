@@ -71,6 +71,82 @@ public sealed class PluginMarketplaceServiceTests
     }
 
     [Fact]
+    public async Task InstallAsync_TakesOverManualPluginAndUpdatesSource()
+    {
+        await WithServiceAsync(async context =>
+        {
+            var oldDirectory = Path.Combine(context.Paths.PluginsDirectory, "sample");
+            Directory.CreateDirectory(oldDirectory);
+            await File.WriteAllTextAsync(Path.Combine(oldDirectory, "sample.exe"), "old plugin");
+            await File.WriteAllTextAsync(Path.Combine(oldDirectory, "manifest.json"),
+                "{\"id\":\"sample\",\"name\":\"Test plugin\",\"version\":\"1.0\",\"type\":\"Exe\",\"entry\":\"sample.exe\"}");
+            await context.Configuration.SavePluginConfigAsync(new PluginConfig
+            {
+                Plugins =
+                {
+                    new PluginConfigEntry
+                    {
+                        Id = "sample",
+                        Version = "1.0",
+                        Enabled = true,
+                        Source = PluginInstallSource.Manual
+                    }
+                }
+            });
+
+            var package = CreatePackage("sample", "1.1", "sample.exe", "updated plugin");
+            context.Handler.Response = BinaryResponse(package);
+
+            await context.Service.InstallOrUpdateAsync(Item("sample", "1.1", package));
+
+            Assert.Equal("updated plugin", await File.ReadAllTextAsync(Path.Combine(oldDirectory, "sample.exe")));
+            var config = await context.Configuration.EnsurePluginConfigAsync();
+            var registered = Assert.Single(config.Plugins);
+            Assert.Equal("1.1", registered.Version);
+            Assert.Equal(PluginInstallSource.Marketplace, registered.Source);
+        });
+    }
+
+    [Fact]
+    public async Task InstallAsync_FailedManualUpdatePreservesFilesAndSource()
+    {
+        await WithServiceAsync(async context =>
+        {
+            var oldDirectory = Path.Combine(context.Paths.PluginsDirectory, "sample");
+            Directory.CreateDirectory(oldDirectory);
+            await File.WriteAllTextAsync(Path.Combine(oldDirectory, "sample.exe"), "old plugin");
+            await File.WriteAllTextAsync(Path.Combine(oldDirectory, "manifest.json"),
+                "{\"id\":\"sample\",\"name\":\"Test plugin\",\"version\":\"1.0\",\"type\":\"Exe\",\"entry\":\"sample.exe\"}");
+            await context.Configuration.SavePluginConfigAsync(new PluginConfig
+            {
+                Plugins =
+                {
+                    new PluginConfigEntry
+                    {
+                        Id = "sample",
+                        Version = "1.0",
+                        Enabled = true,
+                        Source = PluginInstallSource.Manual
+                    }
+                }
+            });
+
+            var package = CreatePackage("sample", "1.1", "sample.exe", "updated plugin");
+            context.Handler.Response = BinaryResponse(package);
+
+            var error = await Assert.ThrowsAsync<InvalidDataException>(() =>
+                context.Service.InstallOrUpdateAsync(Item("sample", "1.1", package) with { Sha256 = new string('0', 64) }));
+
+            Assert.Contains("SHA-256", error.Message);
+            Assert.Equal("old plugin", await File.ReadAllTextAsync(Path.Combine(oldDirectory, "sample.exe")));
+            var config = await context.Configuration.EnsurePluginConfigAsync();
+            var registered = Assert.Single(config.Plugins);
+            Assert.Equal("1.0", registered.Version);
+            Assert.Equal(PluginInstallSource.Manual, registered.Source);
+        });
+    }
+
+    [Fact]
     public async Task InstallAsync_UsesMirrorOnlyAfterDirectDownloadFails()
     {
         await WithServiceAsync(async context =>

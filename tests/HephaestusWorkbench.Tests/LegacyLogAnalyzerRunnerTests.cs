@@ -24,7 +24,7 @@ public sealed class LegacyLogAnalyzerRunnerTests
             var manifest = new PluginManifest
             {
                 Id = "log-analyzer",
-                Name = "日志分析插件",
+                Name = "日志分析",
                 Version = "1.50",
                 Type = PluginType.Exe,
                 Entry = "log_analyzer.exe",

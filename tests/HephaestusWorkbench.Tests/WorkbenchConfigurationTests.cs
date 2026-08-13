@@ -85,7 +85,7 @@ public sealed class WorkbenchConfigurationTests
         Directory.CreateDirectory(seed);
         await File.WriteAllTextAsync(Path.Combine(seed, "log_analyzer.exe"), "plugin");
         await File.WriteAllTextAsync(Path.Combine(seed, "manifest.json"), """
-            { "id":"log-analyzer", "name":"日志分析插件", "version":"1.49", "type":"Exe", "entry":"log_analyzer.exe" }
+            { "id":"log-analyzer", "name":"日志分析", "version":"1.49", "type":"Exe", "entry":"log_analyzer.exe" }
             """);
 
         try

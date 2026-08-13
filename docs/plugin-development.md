@@ -29,7 +29,7 @@ v1.1.1 同时支持本地插件目录和官方在线目录：
 
 推荐每个插件使用独立目录。插件中心会递归查找 `manifest.json`，但入口文件必须位于清单所在目录或其子路径内，并且入口文件必须真实存在。
 
-手工插件开发完成后，将整个插件目录复制到 `Plugins` 目录，打开工作台的“插件中心”，点击“刷新”即可登记。手工插件不会被在线市场覆盖或卸载。扫描失败时，页面会显示中文错误并写入工作台 `Logs/workbench.log`。
+手工插件开发完成后，将整个插件目录复制到 `Plugins` 目录，打开工作台的“插件中心”，点击“刷新”即可登记。手工插件首次登记时不会被在线市场自动覆盖；如果在线目录存在同 ID 的更新，用户点击“更新”并完成校验后，插件来源会切换为“在线安装”，之后可由应用商店继续更新或卸载。扫描失败时，页面会显示中文错误并写入工作台 `Logs/workbench.log`。
 
 官方在线目录固定由公开插件仓库 `thelinyue/Hephaestus-Workbench-Plugins` 维护。`schemaVersion` 当前为 `1`，每个条目必须包含 `id`、`name`、`description`、`version`、`type`、`packageUrl`、`sha256`、`packageSize`、`minimumAppVersion`、`releaseNotesUrl`、作者、许可证、仓库地址和 manifest。插件 ZIP 根目录必须直接包含 `manifest.json` 和入口文件，目录字段必须与本地 manifest 的 ID、版本和类型一致。
 
@@ -40,7 +40,7 @@ v1.1.1 同时支持本地插件目录和官方在线目录：
 ```json
 {
   "id": "sample-analyzer",
-  "name": "示例日志分析插件",
+  "name": "示例日志分析",
   "version": "1.0.0",
   "type": "Exe",
   "entry": "sample-analyzer.exe"
@@ -104,7 +104,7 @@ sample-analyzer.exe --case <case-id> --input <source-path> --output <output-path
 ```json
 {
   "id": "log-analyzer",
-  "name": "日志分析插件",
+  "name": "日志分析",
   "version": "1.49",
   "type": "Exe",
   "entry": "log_analyzer.exe",
