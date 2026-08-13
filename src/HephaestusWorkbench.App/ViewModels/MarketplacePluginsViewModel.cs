@@ -4,6 +4,7 @@ using System.IO;
 using System.Windows.Input;
 using HephaestusWorkbench.Core.Models;
 using HephaestusWorkbench.Data;
+using HephaestusWorkbench.App.Views;
 using HephaestusWorkbench.PluginSDK;
 using HephaestusWorkbench.Services;
 using Microsoft.Win32;
@@ -16,10 +17,12 @@ public sealed class InstalledPluginItem
     public required PluginManifest Manifest { get; init; }
     public required PluginInstallSource Source { get; init; }
     public bool IsRuleEditor => Manifest.Supports("rule-editor");
+    public bool IsStandaloneTool => Manifest.Type == PluginType.Web && Manifest.Supports("standalone-tool");
+    public bool CanSetDefault => !IsStandaloneTool && !IsDefault;
     public bool Enabled { get; init; }
     public bool IsDefault { get; init; }
     public string SourceText => Source switch { PluginInstallSource.Bundled => "内置", PluginInstallSource.Marketplace => "在线安装", _ => "手工安装" };
-    public string StatusText => IsDefault ? "默认插件" : Enabled ? "已启用" : "已禁用";
+    public string StatusText => IsStandaloneTool ? (Enabled ? "工具可启动" : "工具已禁用") : IsDefault ? "默认插件" : Enabled ? "已启用" : "已禁用";
     public bool CanUninstall => Source == PluginInstallSource.Marketplace && !IsDefault;
     public string ToggleText => Enabled ? "禁用" : "启用";
 }
@@ -61,12 +64,13 @@ public sealed class MarketplacePluginsViewModel : ViewModelBase
         _publisher = publisher;
         RefreshCommand = new DelegateCommand(() => _ = LoadAsync(), () => !IsBusy);
         InstallCommand = new DelegateCommand(value => _ = InstallAsync((OnlinePluginItem)value!), value => !IsBusy && value is OnlinePluginItem item && item.CanInstall);
-        SetDefaultCommand = new DelegateCommand(value => _ = SetDefaultAsync((InstalledPluginItem)value!), value => !IsBusy && value is InstalledPluginItem item && !item.IsDefault);
+        SetDefaultCommand = new DelegateCommand(value => _ = SetDefaultAsync((InstalledPluginItem)value!), value => !IsBusy && value is InstalledPluginItem item && item.CanSetDefault);
         ToggleEnabledCommand = new DelegateCommand(value => _ = ToggleEnabledAsync((InstalledPluginItem)value!), value => !IsBusy && value is InstalledPluginItem item && !(item.IsDefault && item.Enabled));
         UninstallCommand = new DelegateCommand(value => _ = UninstallAsync((InstalledPluginItem)value!), value => !IsBusy && value is InstalledPluginItem item && item.CanUninstall);
         OpenPluginDirectoryCommand = new DelegateCommand(() => OpenPath(_catalog.PluginsDirectory, true));
         OpenDocumentationCommand = new DelegateCommand(() => OpenPath(Path.Combine(AppContext.BaseDirectory, "Documentation", "plugin-development.md"), false));
         UseRuleEditorCommand = new DelegateCommand(value => _ = UseRuleEditorAsync((InstalledPluginItem)value!), value => !IsBusy && value is InstalledPluginItem item && item.IsRuleEditor);
+        LaunchToolCommand = new DelegateCommand(value => LaunchTool((InstalledPluginItem)value!), value => !IsBusy && value is InstalledPluginItem item && item.IsStandaloneTool && item.Enabled);
         ImportRuleCommand = new DelegateCommand(_ => _ = ImportRuleAsync(), _ => !IsBusy);
         UploadRuleCommand = new DelegateCommand(_ => _ = UploadRuleAsync(), _ => !IsBusy && _publisher.IsConfigured && _rules.HasActiveRules);
         OpenRulesDirectoryCommand = new DelegateCommand(() => OpenPath(_rules.RulesDirectory, true));
@@ -84,6 +88,7 @@ public sealed class MarketplacePluginsViewModel : ViewModelBase
     public ICommand OpenPluginDirectoryCommand { get; }
     public ICommand OpenDocumentationCommand { get; }
     public ICommand UseRuleEditorCommand { get; }
+    public ICommand LaunchToolCommand { get; }
     public ICommand ImportRuleCommand { get; }
     public ICommand UploadRuleCommand { get; }
     public ICommand OpenRulesDirectoryCommand { get; }
@@ -163,6 +168,24 @@ public sealed class MarketplacePluginsViewModel : ViewModelBase
         catch (Exception ex) { Message = $"启动规则编辑器失败：{ex.Message}"; _logger.Error(Message, ex); }
     }
 
+    private void LaunchTool(InstalledPluginItem item)
+    {
+        try
+        {
+            var window = new WebToolWindow(item.Manifest, _logger)
+            {
+                Owner = Wpf.Application.Current.MainWindow
+            };
+            window.Show();
+            Message = $"已启动工具：{item.Manifest.Name}";
+        }
+        catch (Exception ex)
+        {
+            Message = $"启动工具失败：{ex.Message}";
+            _logger.Error(Message, ex);
+        }
+    }
+
     private async Task ImportRuleAsync()
     {
         var dialog = new Microsoft.Win32.OpenFileDialog { Filter = "规则 JSON (*.json)|*.json|所有文件 (*.*)|*.*", Title = "添加本地规则" };
@@ -229,7 +252,7 @@ public sealed class MarketplacePluginsViewModel : ViewModelBase
 
     private void RaiseCommandStates()
     {
-        foreach (var command in new[] { RefreshCommand, InstallCommand, SetDefaultCommand, ToggleEnabledCommand, UninstallCommand, UseRuleEditorCommand, ImportRuleCommand, UploadRuleCommand }) ((DelegateCommand)command).RaiseCanExecuteChanged();
+        foreach (var command in new[] { RefreshCommand, InstallCommand, SetDefaultCommand, ToggleEnabledCommand, UninstallCommand, UseRuleEditorCommand, LaunchToolCommand, ImportRuleCommand, UploadRuleCommand }) ((DelegateCommand)command).RaiseCanExecuteChanged();
         OnPropertyChanged(nameof(CanUploadRules));
         OnPropertyChanged(nameof(UploadRulesHint));
     }

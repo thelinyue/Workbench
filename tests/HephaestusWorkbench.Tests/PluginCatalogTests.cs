@@ -1,5 +1,6 @@
 using System.Text.Json;
 using HephaestusWorkbench.Data;
+using HephaestusWorkbench.PluginSDK;
 using HephaestusWorkbench.Services;
 
 namespace HephaestusWorkbench.Tests;
@@ -31,6 +32,32 @@ public sealed class PluginCatalogTests
             var plugin = Assert.Single(result);
             Assert.Equal("sample", plugin.Id);
             Assert.Equal(Path.Combine(pluginDirectory, "sample.exe"), plugin.EntryPath);
+        }
+        finally
+        {
+            if (Directory.Exists(root)) Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task ScanAsync_FindsStaticWebToolAndPreservesCapability()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "HephaestusWorkbenchTests", Guid.NewGuid().ToString("N"));
+        var pluginDirectory = Path.Combine(root, "Plugins", "web-tool");
+        Directory.CreateDirectory(pluginDirectory);
+        try
+        {
+            await File.WriteAllTextAsync(Path.Combine(pluginDirectory, "index.html"), "<!doctype html>");
+            await File.WriteAllTextAsync(Path.Combine(pluginDirectory, "manifest.json"), """
+                { "id":"web-tool", "name":"Web tool", "version":"1.0.0", "type":"Web", "entry":"index.html", "capabilities":["standalone-tool"] }
+                """);
+
+            var catalog = new PluginCatalog(new DataPaths(root), new WorkbenchLogger(root));
+            var plugin = Assert.Single(await catalog.ScanAsync());
+
+            Assert.Equal(PluginType.Web, plugin.Type);
+            Assert.True(plugin.Supports("standalone-tool"));
+            Assert.Equal(Path.Combine(pluginDirectory, "index.html"), plugin.EntryPath);
         }
         finally
         {

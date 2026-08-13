@@ -201,6 +201,9 @@ public sealed partial class PluginMarketplaceService
     public async Task SetDefaultAsync(string pluginId, CancellationToken cancellationToken = default)
     {
         var config = await _configuration.EnsurePluginConfigAsync(cancellationToken);
+        var manifest = await _catalog.GetAsync(pluginId, cancellationToken);
+        if (manifest?.Supports("standalone-tool") == true)
+            throw new InvalidOperationException("独立工具插件不能设置为默认分析插件。");
         var entry = config.Plugins.FirstOrDefault(x => string.Equals(x.Id, pluginId, StringComparison.OrdinalIgnoreCase))
             ?? throw new InvalidOperationException("插件没有登记，无法设为默认。");
         entry.Enabled = true;
@@ -248,7 +251,15 @@ public sealed partial class PluginMarketplaceService
                 }, cancellationToken);
             }
         }
-        config.DefaultPluginId ??= config.Plugins.FirstOrDefault(x => x.Enabled)?.Id;
+        var defaultManifest = installed.FirstOrDefault(x => string.Equals(x.Id, config.DefaultPluginId, StringComparison.OrdinalIgnoreCase));
+        if (defaultManifest?.Supports("standalone-tool") == true || string.IsNullOrWhiteSpace(config.DefaultPluginId))
+        {
+            var analysisIds = installed
+                .Where(x => !x.Supports("standalone-tool") && x.Type == PluginType.Exe)
+                .Select(x => x.Id)
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+            config.DefaultPluginId = config.Plugins.FirstOrDefault(x => x.Enabled && analysisIds.Contains(x.Id))?.Id;
+        }
         await _configuration.SavePluginConfigAsync(config, cancellationToken);
     }
 
@@ -364,7 +375,7 @@ public sealed partial class PluginMarketplaceService
         if (string.IsNullOrWhiteSpace(item.Name)) throw new InvalidDataException($"插件名称为空：{item.Id}");
         if (!Version.TryParse(item.Version, out _)) throw new InvalidDataException($"插件版本无效：{item.Version}");
         if (!Version.TryParse(item.MinimumAppVersion, out var minimum)) throw new InvalidDataException($"最低应用版本无效：{item.MinimumAppVersion}");
-        if (item.Type != PluginType.Exe) throw new InvalidDataException("当前版本仅支持 EXE 插件。");
+        if (item.Type is not (PluginType.Exe or PluginType.Web)) throw new InvalidDataException("当前版本仅支持 EXE 或 Web 插件。");
         EnsureHttps(new Uri(item.PackageUrl, UriKind.Absolute));
         if (!Sha256Pattern().IsMatch(item.Sha256)) throw new InvalidDataException($"插件 SHA-256 无效：{item.Id}");
         if (item.PackageSize <= 0 || item.PackageSize > MaximumPackageBytes) throw new InvalidDataException($"插件包大小无效：{item.Id}");

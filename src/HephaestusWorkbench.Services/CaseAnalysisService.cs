@@ -64,13 +64,14 @@ public sealed class CaseAnalysisService
         PluginManifest? plugin;
         if (_configuration is null)
         {
-            plugin = plugins.FirstOrDefault(x => x.Runner == "legacy-log-analyzer") ?? plugins.FirstOrDefault();
+            plugin = plugins.FirstOrDefault(IsAnalysisPlugin)
+                ?? plugins.FirstOrDefault(x => x.Runner == "legacy-log-analyzer" && IsAnalysisPlugin(x));
         }
         else
         {
             var config = await _configuration.EnsurePluginConfigAsync(cancellationToken);
             var enabledIds = config.Plugins.Where(x => x.Enabled).Select(x => x.Id).ToHashSet(StringComparer.OrdinalIgnoreCase);
-            plugin = plugins.FirstOrDefault(x => enabledIds.Contains(x.Id)
+            plugin = plugins.FirstOrDefault(x => IsAnalysisPlugin(x) && enabledIds.Contains(x.Id)
                 && string.Equals(x.Id, config.DefaultPluginId, StringComparison.OrdinalIgnoreCase));
         }
         if (plugin is null)
@@ -114,6 +115,10 @@ public sealed class CaseAnalysisService
         _ = _taskCenter.EnqueueAsync(task, token => RunAsync(analysisCase, task, plugin, token));
         return task;
     }
+
+    /// <summary>工具型 Web 插件只提供人工操作界面，不能被案例分析流程当作分析器执行。</summary>
+    private static bool IsAnalysisPlugin(PluginManifest plugin)
+        => plugin.Type == PluginType.Exe && !plugin.Supports("standalone-tool");
 
     /// <summary>
     /// 提交并等待一次分析完成，供需要立即展示新报告的重新分析操作使用。
