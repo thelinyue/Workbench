@@ -27,8 +27,8 @@ concurrency:
 env:
   PLUGIN_REPO: thelinyue/Hephaestus-Workbench-Releases
   RULE_EDITOR_URL: https://github.com/thelinyue/Hephaestus-Workbench-Releases/releases/download/plugin-log-rule-editor-v1.0.0/log-rule-editor-v1.0.0.zip
-  RULE_EDITOR_SHA256: 5f779d7b73ff262b86cddf77413a21180a5a03c8af6b140a72a68ce2ccbfb834
-  RULE_EDITOR_SIZE: "1632412"
+  RULE_EDITOR_SHA256: 8086c4f781e4e1da118cbc8a7c5f1bf9ef883047ca5a4ef5b27deac083136fcd
+  RULE_EDITOR_SIZE: "843482"
   INNO_URL: https://github.com/jrsoftware/issrc/releases/download/is-6_7_3/innosetup-6.7.3.exe
   INNO_SHA256: 9c73c3bae7ed48d44112a0f48e66742c00090bdb5bef71d9d3c056c66e97b732
   INNO_SIZE: "10592232"
