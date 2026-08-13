@@ -1,7 +1,7 @@
 ﻿param(
     [ValidateSet('Debug', 'Release')]
     [string]$Configuration = 'Release',
-    [string]$Version = '1.2.9',
+    [string]$Version = '1.2.10',
     [Parameter(Mandatory = $true)]
     [string]$PluginBinaryPath,
     [string]$InnoCompilerPath

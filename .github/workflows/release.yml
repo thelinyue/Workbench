@@ -9,7 +9,7 @@ on:
       version:
         description: "要验证的版本号（不带 v）"
         required: true
-        default: "1.2.9"
+        default: "1.2.10"
         type: string
       publish:
         description: "同时发布到公开 Releases 仓库"
