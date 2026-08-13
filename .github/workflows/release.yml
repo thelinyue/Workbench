@@ -215,7 +215,7 @@ jobs:
         shell: pwsh
         run: |
           $version = "${{ steps.version.outputs.version }}"
-          $setupName = "Hephaestus工作台_v$version.exe"
+          $setupName = "HephaestusWorkbench_v$version.exe"
           $setup = Join-Path $PWD "installer\dist\$setupName"
           $checksums = Join-Path $PWD "installer\dist\SHA256SUMS.txt"
           if (-not (Test-Path -LiteralPath $setup -PathType Leaf) -or

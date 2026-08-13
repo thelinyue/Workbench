@@ -12,7 +12,7 @@ public sealed class InstallerDefinitionTests
         Assert.Contains("AppName=Hephaestus工作台", script);
         Assert.Contains("AppVerName=Hephaestus工作台", script);
         Assert.Contains("VersionInfoProductName=Hephaestus工作台", script);
-        Assert.Contains("OutputBaseFilename=Hephaestus工作台_v{#MyAppVersion}", script);
+        Assert.Contains("OutputBaseFilename=HephaestusWorkbench_v{#MyAppVersion}", script);
         Assert.DoesNotContain("赫菲斯托斯工程工作台", script);
         Assert.Contains("VersionInfoProductVersion={#MyAppVersion}", script);
         Assert.Contains("Source: \"{#AppSource}\\*\"", script);
@@ -24,7 +24,7 @@ public sealed class InstallerDefinitionTests
     {
         var script = ReadRepositoryFile("installer", "build-installer.ps1");
 
-        Assert.Contains("Hephaestus工作台_v$Version.exe", script);
+        Assert.Contains("HephaestusWorkbench_v$Version.exe", script);
         Assert.DoesNotContain("HephaestusWorkbench_Update.exe", script);
         Assert.DoesNotContain("HephaestusWorkbench_Uninstall.exe", script);
         Assert.DoesNotContain("HephaestusWorkbench-v$Version-win-x64.zip", script);

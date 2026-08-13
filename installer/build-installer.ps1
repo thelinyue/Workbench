@@ -54,7 +54,7 @@ if ($LASTEXITCODE -ne 0) { throw "应用发布失败，退出码：$LASTEXITCODE
 Write-Host '正在生成标准单文件离线安装包……'
 & $InnoCompilerPath "/DMyAppVersion=$Version" "/DAppSource=$appPublish" "/DOutputDir=$dist" $innoScript
 if ($LASTEXITCODE -ne 0) { throw "Inno Setup 编译失败，退出码：$LASTEXITCODE" }
-$setupFileName = "Hephaestus工作台_v$Version.exe"
+$setupFileName = "HephaestusWorkbench_v$Version.exe"
 $setupExecutable = Join-Path $dist $setupFileName
 if (-not (Test-Path -LiteralPath $setupExecutable -PathType Leaf)) {
     throw "未生成预期的安装包：$setupExecutable"
