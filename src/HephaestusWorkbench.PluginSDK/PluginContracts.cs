@@ -5,7 +5,9 @@ namespace HephaestusWorkbench.PluginSDK;
 public enum PluginType
 {
     Exe,
-    Dll
+    Dll,
+    /// <summary>由工作台 WebView2 承载的本地静态工具页面。</summary>
+    Web
 }
 
 /// <summary>

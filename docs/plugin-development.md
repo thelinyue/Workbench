@@ -156,3 +156,29 @@ log_analyzer.exe -d <source-path> -o <report-output-directory>
 - 清单字段属于跨版本边界，新增字段应保持旧字段可用。
 - `report.html` 是工作台报告查看器的稳定入口；修改入口文件名需要同时修改工作台运行器和测试。
 - 插件异常信息应明确说明原因，避免只返回“失败”。
+
+## 9. Web 独立工具插件
+
+Web 插件用于不参与案例分析流程的本地静态工具。清单示例：
+
+```json
+{
+  "id": "lvm-uncache-tool",
+  "name": "LVM 缓存清理工具",
+  "version": "1.0.0",
+  "type": "Web",
+  "entry": "index.html",
+  "capabilities": ["standalone-tool"]
+}
+```
+
+Web 插件的入口必须是插件目录内的 HTML 文件。工作台会在独立 WebView2 窗口中加载它，禁止跳转到插件目录之外或外部网络地址；入口校验失败时会显示中文错误并写入日志。
+
+页面如需保存文件，可发送最小消息：
+
+```text
+page -> host: { type: "saveFile", fileName, content, overwriteRequested }
+host -> page: { type: "saveSucceeded" | "saveCanceled" | "saveFailed", ... }
+```
+
+在普通浏览器中运行时，页面应回退到 Blob 下载。Web 工具不设置为默认分析插件，也不会由案例分析服务执行。

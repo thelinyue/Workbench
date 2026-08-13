@@ -71,7 +71,8 @@
                                     <StackPanel Grid.Column="2"><TextBlock Text="状态" Style="{StaticResource MutedTextStyle}" /><TextBlock Text="{Binding StatusText}" Margin="0,4,0,0" /></StackPanel>
                                     <WrapPanel Grid.Column="3" VerticalAlignment="Center">
                                         <Button Content="使用规则编辑器" Visibility="{Binding IsRuleEditor, Converter={StaticResource BooleanToVisibilityConverter}}" Command="{Binding DataContext.UseRuleEditorCommand, RelativeSource={RelativeSource AncestorType=UserControl}}" CommandParameter="{Binding}" />
-                                        <Button Content="设为默认" Command="{Binding DataContext.SetDefaultCommand, RelativeSource={RelativeSource AncestorType=UserControl}}" CommandParameter="{Binding}" />
+                                        <Button Content="启动工具" Visibility="{Binding IsStandaloneTool, Converter={StaticResource BooleanToVisibilityConverter}}" Command="{Binding DataContext.LaunchToolCommand, RelativeSource={RelativeSource AncestorType=UserControl}}" CommandParameter="{Binding}" Style="{StaticResource PrimaryButtonStyle}" />
+                                        <Button Content="设为默认" Visibility="{Binding CanSetDefault, Converter={StaticResource BooleanToVisibilityConverter}}" Command="{Binding DataContext.SetDefaultCommand, RelativeSource={RelativeSource AncestorType=UserControl}}" CommandParameter="{Binding}" />
                                         <Button Content="{Binding ToggleText}" Command="{Binding DataContext.ToggleEnabledCommand, RelativeSource={RelativeSource AncestorType=UserControl}}" CommandParameter="{Binding}" />
                                         <Button Content="卸载" IsEnabled="{Binding CanUninstall}" Command="{Binding DataContext.UninstallCommand, RelativeSource={RelativeSource AncestorType=UserControl}}" CommandParameter="{Binding}" Margin="0" />
                                     </WrapPanel>

@@ -68,6 +68,13 @@ public sealed class PluginCatalog : IPluginCatalog
                     AddIssue($"插件入口不存在：{withPath.EntryPath}");
                     continue;
                 }
+                if (withPath.Type == PluginType.Web
+                    && !withPath.EntryPath.EndsWith(".html", StringComparison.OrdinalIgnoreCase)
+                    && !withPath.EntryPath.EndsWith(".htm", StringComparison.OrdinalIgnoreCase))
+                {
+                    AddIssue($"Web 插件入口必须是 HTML 文件：{withPath.EntryPath}");
+                    continue;
+                }
 
                 _cache[withPath.Id] = withPath;
                 found.Add(withPath);

@@ -54,6 +54,47 @@ public sealed class DefaultPluginSelectionTests
         finally { if (Directory.Exists(root)) Directory.Delete(root, recursive: true); }
     }
 
+    [Fact]
+    public async Task StartAsync_DoesNotExecuteStandaloneWebTool()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "HephaestusWorkbenchTests", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(root);
+        try
+        {
+            var paths = new DataPaths(root);
+            paths.EnsureCreated();
+            var factory = new SqliteConnectionFactory(paths);
+            await new DatabaseInitializer(factory).InitializeAsync();
+            var configuration = new WorkbenchConfigurationService(paths);
+            await configuration.SavePluginConfigAsync(new PluginConfig
+            {
+                DefaultPluginId = "web-tool",
+                Plugins = { new PluginConfigEntry { Id = "web-tool", Version = "1.0.0", Enabled = true } }
+            });
+            var repository = new SqliteCaseRepository(factory);
+            var taskRepository = new SqliteTaskRepository(factory);
+            var reportRepository = new SqliteReportRepository(factory);
+            var taskCenter = new TaskCenter(taskRepository);
+            var runner = new FailedRunner();
+            var service = new CaseAnalysisService(paths, repository, taskRepository, reportRepository, new WebOnlyCatalog(), runner, runner, taskCenter, new WorkbenchLogger(root), configuration);
+            var log = Path.Combine(root, "test.tgz");
+            await File.WriteAllTextAsync(log, "test");
+
+            var task = await service.StartAsync(new LogInboxItem
+            {
+                FilePath = log,
+                FileName = "test.tgz",
+                DeviceId = "device",
+                LogTime = DateTime.Now,
+                FileSize = 4,
+                IsValidArchive = true
+            });
+
+            Assert.Null(task);
+        }
+        finally { if (Directory.Exists(root)) Directory.Delete(root, recursive: true); }
+    }
+
     private sealed class TwoPluginCatalog : IPluginCatalog
     {
         private static readonly PluginManifest[] Plugins =
@@ -61,6 +102,17 @@ public sealed class DefaultPluginSelectionTests
             new() { Id = "first", Name = "第一个", Version = "1.0", Type = PluginType.Exe, Entry = "first.exe" },
             new() { Id = "second", Name = "第二个", Version = "1.0", Type = PluginType.Exe, Entry = "second.exe" }
         };
+        public Task<IReadOnlyList<PluginManifest>> ScanAsync(CancellationToken cancellationToken = default) => Task.FromResult<IReadOnlyList<PluginManifest>>(Plugins);
+        public Task<PluginManifest?> GetAsync(string pluginId, CancellationToken cancellationToken = default) => Task.FromResult<PluginManifest?>(Plugins.FirstOrDefault(x => x.Id == pluginId));
+    }
+
+    private sealed class WebOnlyCatalog : IPluginCatalog
+    {
+        private static readonly PluginManifest[] Plugins =
+        {
+            new() { Id = "web-tool", Name = "Web tool", Version = "1.0.0", Type = PluginType.Web, Entry = "index.html", Capabilities = new() { "standalone-tool" } }
+        };
+
         public Task<IReadOnlyList<PluginManifest>> ScanAsync(CancellationToken cancellationToken = default) => Task.FromResult<IReadOnlyList<PluginManifest>>(Plugins);
         public Task<PluginManifest?> GetAsync(string pluginId, CancellationToken cancellationToken = default) => Task.FromResult<PluginManifest?>(Plugins.FirstOrDefault(x => x.Id == pluginId));
     }
