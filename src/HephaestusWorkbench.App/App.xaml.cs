@@ -16,6 +16,9 @@ public partial class App : System.Windows.Application
 
     protected override async void OnStartup(StartupEventArgs e)
     {
+        // 部分显卡驱动或虚拟显示环境会让 WPF 硬件合成结果为空白，但控件仍存在于自动化树中。
+        // 工作台以表单和文本为主，启动时使用软件合成可保证主窗口稳定绘制；WebView2 仍由自身渲染。
+        System.Windows.Media.RenderOptions.ProcessRenderMode = System.Windows.Interop.RenderMode.SoftwareOnly;
         base.OnStartup(e);
         if (e.Args.Any(x => string.Equals(x, "--uninstall", StringComparison.OrdinalIgnoreCase)))
         {
@@ -77,15 +80,18 @@ internal sealed class WorkbenchHost : IDisposable
         ReportSessionsRepository = new SqliteReportSessionRepository(_factory);
         PluginsRepository = new SqlitePluginInfoRepository(_factory);
         SettingsStore = new SqliteSettingsStore(_factory);
+        LifecycleRepository = new SqliteAnalysisLifecycleRepository(_factory);
         Configuration = new WorkbenchConfigurationService(Paths);
+        PluginCatalog = new PluginCatalog(Paths, Logger);
         Rules = new RuleSetService(Paths, Logger);
+        RuleVerifier = new Ed25519RulePackageVerifier(Rules);
+        RuleDistribution = new RuleDistributionService(Rules, RuleVerifier, Logger, plugins: PluginCatalog);
 
         _seedDirectory = Path.Combine(AppContext.BaseDirectory, "PluginSeed");
-        PluginCatalog = new PluginCatalog(Paths, Logger);
         TaskCenter = new TaskCenter(TasksRepository);
         var legacyRunner = new LegacyLogAnalyzerRunner(Logger);
         var standardRunner = new StandardExePluginRunner(Logger);
-        Analysis = new CaseAnalysisService(Paths, CasesRepository, TasksRepository, ReportsRepository, PluginCatalog, legacyRunner, standardRunner, TaskCenter, Logger, Configuration, Rules);
+        Analysis = new CaseAnalysisService(Paths, CasesRepository, TasksRepository, ReportsRepository, PluginCatalog, legacyRunner, standardRunner, TaskCenter, Logger, Configuration, Rules, LifecycleRepository);
         PluginMarketplace = new PluginMarketplaceService(Paths, PluginCatalog, Configuration, TaskCenter, Logger, PluginsRepository);
         Reports = new ReportService(ReportsRepository, ReportSessionsRepository, Analysis);
         Inbox = new LogInboxService(new LogFileParser(), new ArchiveValidator(), Configuration, Logger, Paths.InboxDirectory);
@@ -101,8 +107,11 @@ internal sealed class WorkbenchHost : IDisposable
     public IReportSessionRepository ReportSessionsRepository { get; }
     public IPluginInfoRepository PluginsRepository { get; }
     public ISettingsStore SettingsStore { get; }
+    public IAnalysisLifecycleRepository LifecycleRepository { get; }
     public WorkbenchConfigurationService Configuration { get; }
     public RuleSetService Rules { get; }
+    public IRulePackageVerifier RuleVerifier { get; }
+    public IRuleDistributionService RuleDistribution { get; }
     public PluginCatalog PluginCatalog { get; }
     public PluginMarketplaceService PluginMarketplace { get; }
     public TaskCenter TaskCenter { get; }
@@ -194,6 +203,9 @@ internal sealed class WorkbenchHost : IDisposable
             Logger.Info("已创建新的工作台数据库。");
         }
         Logger.Info("工作台数据库初始化完成。");
+        var recoveredTasks = await LifecycleRepository.RecoverInterruptedAsync(DateTime.Now);
+        if (recoveredTasks > 0)
+            Logger.Info($"已恢复上次未完成的分析任务：{recoveredTasks} 个。");
 
         await Configuration.EnsureWorkspaceAsync(legacyStore: SettingsStore);
         AppSettings = await Configuration.EnsureAppSettingsAsync(SettingsStore);
@@ -221,7 +233,7 @@ internal sealed class WorkbenchHost : IDisposable
             ? $"日志收件箱监控已启动：{string.Join("、", Inbox.WatchDirectories)}"
             : "未配置日志收件目录，日志收件箱暂不扫描。");
 
-        MainViewModel = new MainViewModel(Analysis, Inbox, Storage, Settings, PluginCatalog, PluginMarketplace, Reports, Logger, ThemeManager.ApplyTheme, Rules);
+        MainViewModel = new MainViewModel(Analysis, Inbox, Storage, Settings, PluginCatalog, PluginMarketplace, Reports, Logger, ThemeManager.ApplyTheme, Rules, RuleDistribution);
         await MainViewModel.InitializeAsync();
         Logger.Info("工作台初始化完成。");
     }

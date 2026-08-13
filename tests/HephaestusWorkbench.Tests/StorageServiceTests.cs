@@ -56,6 +56,47 @@ public sealed class StorageServiceTests
     }
 
     [Fact]
+    public async Task GetSummaryAsync_SkipsFileThatIsTemporarilyLocked()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "HephaestusWorkbenchTests", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(root);
+        try
+        {
+            var paths = new DataPaths(root);
+            var factory = new SqliteConnectionFactory(paths);
+            await new DatabaseInitializer(factory).InitializeAsync();
+            var cases = new SqliteCaseRepository(factory);
+            var now = DateTime.Now;
+            var extractPath = Path.Combine(root, "OriginalLogs", "diag_A_202608111200");
+            var lockedPath = Path.Combine(extractPath, "正在写入.log");
+            Directory.CreateDirectory(extractPath);
+            await File.WriteAllTextAsync(lockedPath, "partial");
+            await cases.InsertAsync(new AnalysisCase
+            {
+                Id = "case-locked",
+                DisplayName = "被占用文件",
+                OriginalName = "diag_A_202608111200.tgz",
+                DeviceId = "A",
+                LogTime = now,
+                Status = CaseStatus.Running,
+                SourcePath = Path.Combine(root, "OriginalLogs", "diag_A_202608111200.tgz"),
+                ExtractPath = extractPath,
+                CreateTime = now,
+                UpdateTime = now
+            });
+
+            await using var lockStream = new FileStream(lockedPath, FileMode.Open, FileAccess.ReadWrite, FileShare.None);
+            var summary = await new StorageService(paths, cases).GetSummaryAsync();
+
+            Assert.Equal(0, summary.ExtractBytes);
+        }
+        finally
+        {
+            if (Directory.Exists(root)) Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task CleanCaseDataAsync_RejectsExtractPathThatIsNotSourceSibling()
     {
         var root = Path.Combine(Path.GetTempPath(), "HephaestusWorkbenchTests", Guid.NewGuid().ToString("N"));

@@ -44,3 +44,14 @@ public interface ISettingsStore
     Task<string?> GetAsync(string key, CancellationToken cancellationToken = default);
     Task SetAsync(string key, string value, CancellationToken cancellationToken = default);
 }
+
+/// <summary>
+/// 将案例、任务和报告的关键状态转换集中到一个持久化边界，避免多次独立写入产生半成品记录。
+/// </summary>
+public interface IAnalysisLifecycleRepository
+{
+    Task CreateAsync(AnalysisCase analysisCase, AnalysisTask task, CancellationToken cancellationToken = default);
+    Task MarkRunningAsync(AnalysisCase analysisCase, AnalysisTask task, CancellationToken cancellationToken = default);
+    Task CompleteAsync(AnalysisCase analysisCase, AnalysisTask task, Report? report, CancellationToken cancellationToken = default);
+    Task<int> RecoverInterruptedAsync(DateTime recoveredAt, CancellationToken cancellationToken = default);
+}

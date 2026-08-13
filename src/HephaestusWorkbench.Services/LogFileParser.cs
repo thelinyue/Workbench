@@ -9,8 +9,17 @@ namespace HephaestusWorkbench.Services;
 /// </summary>
 public sealed partial class LogFileParser
 {
-    [GeneratedRegex(@"^.+_(?<device>[A-Za-z0-9]+)_(?<time>\d{10}|\d{12})\.tgz$", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
+    [GeneratedRegex(@"^.+_(?<device>[A-Za-z0-9]+)_(?<time>\d{10}|\d{12})\.tgz(?:\.temp)?$", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
     private static partial Regex FileNamePattern();
+
+    /// <summary>判断文件名是否属于工作台支持的日志压缩包格式。</summary>
+    public static bool IsSupportedFileName(string fileName)
+        => FileNamePattern().IsMatch(fileName);
+
+    /// <summary>判断文件是否应进入收件箱检测，包括名称不合法但需要展示错误的文件。</summary>
+    public static bool HasSupportedExtension(string fileName)
+        => fileName.EndsWith(".tgz", StringComparison.OrdinalIgnoreCase)
+            || fileName.EndsWith(".tgz.temp", StringComparison.OrdinalIgnoreCase);
 
     public bool TryParse(string path, out LogInboxItem? item, out string? error)
     {
@@ -20,7 +29,7 @@ public sealed partial class LogFileParser
         var match = FileNamePattern().Match(fileName);
         if (!match.Success)
         {
-            error = "文件名不符合“任意前缀_设备序列号_YYYYMMDDHHMM.tgz”或“任意前缀_设备序列号_YYMMDDHHMM.tgz”格式。";
+            error = "文件名不符合“任意前缀_设备序列号_YYYYMMDDHHMM.tgz[.temp]”或“任意前缀_设备序列号_YYMMDDHHMM.tgz[.temp]”格式。";
             return false;
         }
 

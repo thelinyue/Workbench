@@ -87,25 +87,76 @@ internal static class FileUtilities
         if (Directory.Exists(path)) Directory.Delete(path, recursive: true);
     }
 
-    public static long GetDirectorySize(string path)
+    /// <summary>
+    /// 统计目录大小时允许单个文件暂时不可读。日志目录、解压目录可能正在被分析器或其他进程写入，
+    /// 这类短暂共享冲突不应阻断分析中心其余数据的加载。
+    /// </summary>
+    public static long GetDirectorySize(string path, Action<string, Exception>? onReadFailure = null)
     {
         if (!Directory.Exists(path)) return 0;
-        return Directory.EnumerateFiles(path, "*", SearchOption.AllDirectories).Sum(file => new FileInfo(file).Length);
+        return SumFileSizes(EnumerateFilesSafely(path, onReadFailure), onReadFailure);
     }
 
-    public static long GetDirectorySizeExcluding(string path, IReadOnlyList<string> excludedDirectories)
+    public static long GetDirectorySizeExcluding(
+        string path,
+        IReadOnlyList<string> excludedDirectories,
+        Action<string, Exception>? onReadFailure = null)
     {
         if (!Directory.Exists(path)) return 0;
-        return Directory.EnumerateFiles(path, "*", SearchOption.AllDirectories)
-            .Where(file => !excludedDirectories.Any(excluded =>
+        var files = EnumerateFilesSafely(path, onReadFailure).Where(file => !excludedDirectories.Any(excluded =>
+        {
+            var normalized = Path.GetFullPath(excluded).TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar;
+            return file.StartsWith(normalized, StringComparison.OrdinalIgnoreCase);
+        }));
+        return SumFileSizes(files, onReadFailure);
+    }
+
+    public static long GetFileSize(string path, Action<string, Exception>? onReadFailure = null)
+    {
+        try
+        {
+            if (!File.Exists(path)) return 0;
+            // 通过实际只读句柄读取长度，能够把文件被其他进程独占的情况纳入统一容错路径。
+            using var file = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read);
+            return file.Length;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            onReadFailure?.Invoke(path, ex);
+            return 0;
+        }
+    }
+
+    private static IEnumerable<string> EnumerateFilesSafely(string path, Action<string, Exception>? onReadFailure)
+    {
+        try
+        {
+            return Directory.EnumerateFiles(path, "*", new EnumerationOptions
             {
-                var normalized = Path.GetFullPath(excluded).TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar;
-                return file.StartsWith(normalized, StringComparison.OrdinalIgnoreCase);
-            }))
-            .Sum(file => new FileInfo(file).Length);
+                RecurseSubdirectories = true,
+                IgnoreInaccessible = true
+            });
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            onReadFailure?.Invoke(path, ex);
+            return Array.Empty<string>();
+        }
     }
 
-    public static long GetFileSize(string path) => File.Exists(path) ? new FileInfo(path).Length : 0;
+    private static long SumFileSizes(IEnumerable<string> files, Action<string, Exception>? onReadFailure)
+    {
+        long total = 0;
+        try
+        {
+            foreach (var file in files) total += GetFileSize(file, onReadFailure);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            onReadFailure?.Invoke("目录遍历", ex);
+        }
+        return total;
+    }
 }
 
 internal sealed record ValidatedCaseArtifacts(string SourcePath, string ExtractPath, string CaseDirectory);

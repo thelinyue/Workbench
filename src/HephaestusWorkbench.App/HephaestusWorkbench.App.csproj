@@ -24,6 +24,9 @@
     <RuleEditorBinaryCandidate Include="..\..\插件\rule_editor.exe" Condition="'$(RuleEditorBinaryPath)' == '' and Exists('..\..\插件\rule_editor.exe')" />
     <None Include="@(RuleEditorBinaryCandidate)" Link="PluginSeed\RuleEditor\rule_editor.exe" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
     <None Include="$(RuleEditorBinaryPath)" Condition="'$(RuleEditorBinaryPath)' != '' and Exists('$(RuleEditorBinaryPath)')" Link="PluginSeed\RuleEditor\rule_editor.exe" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <RuleEditorHtmlCandidate Include="..\..\..\Hephaestus-Workbench-Plugin-Sources\plugins\log-analyzer-rule-builder\editor.html" Condition="'$(RuleEditorHtmlPath)' == '' and Exists('..\..\..\Hephaestus-Workbench-Plugin-Sources\plugins\log-analyzer-rule-builder\editor.html')" />
+    <None Include="@(RuleEditorHtmlCandidate)" Link="PluginSeed\RuleEditor\editor.html" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <None Include="$(RuleEditorHtmlPath)" Condition="'$(RuleEditorHtmlPath)' != '' and Exists('$(RuleEditorHtmlPath)')" Link="PluginSeed\RuleEditor\editor.html" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
     <None Include="..\..\docs\plugin-development.md" Link="Documentation\plugin-development.md" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
     <Resource Include="Assets\AppIcon\app-icon.ico" />
   </ItemGroup>

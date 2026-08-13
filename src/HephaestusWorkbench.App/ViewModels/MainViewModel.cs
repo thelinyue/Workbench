@@ -16,7 +16,7 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
     private NavigationItem? _selectedNavigationItem;
     private string _globalWarningText = string.Empty;
 
-    public MainViewModel(CaseAnalysisService analysis, LogInboxService inbox, StorageService storage, SettingsService settings, PluginCatalog plugins, PluginMarketplaceService marketplace, ReportService reports, WorkbenchLogger logger, Func<string, string?> applyTheme, RuleSetService rules)
+    public MainViewModel(CaseAnalysisService analysis, LogInboxService inbox, StorageService storage, SettingsService settings, PluginCatalog plugins, PluginMarketplaceService marketplace, ReportService reports, WorkbenchLogger logger, Func<string, string?> applyTheme, RuleSetService rules, IRuleDistributionService ruleDistribution)
     {
         _inbox = inbox;
         _plugins = plugins;
@@ -25,7 +25,7 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
         {
             new("dashboard", "首页", "\uE80F"),
             new("analysis", "分析中心", "\uE896"),
-            new("plugins", "插件", "\uECAA"),
+            new("plugins", "应用商店", "\uECAA"),
             new("settings", "设置", "\uE713")
         };
         var reportWorkspace = new ReportsWorkspaceViewModel(reports, settings, OpenCase, OpenExtractDirectory, logger);
@@ -43,7 +43,7 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
             OpenExtractDirectory,
             logger);
         Settings = new SettingsViewModel(settings, inbox, () => AnalysisCenter.Reports.OpenTabCount, applyTheme);
-        Plugins = new MarketplacePluginsViewModel(plugins, marketplace, logger, rules, new HttpRulePublisher(Environment.GetEnvironmentVariable("HEPHAESTUS_RULE_PUBLISH_URL"), Environment.GetEnvironmentVariable("HEPHAESTUS_RULE_PUBLISH_TOKEN"), logger, protectedTokenPath: rules.RulePublisherTokenPath));
+        Plugins = new MarketplacePluginsViewModel(plugins, marketplace, settings, logger, rules, ruleDistribution, new HttpRulePublisher(Environment.GetEnvironmentVariable("HEPHAESTUS_RULE_PUBLISH_URL"), Environment.GetEnvironmentVariable("HEPHAESTUS_RULE_PUBLISH_TOKEN"), logger, protectedTokenPath: rules.RulePublisherTokenPath));
         _selectedNavigationItem = NavigationItems[0];
         _currentPage = Dashboard;
         UpdateStatusMessage();

@@ -71,6 +71,42 @@ public sealed class PluginMarketplaceServiceTests
     }
 
     [Fact]
+    public async Task InstallAsync_UsesMirrorOnlyAfterDirectDownloadFails()
+    {
+        await WithServiceAsync(async context =>
+        {
+            var package = CreatePackage("sample", "1.0", "sample.exe", "plugin");
+            await context.Configuration.SaveAppSettingsAsync(new AppSettingsConfig { GitHubDownloadMirrorTemplate = "https://mirror.example/{url}" });
+            context.Handler.Responses.Enqueue(new HttpResponseMessage(HttpStatusCode.BadGateway));
+            context.Handler.Responses.Enqueue(BinaryResponse(package));
+
+            await context.Service.InstallOrUpdateAsync(Item("sample", "1.0", package));
+
+            Assert.Equal(2, context.Handler.RequestUris.Count);
+            Assert.Equal("https://github.com/example/plugin.zip", context.Handler.RequestUris[0].AbsoluteUri);
+            Assert.Equal("https://mirror.example/https://github.com/example/plugin.zip", context.Handler.RequestUris[1].AbsoluteUri);
+            Assert.True(File.Exists(Path.Combine(context.Paths.PluginsDirectory, "sample", "sample.exe")));
+        });
+    }
+
+    [Fact]
+    public async Task InstallAsync_UsesMirrorAfterDirectHashFailure()
+    {
+        await WithServiceAsync(async context =>
+        {
+            var package = CreatePackage("sample", "1.0", "sample.exe", "plugin");
+            await context.Configuration.SaveAppSettingsAsync(new AppSettingsConfig { GitHubDownloadMirrorTemplate = "https://mirror.example/{url}" });
+            context.Handler.Responses.Enqueue(BinaryResponse(Encoding.UTF8.GetBytes("wrong package")));
+            context.Handler.Responses.Enqueue(BinaryResponse(package));
+
+            await context.Service.InstallOrUpdateAsync(Item("sample", "1.0", package));
+
+            Assert.Equal(2, context.Handler.RequestUris.Count);
+            Assert.True(File.Exists(Path.Combine(context.Paths.PluginsDirectory, "sample", "sample.exe")));
+        });
+    }
+
+    [Fact]
     public async Task InstallAsync_RejectsWrongHashWithoutChangingPlugins()
     {
         await WithServiceAsync(async context =>
@@ -184,12 +220,16 @@ public sealed class PluginMarketplaceServiceTests
         public HttpResponseMessage Response { get; set; } = new(HttpStatusCode.NotFound);
         public Exception? Exception { get; set; }
         public Uri? LastRequestUri { get; private set; }
+        public List<Uri> RequestUris { get; } = new();
+        public Queue<HttpResponseMessage> Responses { get; } = new();
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
         {
             LastRequestUri = request.RequestUri;
+            if (request.RequestUri is not null) RequestUris.Add(request.RequestUri);
             if (Exception is not null) return Task.FromException<HttpResponseMessage>(Exception);
-            Response.RequestMessage = request;
-            return Task.FromResult(Response);
+            var response = Responses.Count > 0 ? Responses.Dequeue() : Response;
+            response.RequestMessage = request;
+            return Task.FromResult(response);
         }
     }
 

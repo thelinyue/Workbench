@@ -52,6 +52,8 @@ public sealed class DatabaseInitializer
                 case_id TEXT NOT NULL,
                 path TEXT NOT NULL,
                 plugin_id TEXT NULL,
+                plugin_name TEXT NULL,
+                plugin_version TEXT NULL,
                 create_time TEXT NOT NULL,
                 FOREIGN KEY(case_id) REFERENCES analysis_cases(id) ON DELETE CASCADE
             );
@@ -81,6 +83,20 @@ public sealed class DatabaseInitializer
         {
             await using var alter = connection.CreateCommand();
             alter.CommandText = "ALTER TABLE reports ADD COLUMN plugin_id TEXT NULL;";
+            await alter.ExecuteNonQueryAsync(cancellationToken);
+        }
+
+        if (!await ColumnExistsAsync(connection, "reports", "plugin_name", cancellationToken))
+        {
+            await using var alter = connection.CreateCommand();
+            alter.CommandText = "ALTER TABLE reports ADD COLUMN plugin_name TEXT NULL;";
+            await alter.ExecuteNonQueryAsync(cancellationToken);
+        }
+
+        if (!await ColumnExistsAsync(connection, "reports", "plugin_version", cancellationToken))
+        {
+            await using var alter = connection.CreateCommand();
+            alter.CommandText = "ALTER TABLE reports ADD COLUMN plugin_version TEXT NULL;";
             await alter.ExecuteNonQueryAsync(cancellationToken);
         }
 

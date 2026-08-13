@@ -22,6 +22,7 @@ public sealed class CaseAnalysisService
     private readonly WorkbenchLogger _logger;
     private readonly WorkbenchConfigurationService? _configuration;
     private readonly RuleSetService? _rules;
+    private readonly IAnalysisLifecycleRepository? _lifecycle;
     public event EventHandler? StateChanged;
 
     public sealed record CleanupResult(int Deleted, int Skipped, int Failed);
@@ -37,7 +38,8 @@ public sealed class CaseAnalysisService
         TaskCenter taskCenter,
         WorkbenchLogger logger,
         WorkbenchConfigurationService? configuration = null,
-        RuleSetService? rules = null)
+        RuleSetService? rules = null,
+        IAnalysisLifecycleRepository? lifecycle = null)
     {
         _paths = paths;
         _cases = cases;
@@ -50,6 +52,7 @@ public sealed class CaseAnalysisService
         _logger = logger;
         _configuration = configuration;
         _rules = rules;
+        _lifecycle = lifecycle;
     }
 
     public async Task<AnalysisTask?> StartAsync(LogInboxItem item, CancellationToken cancellationToken = default)
@@ -84,8 +87,6 @@ public sealed class CaseAnalysisService
         var sourcePath = Path.GetFullPath(item.FilePath);
         var sourceDirectory = Path.GetDirectoryName(sourcePath) ?? throw new InvalidOperationException("原始日志路径没有父目录。");
         var extractDirectory = Path.Combine(sourceDirectory, FileUtilities.RemoveAllExtensions(Path.GetFileName(sourcePath)));
-        var reportDirectory = FileUtilities.GetReportDirectory(extractDirectory);
-
         var now = DateTime.Now;
         var analysisCase = new AnalysisCase
         {
@@ -101,8 +102,6 @@ public sealed class CaseAnalysisService
             CreateTime = now,
             UpdateTime = now
         };
-        await _cases.InsertAsync(analysisCase, cancellationToken);
-
         var task = new AnalysisTask
         {
             Id = Guid.NewGuid().ToString("N"),
@@ -110,7 +109,13 @@ public sealed class CaseAnalysisService
             PluginId = plugin.Id,
             Status = AnalysisTaskStatus.Waiting
         };
-        await _tasks.InsertAsync(task, cancellationToken);
+        if (_lifecycle is not null)
+            await _lifecycle.CreateAsync(analysisCase, task, cancellationToken);
+        else
+        {
+            await _cases.InsertAsync(analysisCase, cancellationToken);
+            await _tasks.InsertAsync(task, cancellationToken);
+        }
         StateChanged?.Invoke(this, EventArgs.Empty);
         _ = _taskCenter.EnqueueAsync(task, token => RunAsync(analysisCase, task, plugin, token));
         return task;
@@ -274,47 +279,90 @@ public sealed class CaseAnalysisService
 
     private async Task RunAsync(AnalysisCase analysisCase, AnalysisTask task, PluginManifest plugin, CancellationToken cancellationToken)
     {
-        task.Status = AnalysisTaskStatus.Running;
-        task.StartTime = DateTime.Now;
-        await _tasks.UpdateAsync(task);
-        analysisCase.Status = CaseStatus.Running;
-        analysisCase.UpdateTime = DateTime.Now;
-        await _cases.UpdateAsync(analysisCase);
-        StateChanged?.Invoke(this, EventArgs.Empty);
-
-        var context = new PluginExecutionContext(
-            analysisCase.Id,
-            analysisCase.SourcePath,
-            FileUtilities.GetReportDirectory(analysisCase.ExtractPath),
-            analysisCase.ExtractPath,
-            Path.GetDirectoryName(analysisCase.SourcePath) ?? _paths.Root,
-            _rules?.HasActiveRules == true ? _rules.ActiveRulesPath : null);
-        var runner = plugin.Runner == "legacy-log-analyzer" ? _legacyRunner : _standardRunner;
-        var result = await runner.RunAsync(plugin, context, cancellationToken);
-        task.EndTime = DateTime.Now;
-        task.ReportPath = result.ReportPath;
-        task.ErrorMessage = result.ErrorMessage;
-
-        analysisCase.Status = result.ReportPath is null ? CaseStatus.Failed : CaseStatus.Completed;
-        analysisCase.ReportPath = result.ReportPath;
-        analysisCase.ErrorMessage = result.ErrorMessage;
-        analysisCase.UpdateTime = DateTime.Now;
-        await _cases.UpdateAsync(analysisCase);
-        if (result.ReportPath is not null)
+        try
         {
-            await _reports.InsertAsync(new Report
+            task.Status = AnalysisTaskStatus.Running;
+            task.StartTime = DateTime.Now;
+            analysisCase.Status = CaseStatus.Running;
+            analysisCase.UpdateTime = DateTime.Now;
+            if (_lifecycle is not null)
+                await _lifecycle.MarkRunningAsync(analysisCase, task);
+            else
             {
-                Id = Guid.NewGuid().ToString("N"),
-                CaseId = analysisCase.Id,
-                Path = result.ReportPath,
-                PluginId = plugin.Id,
-                CreateTime = DateTime.Now
-            });
-        }
+                await _tasks.UpdateAsync(task);
+                await _cases.UpdateAsync(analysisCase);
+            }
+            StateChanged?.Invoke(this, EventArgs.Empty);
 
-        // 只有报告记录和案例状态都落库后，任务才对外呈现为完成，避免调用方读取到半完成状态。
-        task.Status = result.Cancelled ? AnalysisTaskStatus.Cancelled : result.ReportPath is null ? AnalysisTaskStatus.Failed : AnalysisTaskStatus.Completed;
-        await _tasks.UpdateAsync(task);
-        StateChanged?.Invoke(this, EventArgs.Empty);
+            var context = new PluginExecutionContext(
+                analysisCase.Id,
+                analysisCase.SourcePath,
+                FileUtilities.GetReportDirectory(analysisCase.ExtractPath),
+                analysisCase.ExtractPath,
+                Path.GetDirectoryName(analysisCase.SourcePath) ?? _paths.Root,
+                _rules?.HasActiveRules == true ? _rules.ActiveRulesPath : null);
+            var runner = plugin.Runner == "legacy-log-analyzer" ? _legacyRunner : _standardRunner;
+            var result = await runner.RunAsync(plugin, context, cancellationToken);
+            task.EndTime = DateTime.Now;
+            task.ReportPath = result.ReportPath;
+            task.ErrorMessage = result.ErrorMessage;
+
+            analysisCase.Status = result.ReportPath is null ? CaseStatus.Failed : CaseStatus.Completed;
+            analysisCase.ReportPath = result.ReportPath;
+            analysisCase.ErrorMessage = result.ErrorMessage;
+            analysisCase.UpdateTime = DateTime.Now;
+            task.Status = result.Cancelled
+                ? AnalysisTaskStatus.Cancelled
+                : result.ReportPath is null ? AnalysisTaskStatus.Failed : AnalysisTaskStatus.Completed;
+
+            var report = result.ReportPath is null
+                ? null
+                : new Report
+                {
+                    Id = Guid.NewGuid().ToString("N"),
+                    CaseId = analysisCase.Id,
+                    Path = result.ReportPath,
+                    PluginId = plugin.Id,
+                    PluginName = plugin.Name,
+                    PluginVersion = plugin.Version,
+                    CreateTime = DateTime.Now
+                };
+            if (_lifecycle is not null)
+                await _lifecycle.CompleteAsync(analysisCase, task, report);
+            else
+            {
+                await _cases.UpdateAsync(analysisCase);
+                if (report is not null) await _reports.InsertAsync(report);
+                await _tasks.UpdateAsync(task);
+            }
+
+            // 只有报告记录和案例状态都落库后，任务才对外呈现为完成，避免读取到半完成状态。
+            StateChanged?.Invoke(this, EventArgs.Empty);
+        }
+        catch (Exception ex)
+        {
+            task.Status = AnalysisTaskStatus.Failed;
+            task.EndTime = DateTime.Now;
+            task.ErrorMessage = $"分析任务异常终止：{ex.Message}";
+            analysisCase.Status = CaseStatus.Failed;
+            analysisCase.ErrorMessage = task.ErrorMessage;
+            analysisCase.UpdateTime = DateTime.Now;
+            try
+            {
+                if (_lifecycle is not null)
+                    await _lifecycle.CompleteAsync(analysisCase, task, null);
+                else
+                {
+                    await _cases.UpdateAsync(analysisCase);
+                    await _tasks.UpdateAsync(task);
+                }
+            }
+            catch (Exception persistException)
+            {
+                _logger.Error($"分析任务失败状态写回数据库失败：{task.Id}", persistException);
+            }
+            _logger.Error($"分析任务异常终止：{task.Id}", ex);
+            StateChanged?.Invoke(this, EventArgs.Empty);
+        }
     }
 }

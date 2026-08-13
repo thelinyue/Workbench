@@ -13,11 +13,13 @@ public sealed class SqliteReportRepository : IReportRepository
     {
         await using var connection = await _factory.OpenAsync(cancellationToken);
         await using var command = connection.CreateCommand();
-        command.CommandText = "INSERT INTO reports (id, case_id, path, plugin_id, create_time) VALUES ($id, $case_id, $path, $plugin_id, $create_time)";
+        command.CommandText = "INSERT INTO reports (id, case_id, path, plugin_id, plugin_name, plugin_version, create_time) VALUES ($id, $case_id, $path, $plugin_id, $plugin_name, $plugin_version, $create_time)";
         command.Parameters.AddWithValue("$id", item.Id);
         command.Parameters.AddWithValue("$case_id", item.CaseId);
         command.Parameters.AddWithValue("$path", item.Path);
         command.Parameters.AddWithValue("$plugin_id", (object?)item.PluginId ?? DBNull.Value);
+        command.Parameters.AddWithValue("$plugin_name", (object?)item.PluginName ?? DBNull.Value);
+        command.Parameters.AddWithValue("$plugin_version", (object?)item.PluginVersion ?? DBNull.Value);
         command.Parameters.AddWithValue("$create_time", SqliteValue.Date(item.CreateTime));
         await command.ExecuteNonQueryAsync(cancellationToken);
     }
@@ -26,7 +28,7 @@ public sealed class SqliteReportRepository : IReportRepository
     {
         await using var connection = await _factory.OpenAsync(cancellationToken);
         await using var command = connection.CreateCommand();
-        command.CommandText = "SELECT id, case_id, path, plugin_id, create_time FROM reports WHERE id = $id";
+        command.CommandText = "SELECT id, case_id, path, plugin_id, plugin_name, plugin_version, create_time FROM reports WHERE id = $id";
         command.Parameters.AddWithValue("$id", id);
         await using var reader = await command.ExecuteReaderAsync(cancellationToken);
         return await reader.ReadAsync(cancellationToken) ? ReadReport(reader) : null;
@@ -36,7 +38,7 @@ public sealed class SqliteReportRepository : IReportRepository
     {
         await using var connection = await _factory.OpenAsync(cancellationToken);
         await using var command = connection.CreateCommand();
-        command.CommandText = "SELECT id, case_id, path, plugin_id, create_time FROM reports WHERE case_id = $case_id ORDER BY create_time DESC LIMIT 1";
+        command.CommandText = "SELECT id, case_id, path, plugin_id, plugin_name, plugin_version, create_time FROM reports WHERE case_id = $case_id ORDER BY create_time DESC LIMIT 1";
         command.Parameters.AddWithValue("$case_id", caseId);
         await using var reader = await command.ExecuteReaderAsync(cancellationToken);
         return await reader.ReadAsync(cancellationToken) ? ReadReport(reader) : null;
@@ -49,7 +51,7 @@ public sealed class SqliteReportRepository : IReportRepository
         var conditions = new List<string>();
         if (!string.IsNullOrWhiteSpace(query.Keyword))
         {
-            conditions.Add("(c.display_name LIKE $keyword OR c.device_id LIKE $keyword OR COALESCE(p.name, r.plugin_id, '') LIKE $keyword)");
+            conditions.Add("(c.display_name LIKE $keyword OR c.device_id LIKE $keyword OR COALESCE(r.plugin_name, p.name, r.plugin_id, '') LIKE $keyword)");
             command.Parameters.AddWithValue("$keyword", $"%{query.Keyword.Trim()}%");
         }
         if (!string.IsNullOrWhiteSpace(query.DeviceId))
@@ -75,7 +77,7 @@ public sealed class SqliteReportRepository : IReportRepository
 
         command.CommandText = $"""
             SELECT r.id, r.case_id, c.display_name, c.device_id, r.path, c.extract_path, r.plugin_id,
-                   COALESCE(p.name, r.plugin_id, '未知插件'), r.create_time
+                   COALESCE(r.plugin_name, p.name, r.plugin_id, '未知插件'), r.create_time
             FROM reports r
             INNER JOIN analysis_cases c ON c.id = r.case_id
             LEFT JOIN plugin_info p ON p.id = r.plugin_id
@@ -112,6 +114,8 @@ public sealed class SqliteReportRepository : IReportRepository
             CaseId = reader.GetString(1),
             Path = reader.GetString(2),
             PluginId = reader.IsDBNull(3) ? null : reader.GetString(3),
-            CreateTime = SqliteValue.ParseDate(reader.GetValue(4))
+            PluginName = reader.IsDBNull(4) ? null : reader.GetString(4),
+            PluginVersion = reader.IsDBNull(5) ? null : reader.GetString(5),
+            CreateTime = SqliteValue.ParseDate(reader.GetValue(6))
         };
 }

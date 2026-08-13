@@ -130,9 +130,10 @@ public sealed class LogInboxService : IDisposable
             foreach (var directory in WatchDirectories)
             {
                 if (!Directory.Exists(directory)) continue;
-                foreach (var path in Directory.EnumerateFiles(directory, "*.tgz", SearchOption.TopDirectoryOnly))
+                foreach (var path in Directory.EnumerateFiles(directory, "*", SearchOption.TopDirectoryOnly))
                 {
                     cancellationToken.ThrowIfCancellationRequested();
+                    if (!LogFileParser.HasSupportedExtension(Path.GetFileName(path))) continue;
                     if (!_parser.TryParse(path, out var item, out var parseError) || item is null)
                     {
                         invalidItemCount++;
@@ -192,8 +193,8 @@ public sealed class LogInboxService : IDisposable
             return new LogFileInspectionResult(null, $"日志文件路径无效：{ex.Message}");
         }
 
-        if (!string.Equals(Path.GetExtension(fullPath), ".tgz", StringComparison.OrdinalIgnoreCase))
-            return new LogFileInspectionResult(null, "只支持选择 .tgz 日志压缩包。");
+        if (!LogFileParser.IsSupportedFileName(Path.GetFileName(fullPath)))
+            return new LogFileInspectionResult(null, "只支持选择 .tgz 或 .tgz.temp 日志压缩包。");
         if (!File.Exists(fullPath))
             return new LogFileInspectionResult(null, $"日志文件不存在：{fullPath}");
         if (!_parser.TryParse(fullPath, out var item, out var parseError) || item is null)
@@ -251,7 +252,7 @@ public sealed class LogInboxService : IDisposable
 
     private void StartWatcher(string directory)
     {
-        var watcher = new FileSystemWatcher(directory, "*.tgz")
+        var watcher = new FileSystemWatcher(directory, "*")
         {
             IncludeSubdirectories = false,
             NotifyFilter = NotifyFilters.FileName | NotifyFilters.Size | NotifyFilters.LastWrite,
@@ -265,6 +266,7 @@ public sealed class LogInboxService : IDisposable
 
     private async void OnFileChanged(object sender, FileSystemEventArgs e)
     {
+        if (!LogFileParser.HasSupportedExtension(Path.GetFileName(e.FullPath))) return;
         await WaitForStableAsync(e.FullPath);
         try { await RefreshAsync(); } catch (Exception ex) { _logger.Error("日志变化刷新失败", ex); }
     }

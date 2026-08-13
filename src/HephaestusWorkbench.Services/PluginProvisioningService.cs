@@ -49,16 +49,16 @@ public sealed class PluginProvisioningService
     private void ProvisionRuleEditor()
     {
         var sourceDirectory = Path.Combine(_seedDirectory, "RuleEditor");
-        var sourceExe = Path.Combine(sourceDirectory, "rule_editor.exe");
+        var sourceEntry = Path.Combine(sourceDirectory, "editor.html");
         var sourceManifest = Path.Combine(sourceDirectory, "manifest.json");
-        if (!File.Exists(sourceExe) || !File.Exists(sourceManifest)) return;
+        if (!File.Exists(sourceEntry) || !File.Exists(sourceManifest)) return;
         var destination = Path.Combine(_paths.PluginsDirectory, "log-rule-editor");
         Directory.CreateDirectory(destination);
-        var destinationExe = Path.Combine(destination, "rule_editor.exe");
+        var destinationEntry = Path.Combine(destination, "editor.html");
         var destinationManifest = Path.Combine(destination, "manifest.json");
-        if (!File.Exists(destinationExe) || !File.Exists(destinationManifest) || IsSourceNewer(sourceManifest, destinationManifest, sourceExe, destinationExe))
+        if (!File.Exists(destinationEntry) || !File.Exists(destinationManifest) || IsSourceNewer(sourceManifest, destinationManifest, sourceEntry, destinationEntry))
         {
-            File.Copy(sourceExe, destinationExe, true);
+            File.Copy(sourceEntry, destinationEntry, true);
             File.Copy(sourceManifest, destinationManifest, true);
             _logger.Info("规则编辑器插件已登记到用户插件目录。");
         }
