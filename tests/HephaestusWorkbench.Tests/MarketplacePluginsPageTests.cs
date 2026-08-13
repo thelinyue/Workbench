@@ -3,6 +3,7 @@ using System.ComponentModel;
 using System.Threading;
 using System.Windows;
 using System.Windows.Input;
+using System.Xml.Linq;
 using HephaestusWorkbench.App.ViewModels;
 using HephaestusWorkbench.App.Views;
 using HephaestusWorkbench.Core.Models;
@@ -18,6 +19,44 @@ public sealed class WpfUiCollection;
 [Collection("WPF UI")]
 public sealed class MarketplacePluginsPageTests
 {
+    [Theory]
+    [InlineData("log-analyzer", PluginType.Exe, true)]
+    [InlineData("log-rule-editor", PluginType.Web, false)]
+    [InlineData("standalone-tool", PluginType.Web, false)]
+    public void InstalledPluginItem_ExposesRuleUpdateOnlyForLogAnalyzer(string id, PluginType type, bool canUpdateRules)
+    {
+        var item = new InstalledPluginItem
+        {
+            Manifest = new PluginManifest
+            {
+                Id = id,
+                Name = id,
+                Version = "1.0.0",
+                Type = type,
+                Entry = type == PluginType.Web ? "index.html" : "tool.exe"
+            },
+            Source = PluginInstallSource.Bundled,
+            Enabled = true
+        };
+
+        Assert.Equal(canUpdateRules, item.IsLogAnalyzer);
+        Assert.Equal(canUpdateRules, item.CanUpdateRules);
+    }
+
+    [Fact]
+    public void InstalledPluginCard_BindsRuleUpdateAndRemovesDuplicatePanelActions()
+    {
+        var document = LoadMarketplacePluginsXaml();
+        XNamespace presentation = "http://schemas.microsoft.com/winfx/2006/xaml/presentation";
+        var buttons = document.Descendants(presentation + "Button").ToArray();
+
+        var updateButton = Assert.Single(buttons, button => (string?)button.Attribute("Content") == "更新分析规则");
+        Assert.Contains("UpdateRulesCommand", updateButton.Attribute("Command")?.Value);
+        Assert.Contains(document.Descendants(presentation + "TextBlock"), textBlock => (string?)textBlock.Attribute("Text") == "规则与插件管理");
+        Assert.DoesNotContain(buttons, button => (string?)button.Attribute("Content") == "检查规则更新");
+        Assert.DoesNotContain(buttons, button => (string?)button.Attribute("Content") == "更新主规则");
+    }
+
     [Fact]
     public void OnlinePluginItem_UsesCanonicalSegmentedVersionsForUpdateState()
     {
@@ -27,6 +66,8 @@ public sealed class MarketplacePluginsPageTests
             {
                 Id = "log-analyzer",
                 Name = "日志分析插件",
+                Author = "赫菲斯托斯团队",
+                Category = "日志分析",
                 Version = "1.60",
                 Type = PluginType.Exe,
                 PackageUrl = "https://example.com/plugin.zip",
@@ -40,6 +81,8 @@ public sealed class MarketplacePluginsPageTests
         Assert.True(update.HasUpdate);
         Assert.True(update.CanInstall);
         Assert.Equal("更新", update.ActionText);
+        Assert.Equal("赫菲斯托斯团队", update.DeveloperText);
+        Assert.Equal("日志分析", update.CategoryText);
 
         var olderOnline = new OnlinePluginItem
         {
@@ -137,6 +180,7 @@ public sealed class MarketplacePluginsPageTests
         public bool IsBusy => false;
         public bool CanUploadRules => false;
         public string UploadRulesHint => "测试";
+        public string AnalysisRuleVersionText => "规则版本：1.0.0";
         public bool ShowIssues => false;
         public bool ShowInstalledEmpty => false;
         public bool ShowOnlineEmpty => true;
@@ -151,6 +195,16 @@ public sealed class MarketplacePluginsPageTests
         public ICommand ImportRuleCommand { get; } = ApplicationCommands.NotACommand;
         public ICommand UploadRuleCommand { get; } = ApplicationCommands.NotACommand;
         public ICommand OpenRulesDirectoryCommand { get; } = ApplicationCommands.NotACommand;
+        public ICommand UpdateRulesCommand { get; } = ApplicationCommands.NotACommand;
+    }
+
+    private static XDocument LoadMarketplacePluginsXaml()
+    {
+        var directory = new DirectoryInfo(AppContext.BaseDirectory);
+        while (directory is not null && !File.Exists(Path.Combine(directory.FullName, "HephaestusWorkbench.sln")))
+            directory = directory.Parent;
+        Assert.NotNull(directory);
+        return XDocument.Load(Path.Combine(directory!.FullName, "src", "HephaestusWorkbench.App", "Views", "MarketplacePluginsPage.xaml"));
     }
 
     private sealed class AnalysisPageData

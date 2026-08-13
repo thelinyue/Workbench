@@ -14,6 +14,12 @@ Hephaestus Workbench 的源码仓库保持私有。安装包、官方插件、�
 
 ## 公开仓库内容
 
+私有规则源码仓库只用于 CI 构建、测试和签名；客户端从公开 Release/CDN 下载签名规则包和 catalog.json，不携带访问 Token。
+
+规则发布清单包含 ruleSetId、version、minimumPluginVersion、packageUrl、packageSize、sha256、signature、keyId 和 releaseNotesUrl。客户端先校验 HTTPS、大小、SHA-256、Ed25519 签名、规则版本和 Schema，成功后原子替换 Rules/Official/main.json 并重建 Rules/Active/active.json；失败时保留上一份有效规则。
+
+签名私钥只由 CI Secret 持有，客户端只内置公钥。规则可被已安装客户端读取和提取；若必须隐藏规则，应改为服务端执行。
+
 - Plugins 仓库根目录 `catalog.json`：v1.1.1 及以后客户端读取的版本化插件目录。
 - Plugins 仓库的 Schema、模板和校验脚本：社区投稿与 CI 校验使用，不存放插件二进制。
 - Releases 仓库 `README.md` 与 `DISTRIBUTION-LICENSE.md`：用户下载、校验和二进制许可说明。

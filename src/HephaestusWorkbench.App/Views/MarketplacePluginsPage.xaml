@@ -10,82 +10,163 @@
 
         <Border Style="{StaticResource CardStyle}" Margin="0,0,0,10">
             <Grid>
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="*" />
-                    <ColumnDefinition Width="Auto" />
-                </Grid.ColumnDefinitions>
+                <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
                 <StackPanel>
-                    <TextBlock Text="插件中心" Style="{StaticResource SectionTitleStyle}" />
-                    <TextBlock Text="从官方目录安全安装分析插件，并管理当前默认插件。" Style="{StaticResource MutedTextStyle}" />
+                    <TextBlock Text="应用商店" Style="{StaticResource SectionTitleStyle}" />
+                    <TextBlock Text="发现适用于工作台的插件与工具。" Style="{StaticResource MutedTextStyle}" />
                     <TextBlock Text="{Binding Message}" Style="{StaticResource MutedTextStyle}" Margin="0,6,0,0" TextWrapping="Wrap" />
-                    <!-- ProgressBar.Value 默认支持双向绑定；进度值由工作台单向推送，必须禁止回写只读属性。 -->
+                    <TextBlock Text="{Binding CatalogStatusText}" Foreground="{Binding IsOffline, Converter={StaticResource StatusBrushConverter}}" Margin="0,3,0,0" />
                     <ProgressBar Value="{Binding ProgressValue, Mode=OneWay}" IsIndeterminate="{Binding IsProgressIndeterminate, Mode=OneWay}" Height="8" Margin="0,8,0,0" Visibility="{Binding IsBusy, Mode=OneWay, Converter={StaticResource BooleanToVisibilityConverter}}" />
-                    <TextBlock Text="{Binding LastRefreshText}" Style="{StaticResource MutedTextStyle}" Margin="0,3,0,0" />
                 </StackPanel>
                 <WrapPanel Grid.Column="1" VerticalAlignment="Center">
-                    <Button Content="打开规则目录" Command="{Binding OpenRulesDirectoryCommand}" />
-                    <Button Content="添加本地规则" Command="{Binding ImportRuleCommand}" />
-                    <Button Content="上传规则" ToolTip="{Binding UploadRulesHint, Mode=OneWay}" Command="{Binding UploadRuleCommand}" IsEnabled="{Binding CanUploadRules, Mode=OneWay}" />
-                    <Button Content="打开插件目录" Command="{Binding OpenPluginDirectoryCommand}" />
-                    <Button Content="开发文档" Command="{Binding OpenDocumentationCommand}" />
-                    <Button Content="刷新" Style="{StaticResource PrimaryButtonStyle}" Command="{Binding RefreshCommand}" Margin="0" />
+                    <Button Content="工具与资源" Command="{Binding OpenToolsAndResourcesCommand}" />
+                    <Button Content="刷新目录" Style="{StaticResource PrimaryButtonStyle}" Command="{Binding RefreshCommand}" Margin="0" />
                 </WrapPanel>
             </Grid>
         </Border>
 
         <Border Grid.Row="1" Style="{StaticResource CardStyle}" Margin="0,0,0,10">
-            <StackPanel Orientation="Horizontal">
-                <TextBlock Text="规则目录与当前状态：" Style="{StaticResource MutedTextStyle}" />
-                <TextBlock Text="{Binding UploadRulesHint}" Style="{StaticResource MutedTextStyle}" Margin="8,0,0,0" />
+            <StackPanel>
+                <WrapPanel>
+                    <Button Content="发现应用" Command="{Binding SelectDiscoveryTabCommand}" Style="{StaticResource PrimaryButtonStyle}" Visibility="{Binding IsDiscoveryTab, Converter={StaticResource BooleanToVisibilityConverter}}" />
+                    <Button Content="发现应用" Command="{Binding SelectDiscoveryTabCommand}" Visibility="{Binding IsDiscoveryTab, Converter={StaticResource InverseBooleanToVisibilityConverter}}" />
+                    <Button Content="已安装" Command="{Binding SelectInstalledTabCommand}" Style="{StaticResource PrimaryButtonStyle}" Visibility="{Binding IsInstalledTab, Converter={StaticResource BooleanToVisibilityConverter}}" />
+                    <Button Content="已安装" Command="{Binding SelectInstalledTabCommand}" Visibility="{Binding IsInstalledTab, Converter={StaticResource InverseBooleanToVisibilityConverter}}" />
+                </WrapPanel>
+                <Grid Margin="0,10,0,0" Visibility="{Binding IsDiscoveryTab, Converter={StaticResource BooleanToVisibilityConverter}}">
+                    <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                    <TextBox Text="{Binding SearchText, UpdateSourceTrigger=PropertyChanged}" ToolTip="搜索应用名称、描述、开发者或 ID" />
+                    <ComboBox Grid.Column="1" ItemsSource="{Binding Categories}" SelectedItem="{Binding SelectedCategory}" Width="130" Margin="8,0,0,0" />
+                    <ComboBox Grid.Column="2" ItemsSource="{Binding SortModes}" SelectedItem="{Binding SelectedSortMode}" Width="120" Margin="8,0,0,0" />
+                </Grid>
             </StackPanel>
         </Border>
 
-        <ScrollViewer Grid.Row="2" VerticalScrollBarVisibility="Auto">
-            <StackPanel>
-                <TextBlock Text="在线插件" Style="{StaticResource SectionTitleStyle}" Margin="0,2,0,8" />
-                <ItemsControl ItemsSource="{Binding OnlineItems}">
-                    <ItemsControl.ItemTemplate>
-                        <DataTemplate>
-                            <Border Style="{StaticResource CardStyle}" Margin="0,0,0,8">
-                                <Grid>
-                                    <Grid.ColumnDefinitions><ColumnDefinition Width="2*" /><ColumnDefinition Width="1.2*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
-                                    <StackPanel><TextBlock Text="{Binding Plugin.Name}" FontWeight="SemiBold" /><TextBlock Text="{Binding Plugin.Description}" Style="{StaticResource MutedTextStyle}" TextWrapping="Wrap" Margin="0,4,0,0" /></StackPanel>
-                                    <StackPanel Grid.Column="1"><TextBlock Text="版本" Style="{StaticResource MutedTextStyle}" /><TextBlock Text="{Binding VersionText}" Margin="0,4,0,0" /></StackPanel>
-                                    <Button Grid.Column="2" Content="{Binding ActionText}" IsEnabled="{Binding CanInstall}" Command="{Binding DataContext.InstallCommand, RelativeSource={RelativeSource AncestorType=UserControl}}" CommandParameter="{Binding}" VerticalAlignment="Center" Margin="8,0,0,0" />
-                                </Grid>
-                            </Border>
-                        </DataTemplate>
-                    </ItemsControl.ItemTemplate>
-                </ItemsControl>
-                <TextBlock Text="在线目录暂无插件。" Visibility="{Binding ShowOnlineEmpty, Converter={StaticResource BooleanToVisibilityConverter}}" Style="{StaticResource MutedTextStyle}" Margin="0,10,0,18" />
+        <Grid Grid.Row="2">
+            <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="360"/></Grid.ColumnDefinitions>
+            <ScrollViewer Grid.Column="0" VerticalScrollBarVisibility="Auto">
+                <StackPanel>
+                    <Grid Visibility="{Binding IsDiscoveryTab, Converter={StaticResource BooleanToVisibilityConverter}}">
+                        <ItemsControl ItemsSource="{Binding FilteredOnlineItems}">
+                            <ItemsControl.ItemsPanel><ItemsPanelTemplate><WrapPanel /></ItemsPanelTemplate></ItemsControl.ItemsPanel>
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <Border Style="{StaticResource CardStyle}" Width="330" Margin="0,0,8,8"
+                                            MouseLeftButtonUp="OnlineCard_MouseLeftButtonUp">
+                                        <Grid>
+                                            <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+                                            <Grid>
+                                                <Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                                                <Border Width="42" Height="42" Background="{DynamicResource WorkbenchSurfaceAltBrush}" CornerRadius="6">
+                                                    <TextBlock Text="&#xECAA;" FontFamily="Segoe Fluent Icons" FontSize="22" Foreground="{DynamicResource WorkbenchPrimaryBrush}" HorizontalAlignment="Center" VerticalAlignment="Center" />
+                                                </Border>
+                                                <StackPanel Grid.Column="1" Margin="10,0,8,0">
+                                                    <TextBlock Text="{Binding Plugin.Name}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
+                                                    <TextBlock Text="{Binding DeveloperText, StringFormat=开发者：{0}}" Style="{StaticResource MutedTextStyle}" Margin="0,3,0,0" TextTrimming="CharacterEllipsis" />
+                                                </StackPanel>
+                                                <Border Grid.Column="2" Background="{DynamicResource WorkbenchSurfaceAltBrush}" CornerRadius="10" Padding="7,3" VerticalAlignment="Top">
+                                                    <TextBlock Text="{Binding CategoryText}" FontSize="11" />
+                                                </Border>
+                                            </Grid>
+                                            <TextBlock Grid.Row="1" Text="{Binding DescriptionText}" Style="{StaticResource MutedTextStyle}" TextWrapping="Wrap" MaxHeight="38" Margin="0,10,0,8" />
+                                            <DockPanel Grid.Row="2">
+                                                <TextBlock Text="{Binding VersionText}" Style="{StaticResource MutedTextStyle}" VerticalAlignment="Center" />
+                                                <Button DockPanel.Dock="Right" Content="{Binding ActionText}" IsEnabled="{Binding CanInstall}" Style="{StaticResource PrimaryButtonStyle}" Command="{Binding DataContext.InstallCommand, RelativeSource={RelativeSource AncestorType=UserControl}}" CommandParameter="{Binding}" Margin="8,0,0,0" />
+                                            </DockPanel>
+                                        </Grid>
+                                    </Border>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                        <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" Margin="0,40" Visibility="{Binding ShowOnlineEmpty, Converter={StaticResource BooleanToVisibilityConverter}}">
+                            <TextBlock Text="&#xECAA;" FontFamily="Segoe Fluent Icons" FontSize="36" Foreground="{DynamicResource WorkbenchMutedTextBrush}" HorizontalAlignment="Center" />
+                            <TextBlock Text="暂无匹配应用" FontSize="16" HorizontalAlignment="Center" Margin="0,10,0,0" />
+                            <TextBlock Text="调整搜索条件，或稍后刷新应用目录。" Style="{StaticResource MutedTextStyle}" HorizontalAlignment="Center" Margin="0,5,0,0" />
+                        </StackPanel>
+                    </Grid>
 
-                <TextBlock Text="已安装" Style="{StaticResource SectionTitleStyle}" Margin="0,12,0,8" />
-                <ItemsControl ItemsSource="{Binding InstalledItems}">
-                    <ItemsControl.ItemTemplate>
-                        <DataTemplate>
-                            <Border Style="{StaticResource CardStyle}" Margin="0,0,0,8">
-                                <Grid>
-                                    <Grid.ColumnDefinitions><ColumnDefinition Width="2*" /><ColumnDefinition Width="*" /><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
-                                    <StackPanel><TextBlock Text="{Binding Manifest.Name}" FontWeight="SemiBold" /><TextBlock Text="{Binding Manifest.Id}" Style="{StaticResource MutedTextStyle}" Margin="0,4,0,0" /></StackPanel>
-                                    <StackPanel Grid.Column="1"><TextBlock Text="版本 / 来源" Style="{StaticResource MutedTextStyle}" /><TextBlock Margin="0,4,0,0"><Run Text="{Binding Manifest.Version, Mode=OneWay}" /><Run Text=" · " /><Run Text="{Binding SourceText, Mode=OneWay}" /></TextBlock></StackPanel>
-                                    <StackPanel Grid.Column="2"><TextBlock Text="状态" Style="{StaticResource MutedTextStyle}" /><TextBlock Text="{Binding StatusText}" Margin="0,4,0,0" /></StackPanel>
-                                    <WrapPanel Grid.Column="3" VerticalAlignment="Center">
-                                        <Button Content="使用规则编辑器" Visibility="{Binding IsRuleEditor, Converter={StaticResource BooleanToVisibilityConverter}}" Command="{Binding DataContext.UseRuleEditorCommand, RelativeSource={RelativeSource AncestorType=UserControl}}" CommandParameter="{Binding}" />
-                                        <Button Content="启动工具" Visibility="{Binding IsStandaloneTool, Converter={StaticResource BooleanToVisibilityConverter}}" Command="{Binding DataContext.LaunchToolCommand, RelativeSource={RelativeSource AncestorType=UserControl}}" CommandParameter="{Binding}" Style="{StaticResource PrimaryButtonStyle}" />
-                                        <Button Content="设为默认" Visibility="{Binding CanSetDefault, Converter={StaticResource BooleanToVisibilityConverter}}" Command="{Binding DataContext.SetDefaultCommand, RelativeSource={RelativeSource AncestorType=UserControl}}" CommandParameter="{Binding}" />
-                                        <Button Content="{Binding ToggleText}" Command="{Binding DataContext.ToggleEnabledCommand, RelativeSource={RelativeSource AncestorType=UserControl}}" CommandParameter="{Binding}" />
-                                        <Button Content="卸载" IsEnabled="{Binding CanUninstall}" Command="{Binding DataContext.UninstallCommand, RelativeSource={RelativeSource AncestorType=UserControl}}" CommandParameter="{Binding}" Margin="0" />
-                                    </WrapPanel>
-                                </Grid>
-                            </Border>
-                        </DataTemplate>
-                    </ItemsControl.ItemTemplate>
-                </ItemsControl>
-                <TextBlock Text="未发现已安装插件。" Visibility="{Binding ShowInstalledEmpty, Converter={StaticResource BooleanToVisibilityConverter}}" Style="{StaticResource MutedTextStyle}" Margin="0,10,0,18" />
-                <ItemsControl ItemsSource="{Binding Issues}" Visibility="{Binding ShowIssues, Converter={StaticResource BooleanToVisibilityConverter}}">
-                    <ItemsControl.ItemTemplate><DataTemplate><Border Style="{StaticResource CardStyle}" BorderBrush="{DynamicResource WorkbenchDangerBrush}" Margin="0,0,0,6"><TextBlock Text="{Binding}" Foreground="{DynamicResource WorkbenchDangerBrush}" TextWrapping="Wrap" /></Border></DataTemplate></ItemsControl.ItemTemplate>
-                </ItemsControl>
+                    <Grid Visibility="{Binding IsInstalledTab, Converter={StaticResource BooleanToVisibilityConverter}}">
+                        <ItemsControl ItemsSource="{Binding InstalledItems}">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <Border Style="{StaticResource CardStyle}" Margin="0,0,8,8">
+                                        <Grid>
+                                            <Grid.ColumnDefinitions><ColumnDefinition Width="2*"/><ColumnDefinition Width="*"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                                            <StackPanel><TextBlock Text="{Binding Manifest.Name}" FontWeight="SemiBold"/><TextBlock Text="{Binding Manifest.Id}" Style="{StaticResource MutedTextStyle}" Margin="0,4,0,0"/></StackPanel>
+                                            <StackPanel Grid.Column="1"><TextBlock Text="版本 / 来源" Style="{StaticResource MutedTextStyle}"/><TextBlock Margin="0,4,0,0"><Run Text="{Binding Manifest.Version, Mode=OneWay}"/><Run Text=" · "/><Run Text="{Binding SourceText, Mode=OneWay}"/></TextBlock></StackPanel>
+                                            <StackPanel Grid.Column="2">
+                                                <TextBlock Text="状态" Style="{StaticResource MutedTextStyle}"/>
+                                                <TextBlock Text="{Binding StatusText}" Margin="0,4,0,0"/>
+                                                <TextBlock Text="{Binding DataContext.AnalysisRuleVersionText, RelativeSource={RelativeSource AncestorType=UserControl}}" Visibility="{Binding IsLogAnalyzer, Converter={StaticResource BooleanToVisibilityConverter}}" Style="{StaticResource MutedTextStyle}" Margin="0,3,0,0"/>
+                                            </StackPanel>
+                                            <WrapPanel Grid.Column="3" VerticalAlignment="Center">
+                                                <Button Content="使用规则编辑器" Visibility="{Binding IsRuleEditor, Converter={StaticResource BooleanToVisibilityConverter}}" Command="{Binding DataContext.UseRuleEditorCommand, RelativeSource={RelativeSource AncestorType=UserControl}}" CommandParameter="{Binding}" />
+                                                <Button Content="启动工具" Visibility="{Binding IsStandaloneTool, Converter={StaticResource BooleanToVisibilityConverter}}" Command="{Binding DataContext.LaunchToolCommand, RelativeSource={RelativeSource AncestorType=UserControl}}" CommandParameter="{Binding}" Style="{StaticResource PrimaryButtonStyle}" />
+                                                <Button Content="更新分析规则" Visibility="{Binding CanUpdateRules, Converter={StaticResource BooleanToVisibilityConverter}}" Command="{Binding DataContext.UpdateRulesCommand, RelativeSource={RelativeSource AncestorType=UserControl}}" Style="{StaticResource PrimaryButtonStyle}" />
+                                                <Button Content="设为默认" Visibility="{Binding CanSetDefault, Converter={StaticResource BooleanToVisibilityConverter}}" Command="{Binding DataContext.SetDefaultCommand, RelativeSource={RelativeSource AncestorType=UserControl}}" CommandParameter="{Binding}" />
+                                                <Button Content="{Binding ToggleText}" Command="{Binding DataContext.ToggleEnabledCommand, RelativeSource={RelativeSource AncestorType=UserControl}}" CommandParameter="{Binding}" />
+                                                <Button Content="卸载" IsEnabled="{Binding CanUninstall}" Command="{Binding DataContext.UninstallCommand, RelativeSource={RelativeSource AncestorType=UserControl}}" CommandParameter="{Binding}" Margin="0" />
+                                            </WrapPanel>
+                                        </Grid>
+                                    </Border>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                        <TextBlock Text="未发现已安装应用。" Style="{StaticResource MutedTextStyle}" HorizontalAlignment="Center" Margin="0,40" Visibility="{Binding ShowInstalledEmpty, Converter={StaticResource BooleanToVisibilityConverter}}" />
+                    </Grid>
+
+                    <ItemsControl ItemsSource="{Binding Issues}" Visibility="{Binding ShowIssues, Converter={StaticResource BooleanToVisibilityConverter}}" Margin="0,8,8,0">
+                        <ItemsControl.ItemTemplate><DataTemplate><Border Style="{StaticResource CardStyle}" BorderBrush="{DynamicResource WorkbenchDangerBrush}" Margin="0,0,0,6"><TextBlock Text="{Binding}" Foreground="{DynamicResource WorkbenchDangerBrush}" TextWrapping="Wrap" /></Border></DataTemplate></ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                </StackPanel>
+            </ScrollViewer>
+
+            <Border Grid.Column="1" Style="{StaticResource CardStyle}" Margin="8,0,0,8" Visibility="{Binding IsDetailsOpen, Converter={StaticResource BooleanToVisibilityConverter}}">
+                <ScrollViewer VerticalScrollBarVisibility="Auto">
+                    <StackPanel DataContext="{Binding SelectedOnlineItem}">
+                        <DockPanel>
+                            <Button DockPanel.Dock="Right" Content="关闭" Command="{Binding DataContext.CloseDetailsCommand, RelativeSource={RelativeSource AncestorType=UserControl}}" />
+                            <TextBlock Text="应用详情" Style="{StaticResource SectionTitleStyle}" VerticalAlignment="Center" />
+                        </DockPanel>
+                        <TextBlock Text="{Binding Plugin.Name}" FontSize="20" FontWeight="SemiBold" Margin="0,16,0,0" />
+                        <TextBlock Text="{Binding DeveloperText, StringFormat=开发者：{0}}" Style="{StaticResource MutedTextStyle}" Margin="0,5,0,0" />
+                        <TextBlock Text="{Binding CategoryText}" Foreground="{DynamicResource WorkbenchPrimaryBrush}" Margin="0,8,0,0" />
+                        <TextBlock Text="{Binding DescriptionText}" TextWrapping="Wrap" Margin="0,16,0,0" />
+                        <TextBlock Text="版本信息" Style="{StaticResource SectionTitleStyle}" Margin="0,18,0,6" />
+                        <TextBlock Text="{Binding VersionText}" />
+                        <TextBlock Text="{Binding TypeText}" Style="{StaticResource MutedTextStyle}" Margin="0,4,0,0" />
+                        <TextBlock Text="{Binding Plugin.MinimumAppVersion, StringFormat=最低工作台版本：{0}}" Style="{StaticResource MutedTextStyle}" Margin="0,4,0,0" />
+                        <TextBlock Text="{Binding Plugin.License, StringFormat=许可证：{0}}" Style="{StaticResource MutedTextStyle}" Margin="0,4,0,0" />
+                        <TextBlock Text="{Binding Plugin.Repository}" Style="{StaticResource MutedTextStyle}" TextWrapping="Wrap" Margin="0,4,0,0" />
+                        <Button Content="{Binding ActionText}" IsEnabled="{Binding CanInstall}" Style="{StaticResource PrimaryButtonStyle}" Command="{Binding DataContext.InstallCommand, RelativeSource={RelativeSource AncestorType=UserControl}}" CommandParameter="{Binding}" HorizontalAlignment="Stretch" Margin="0,18,0,0" />
+                    </StackPanel>
+                </ScrollViewer>
+            </Border>
+        </Grid>
+
+        <Border Grid.Row="2" Background="{DynamicResource WorkbenchSurfaceBrush}" BorderBrush="{DynamicResource WorkbenchBorderBrush}" BorderThickness="1" Padding="14" HorizontalAlignment="Right" VerticalAlignment="Top" Width="340" Visibility="{Binding IsToolsAndResourcesOpen, Converter={StaticResource BooleanToVisibilityConverter}}">
+            <StackPanel>
+                <DockPanel><Button DockPanel.Dock="Right" Content="关闭" Command="{Binding OpenToolsAndResourcesCommand}"/><TextBlock Text="规则与插件管理" Style="{StaticResource SectionTitleStyle}"/></DockPanel>
+                <Button Content="打开规则目录" Command="{Binding OpenRulesDirectoryCommand}" HorizontalAlignment="Stretch" Margin="0,12,0,0" />
+                <Button Content="添加本地规则" Command="{Binding ImportRuleCommand}" HorizontalAlignment="Stretch" />
+                <Button Content="上传规则" ToolTip="{Binding UploadRulesHint}" Command="{Binding UploadRuleCommand}" IsEnabled="{Binding CanUploadRules}" HorizontalAlignment="Stretch" />
+                <Button Content="打开插件目录" Command="{Binding OpenPluginDirectoryCommand}" HorizontalAlignment="Stretch" />
+                <Button Content="开发文档" Command="{Binding OpenDocumentationCommand}" HorizontalAlignment="Stretch" />
+                <Expander Header="下载设置" IsExpanded="{Binding IsDownloadSettingsOpen}" Margin="0,12,0,0">
+                    <StackPanel Margin="0,8,0,0">
+                        <TextBlock Text="直连失败时使用备用地址重新下载，留空表示停用。" Style="{StaticResource MutedTextStyle}" TextWrapping="Wrap"/>
+                        <TextBlock Text="GitHub 下载加速地址模板" Style="{StaticResource MutedTextStyle}" Margin="0,8,0,5"/>
+                        <DockPanel>
+                            <Button DockPanel.Dock="Right" Content="清空" Command="{Binding ClearGitHubDownloadMirrorCommand}" Margin="8,0,0,0"/>
+                            <TextBox Text="{Binding GitHubDownloadMirrorTemplate, UpdateSourceTrigger=PropertyChanged}" ToolTip="例如 https://mirror.example/{url}"/>
+                        </DockPanel>
+                        <TextBlock Text="必须使用 HTTPS，并且只能包含一个 {url}。" Style="{StaticResource MutedTextStyle}" TextWrapping="Wrap" Margin="0,6,0,0"/>
+                        <Button Content="保存下载设置" Style="{StaticResource PrimaryButtonStyle}" Command="{Binding SaveDownloadSettingsCommand}" HorizontalAlignment="Left" Margin="0,8,0,0"/>
+                        <TextBlock Text="{Binding DownloadSettingsMessage}" Foreground="{DynamicResource WorkbenchWarningBrush}" TextWrapping="Wrap" Margin="0,6,0,0"/>
+                    </StackPanel>
+                </Expander>
+                <TextBlock Text="{Binding RuleStatusText}" Style="{StaticResource MutedTextStyle}" TextWrapping="Wrap" Margin="0,4,0,0" />
             </StackPanel>
-        </ScrollViewer>
+        </Border>
     </Grid>
 </UserControl>

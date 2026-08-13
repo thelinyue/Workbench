@@ -18,7 +18,7 @@ App/UI
 Services
  ├── SQLite repositories ──> Data ──> workbench.db
  ├── Configuration ────────> JSON files
- ├── Inbox ────────────────> FileSystemWatcher + .tgz files
+ ├── Inbox ────────────────> FileSystemWatcher + .tgz/.tgz.temp files
  ├── Analysis ─────────────> TaskCenter + Plugin runners
  ├── Plugin runners ───────> external EXE + report files
  └── Report/Storage ───────> repositories + Case directories
@@ -36,12 +36,12 @@ SSH ──> not implemented
 | Core | 不访问 | 不访问 | 不访问 | 不访问 | 无 |
 | Data | 唯一正式访问层 | 不负责 | 创建数据目录 | 不负责 | 无 |
 | Configuration/Settings | 兼容读取 `app_settings` | 读写三个配置文件 | 创建配置目录 | 不负责 | 通过事件通知 |
-| Log Inbox | 不落库 | 通过配置服务保存目录 | 读取/删除监控目录中的 `.tgz` | 不负责 | 内存 `LogInboxItem` |
-| Case Analysis | 写 Case/Task/Report | 读取插件目录结果 | 创建/删除 Case 报告目录，管理原始日志路径 | 通过 runner 启动 | `StateChanged` |
+| Log Inbox | 不落库 | 通过配置服务保存目录 | 读取/删除监控目录中的 `.tgz` 或 `.tgz.temp` | 不负责 | 内存 `LogInboxItem` |
+| Case Analysis | 写 Case/Task/Report | 读取插件目录结果 | 管理监控目录中的原始日志、同名解压目录和 report 子目录 | 通过 runner 启动 | `StateChanged` |
 | Task Center | 写入由 Analysis 完成 | 不访问 | 不直接访问 | 管理取消令牌 | `TaskChanged` |
 | Plugin | 同步 plugin_info | 读在线目录和 manifest，写默认/启用配置 | 安全安装、更新和卸载 Plugins 目录 | 启动 EXE | 在线目录、安装状态、Issues |
 | Report | 查询 reports/session/case | 读取报告偏好 | 读取 `report.html` | WebView2 宿主进程 | Tab、筛选、阅读位置 |
-| Storage | 读取 Case | 不访问 | 统计/删除日志和 Extract | 不负责 | 占用统计 |
+| Storage | 读取案例元数据 | 不访问 | 按数据库路径统计/删除原始日志、解压目录和报告 | 不负责 | 占用统计 |
 | Installer | 不访问运行时数据库 | 不访问运行时配置 | 安装目录、Payload、升级备份 | 发布/运行安装器 | 安装器窗口 |
 | Legacy Script | 不访问 WPF 数据库 | 自有脚本配置 | 直接处理日志和配置 | 可生成 SSH 命令 | 控制台交互 |
 | SSH | 无 | 无 | 无 | 无 | 未实现 |
@@ -132,7 +132,7 @@ SSH ──> not implemented
 
 名称：日志收件箱  
 路径：`src/HephaestusWorkbench.Services/LogFileParser.cs`、`ArchiveValidator.cs`、`LogInboxService.cs`  
-职责：监控一个或多个目录，识别命名规则符合的 `.tgz` 文件，解析设备 ID 和日志时间，校验 gzip/tar，并通过事件通知 UI。  
+职责：监控一个或多个目录，识别命名规则符合的 `.tgz` 或 `.tgz.temp` 文件，解析设备 ID 和日志时间，校验 gzip/tar，并通过事件通知 UI。
 入口文件：
 
 - `LogInboxService.StartAsync`
@@ -154,7 +154,7 @@ SSH ──> not implemented
 
 名称：案例分析服务  
 路径：`src/HephaestusWorkbench.Services/CaseAnalysisService.cs`  
-职责：把收件箱文件转成 Case 和 Task，创建 Case 目录，选择插件 runner，执行分析，写入报告并更新生命周期状态。  
+职责：把收件箱文件转成 Case 和 Task，使用原始日志同名解压目录，选择插件 runner，执行分析，写入报告并更新生命周期状态。
 入口文件：
 
 - `CaseAnalysisService.StartAsync`
@@ -162,12 +162,12 @@ SSH ──> not implemented
 - `CaseAnalysisService.RenameAsync`
 - `CaseAnalysisService.DeleteAsync`
 
-依赖：Core、Data repositories、DataPaths、TaskCenter、PluginCatalog、Plugin runners、WorkbenchLogger。  
+依赖：Core、Data repositories、DataPaths、TaskCenter、PluginCatalog、Plugin runners、WorkbenchLogger、AnalysisLifecycleRepository。
 输入：已校验的 `LogInboxItem`、取消令牌、用户重命名/删除命令。  
-输出：`analysis_cases`、`analysis_tasks`、`reports` 记录，原始日志路径和 Case Report 目录，`StateChanged` 事件。
+输出：`analysis_cases`、`analysis_tasks`、`reports` 记录，原始日志路径、解压路径和 report 路径，`StateChanged` 事件。
 风险点：
 
-- 写 Case、写 Task、启动插件和写 Report 不是一个事务，失败时可能留下原始路径中的部分解压数据。
+- 案例和任务创建、运行状态和完成状态通过统一持久化服务提交；文件系统操作失败仍需保留可诊断的错误信息。
 - 当前通过 fire-and-forget 入队；数据库/文件异常需要保证被记录并转换为可理解的失败状态。
 - 应用重启后 Waiting/Running 任务没有恢复/重试协议。
 - 插件选择必须使用 `plugins.json` 中已启用的默认插件；默认项缺失时不得静默切换到其他插件。
@@ -206,7 +206,7 @@ SSH ──> not implemented
 - `StandardExePluginRunner.RunAsync`
 
 依赖：Core、DataPaths、PluginSDK、`System.Diagnostics.Process`、文件系统。  
-输入：插件目录、manifest、Case Source/Extract/Report 路径、取消令牌。  
+输入：插件目录、manifest、原始日志/解压/report 路径、取消令牌。
 输出：PluginManifest、Issues、外部 EXE 进程结果、`report.html`、插件日志。  
 风险点：
 
@@ -343,9 +343,9 @@ SSH ──> not implemented
 路径：`插件/log_analyzer.exe`、`插件/宇diag_EC660JJ42230BE31_2608101025.tgz`、`src/HephaestusWorkbench.App/PluginSeed/manifest.json`。  
 职责：提供当前 MVP 使用的旧版日志分析可执行文件、manifest 和验收样例。  
 入口文件：manifest 中的 `entry`，内置入口为 `log_analyzer.exe`；legacy runner 使用 `-d <原始日志文件> -o <报告目录>`。
-依赖：Windows x64、插件自身运行环境、原始日志目录和 Case Report 目录约定。
-输入：`.tgz` 日志文件和 `-d`/标准 runner 参数。  
-输出：原始输入文件同名目录中的解压内容，以及工作台 Case Report 目录中的完整报告资源。
+依赖：Windows x64、插件自身运行环境、原始日志目录和同名解压目录下 report 目录约定。
+输入：`.tgz` 或 `.tgz.temp` 日志文件和 `-d`/标准 runner 参数。
+输出：原始输入文件同名目录中的解压内容，以及该目录 report 子目录中的完整报告资源。
 风险点：
 
 - 二进制资产不等同于可审计的源代码，更新和来源需要单独管理。
@@ -391,13 +391,13 @@ SSH ──> not implemented
 报告中心删除
   → ReportService.DeleteReportAndCaseAsync
   → CaseAnalysisService.DeleteAsync
-  → 删除 Cases/<CaseId> 目录
+  → 删除数据库记录中的源日志、解压目录和报告路径
   → 删除 analysis_cases
   → SQLite 外键级联删除 Tasks/Reports/ReportSessions
 
 存储页面清理
   → StorageService.CleanCaseDataAsync
-  → 删除 Source 文件和 Extract 目录
+  → 删除数据库记录中的 SourcePath 和 ExtractPath 对应文件
   → 保留 Report 和数据库 Case
 ```
 

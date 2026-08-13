@@ -68,6 +68,7 @@ public sealed class SettingsService
                 DataPath = _configuration.DataRoot,
                 MonitorPaths = normalized.ToList()
             }, cancellationToken);
+            return;
         }
 
         await _store.SetAsync("watch_directory", normalized[0], cancellationToken);
@@ -88,6 +89,7 @@ public sealed class SettingsService
             var settings = await _configuration.EnsureAppSettingsAsync(_store, cancellationToken);
             settings.AutoRestoreReports = enabled;
             await _configuration.SaveAppSettingsAsync(settings, cancellationToken);
+            return;
         }
         await _store.SetAsync("report_restore_enabled", enabled.ToString(), cancellationToken);
     }
@@ -109,6 +111,7 @@ public sealed class SettingsService
             var settings = await _configuration.EnsureAppSettingsAsync(_store, cancellationToken);
             settings.MaxReportTabs = value;
             await _configuration.SaveAppSettingsAsync(settings, cancellationToken);
+            return;
         }
         await _store.SetAsync("report_max_tabs", value.ToString(), cancellationToken);
     }
@@ -128,6 +131,7 @@ public sealed class SettingsService
             var settings = await _configuration.EnsureAppSettingsAsync(_store, cancellationToken);
             settings.ManualCleanupEnabled = enabled;
             await _configuration.SaveAppSettingsAsync(settings, cancellationToken);
+            return;
         }
         await _store.SetAsync("manual_cleanup_enabled", enabled.ToString(), cancellationToken);
     }
@@ -149,6 +153,7 @@ public sealed class SettingsService
             var settings = await _configuration.EnsureAppSettingsAsync(_store, cancellationToken);
             settings.CleanupRetentionDays = value;
             await _configuration.SaveAppSettingsAsync(settings, cancellationToken);
+            return;
         }
         await _store.SetAsync("cleanup_retention_days", value.ToString(), cancellationToken);
     }
@@ -176,9 +181,36 @@ public sealed class SettingsService
             var settings = await _configuration.EnsureAppSettingsAsync(_store, cancellationToken);
             settings.Theme = normalized;
             await _configuration.SaveAppSettingsAsync(settings, cancellationToken);
+            return;
         }
 
         await _store.SetAsync("theme", normalized, cancellationToken);
+    }
+
+    /// <summary>读取应用级 GitHub 插件下载加速模板。</summary>
+    public async Task<string> GetGitHubDownloadMirrorTemplateAsync(CancellationToken cancellationToken = default)
+    {
+        if (_configuration is not null)
+            return (await _configuration.EnsureAppSettingsAsync(_store, cancellationToken)).GitHubDownloadMirrorTemplate;
+
+        return (await _store.GetAsync("github_download_mirror_template", cancellationToken))?.Trim() ?? string.Empty;
+    }
+
+    /// <summary>
+    /// 保存 GitHub 插件下载加速模板。空值会停用加速；非空值必须是 HTTPS 模板并且只包含一个 {url}。
+    /// </summary>
+    public async Task SetGitHubDownloadMirrorTemplateAsync(string? template, CancellationToken cancellationToken = default)
+    {
+        var normalized = GitHubDownloadMirrorTemplate.ValidateAndNormalize(template);
+        if (_configuration is not null)
+        {
+            var settings = await _configuration.EnsureAppSettingsAsync(_store, cancellationToken);
+            settings.GitHubDownloadMirrorTemplate = normalized;
+            await _configuration.SaveAppSettingsAsync(settings, cancellationToken);
+            return;
+        }
+
+        await _store.SetAsync("github_download_mirror_template", normalized, cancellationToken);
     }
 
     private static string NormalizeTheme(string? theme)

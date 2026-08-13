@@ -5,8 +5,8 @@
 ## 当前能力
 
 - 默认监控工作台数据目录下的 `Inbox`，也可以在设置中添加 Downloads、网络盘或其他目录。
-- 首页展示最近 5 个有效监控日志，可直接“分析并查看”；也可选择或拖入监控目录外的单个 `.tgz` 日志。
-- 识别 `任意前缀_{DeviceID}_{YYYYMMDDHHMM 或 YYMMDDHHMM}.tgz`，前缀不限定为 `diag`。
+- 首页展示最近 5 个有效监控日志，可直接“分析并查看”；也可选择或拖入监控目录外的单个 `.tgz` 或 `.tgz.temp` 日志。
+- 识别 `任意前缀_{DeviceID}_{YYYYMMDDHHMM 或 YYMMDDHHMM}.tgz` 或 `.tgz.temp`，前缀不限定为 `diag`。
 - 使用现有 `log_analyzer.exe -d <原始日志文件> -o <报告目录>` 执行分析；源文件和解压目录保留在原始日志目录。
 - 管理 Analysis Case、后台任务和标准报告。
 - 通过分析中心统一搜索日志、案例、任务历史和报告，并使用 WebView2 多标签只读查看；主要结果入口也可直接打开对应解压目录，补充排查报告未覆盖的问题。
@@ -45,13 +45,21 @@ dotnet publish .\src\HephaestusWorkbench.App\HephaestusWorkbench.App.csproj -c R
 
 ```text
 Database/workbench.db
-Cases/<CaseId>/Source
-Cases/<CaseId>/Extract
-Inbox
-Plugins
-Logs
-Config
-Temp
+Inbox/
+  sample.tgz
+  sample/
+    report/
+Plugins/
+Rules/
+  Official/
+  Local/
+  Active/
+  History/
+Config/
+Database/workbench.db
+Logs/
+Temp/
+Cache/
 ```
 
 首次启动会进入五步配置向导，默认监控 `Inbox`，并写入：
@@ -62,7 +70,7 @@ Config/plugins.json
 Config/workspace.json
 ```
 
-`workspace.json` 中的 `MonitorPaths` 支持多个目录。程序只扫描这些目录中符合命名规则的 `.tgz` 文件。
+`workspace.json` 中的 `MonitorPaths` 支持多个目录。程序只扫描这些目录中符合命名规则的 `.tgz` 或 `.tgz.temp` 文件。
 
 ## 制作 Windows 安装包
 
@@ -87,7 +95,7 @@ SHA256SUMS.txt
 
 推荐在首页完成快速分析：
 
-1. 从“最近日志”中点击“分析并查看”，或把单个 `.tgz` 文件拖入“快速分析日志”区域。
+1. 从“最近日志”中点击“分析并查看”，或把单个 `.tgz` / `.tgz.temp` 文件拖入“快速分析日志”区域。
 2. 首页会显示检查、等待和分析状态；分析成功后自动切换到应用内报告。
 3. 已完成的最近日志可以直接“查看报告”，失败或取消的日志可以重新分析。
 4. 首页和分析中心均可快捷打开实际解压目录；若目录已被存储清理，程序会明确提示目录不存在。

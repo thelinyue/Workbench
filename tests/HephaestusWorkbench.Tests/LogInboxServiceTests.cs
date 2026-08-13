@@ -141,6 +141,67 @@ public sealed class LogInboxServiceTests
     }
 
     [Fact]
+    public async Task RefreshAsync_RecognizesTempTgzLog()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "HephaestusWorkbenchTests", Guid.NewGuid().ToString("N"));
+        var paths = new HephaestusWorkbench.Data.DataPaths(root);
+        paths.EnsureCreated();
+        var source = Path.Combine(paths.InboxDirectory, "diag_EC752JJ212509E27_202608111149.tgz.temp");
+        await WriteValidArchiveAsync(source);
+
+        try
+        {
+            using var service = new LogInboxService(
+                new LogFileParser(),
+                new ArchiveValidator(),
+                new MemorySettingsStore(),
+                new WorkbenchLogger(root),
+                paths.InboxDirectory);
+
+            await service.StartAsync();
+
+            var item = Assert.Single(service.Items);
+            Assert.True(item.IsValidArchive);
+            Assert.Equal("EC752JJ212509E27", item.DeviceId);
+            Assert.Equal(new DateTime(2026, 8, 11, 11, 49, 0), item.LogTime);
+        }
+        finally
+        {
+            if (Directory.Exists(root)) Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task InspectFileAsync_ValidatesTempTgzLogOutsideWatchDirectory()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "HephaestusWorkbenchTests", Guid.NewGuid().ToString("N"));
+        var paths = new HephaestusWorkbench.Data.DataPaths(root);
+        paths.EnsureCreated();
+        var selectedPath = Path.Combine(root, "Downloads", "diag_EC752JJ212509E27_202608111149.tgz.temp");
+        Directory.CreateDirectory(Path.GetDirectoryName(selectedPath)!);
+        await WriteValidArchiveAsync(selectedPath);
+
+        try
+        {
+            using var service = new LogInboxService(
+                new LogFileParser(),
+                new ArchiveValidator(),
+                new MemorySettingsStore(),
+                new WorkbenchLogger(root),
+                paths.InboxDirectory);
+
+            var result = await service.InspectFileAsync(selectedPath);
+
+            Assert.True(result.IsValid);
+            Assert.Equal("EC752JJ212509E27", result.Item?.DeviceId);
+        }
+        finally
+        {
+            if (Directory.Exists(root)) Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task InspectFileAsync_ReturnsChineseErrorsForUnsupportedMissingAndCorruptFiles()
     {
         var root = Path.Combine(Path.GetTempPath(), "HephaestusWorkbenchTests", Guid.NewGuid().ToString("N"));

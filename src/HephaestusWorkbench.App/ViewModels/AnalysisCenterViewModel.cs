@@ -34,6 +34,9 @@ public sealed class AnalysisCenterViewModel : ViewModelBase, IDisposable
     private string _caseName = string.Empty;
     private string? _expandedSourcePath;
     private bool _isBulkOperationActive;
+    private bool _cleanupEnabled;
+    private int _cleanupRetentionDays = 7;
+    private string _cleanupSettingsMessage = string.Empty;
     private int _suppressStateRefresh;
     private int _pendingLoadOperations;
     private bool _disposed;
@@ -73,6 +76,7 @@ public sealed class AnalysisCenterViewModel : ViewModelBase, IDisposable
         OpenReportFolderCommand = new DelegateCommand(OpenReportFolder, parameter => ResolveAttempt(parameter)?.Report is not null);
         DeleteLifecycleCommand = new DelegateCommand(parameter => _ = DeleteLifecycleAsync(parameter as AnalysisLogGroupViewModel), parameter => parameter is AnalysisLogGroupViewModel item && item.CanDeleteLifecycle && !IsBulkOperationActive);
         CleanupExpiredCommand = new DelegateCommand(() => _ = CleanupExpiredAsync(), () => !IsBulkOperationActive && CleanupEnabled);
+        SaveCleanupSettingsCommand = new DelegateCommand(() => _ = SaveCleanupSettingsAsync(), () => !IsBulkOperationActive);
 
         _inbox.ItemsChanged += OnSourceStateChanged;
         _inbox.ConfigurationChanged += OnSourceStateChanged;
@@ -95,6 +99,7 @@ public sealed class AnalysisCenterViewModel : ViewModelBase, IDisposable
     public ICommand OpenReportFolderCommand { get; }
     public ICommand DeleteLifecycleCommand { get; }
     public ICommand CleanupExpiredCommand { get; }
+    public ICommand SaveCleanupSettingsCommand { get; }
 
     public bool ShowEmptyState => Items.Count == 0;
     public bool HasSelection => SelectedItem is not null;
@@ -124,8 +129,17 @@ public sealed class AnalysisCenterViewModel : ViewModelBase, IDisposable
     public string LogSpace { get; private set; } = "计算中";
     public string ExtractSpace { get; private set; } = "计算中";
     public string ReportSpace { get; private set; } = "计算中";
-    public bool CleanupEnabled { get; private set; }
-    public int CleanupRetentionDays { get; private set; } = 7;
+    public bool CleanupEnabled
+    {
+        get => _cleanupEnabled;
+        set
+        {
+            if (!SetProperty(ref _cleanupEnabled, value)) return;
+            ((DelegateCommand)CleanupExpiredCommand).RaiseCanExecuteChanged();
+        }
+    }
+    public int CleanupRetentionDays { get => _cleanupRetentionDays; set => SetProperty(ref _cleanupRetentionDays, value); }
+    public string CleanupSettingsMessage { get => _cleanupSettingsMessage; private set => SetProperty(ref _cleanupSettingsMessage, value); }
 
     public AnalysisLogGroupViewModel? SelectedItem
     {
@@ -609,6 +623,29 @@ public sealed class AnalysisCenterViewModel : ViewModelBase, IDisposable
         }
     }
 
+    /// <summary>在分析中心就地保存清理策略，保证设置入口与实际清理动作处于同一业务上下文。</summary>
+    private async Task SaveCleanupSettingsAsync()
+    {
+        if (CleanupRetentionDays is < 1 or > 7)
+        {
+            CleanupSettingsMessage = "清理保留天数必须在 1 到 7 天之间。";
+            return;
+        }
+
+        try
+        {
+            await _settings.SetManualCleanupEnabledAsync(CleanupEnabled);
+            await _settings.SetCleanupRetentionDaysAsync(CleanupRetentionDays);
+            CleanupSettingsMessage = "清理策略已保存。";
+            ((DelegateCommand)CleanupExpiredCommand).RaiseCanExecuteChanged();
+        }
+        catch (Exception ex)
+        {
+            CleanupSettingsMessage = $"清理策略保存失败：{ex.Message}";
+            _logger.Error("清理策略保存失败", ex);
+        }
+    }
+
     private async Task DeleteLifecycleCoreAsync(AnalysisLogGroupViewModel item)
     {
         if (item.Attempts.Count > 0)
@@ -655,7 +692,7 @@ public sealed class AnalysisCenterViewModel : ViewModelBase, IDisposable
             RefreshCommand, OpenRowReportCommand, OpenAttemptReportCommand, AnalyzeAllPendingCommand,
             DeleteInvalidCommand, AnalyzeSingleCommand, ToggleHistoryCommand, BeginRenameCommand,
             CancelRenameCommand, RenameCommand, OpenExtractDirectoryCommand, OpenReportFolderCommand,
-            DeleteLifecycleCommand, CleanupExpiredCommand
+            DeleteLifecycleCommand, CleanupExpiredCommand, SaveCleanupSettingsCommand
         })
             ((DelegateCommand)command).RaiseCanExecuteChanged();
     }

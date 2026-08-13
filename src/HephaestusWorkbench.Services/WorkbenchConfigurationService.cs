@@ -191,6 +191,7 @@ public sealed class WorkbenchConfigurationService
                 : AppSettingsConfig.LightTheme;
         settings.MaxReportTabs = Math.Clamp(settings.MaxReportTabs, 1, 10);
         settings.CleanupRetentionDays = Math.Clamp(settings.CleanupRetentionDays, 1, 7);
+        settings.GitHubDownloadMirrorTemplate = settings.GitHubDownloadMirrorTemplate?.Trim() ?? string.Empty;
     }
 
     private static void NormalizePluginConfig(PluginConfig config)

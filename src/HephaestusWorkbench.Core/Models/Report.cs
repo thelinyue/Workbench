@@ -7,5 +7,7 @@ public sealed class Report
     public required string CaseId { get; init; }
     public required string Path { get; init; }
     public string? PluginId { get; init; }
+    public string? PluginName { get; init; }
+    public string? PluginVersion { get; init; }
     public DateTime CreateTime { get; init; }
 }

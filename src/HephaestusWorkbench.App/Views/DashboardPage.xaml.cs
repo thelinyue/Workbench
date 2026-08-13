@@ -14,7 +14,7 @@ public partial class DashboardPage : System.Windows.Controls.UserControl
         var dialog = new Microsoft.Win32.OpenFileDialog
         {
             Title = "选择要分析的日志",
-            Filter = "日志压缩包 (*.tgz)|*.tgz|所有文件 (*.*)|*.*",
+            Filter = "日志压缩包 (*.tgz;*.tgz.temp)|*.tgz;*.tgz.temp|所有文件 (*.*)|*.*",
             Multiselect = false,
             CheckFileExists = true
         };

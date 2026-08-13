@@ -24,6 +24,9 @@ public sealed class AnalysisCenterXamlTests
         Assert.Contains(buttons, element => (string?)element.Attribute("Command") == "{Binding AnalyzeAllPendingCommand}");
         Assert.Contains(buttons, element => (string?)element.Attribute("Command") == "{Binding DeleteInvalidCommand}");
         Assert.Contains(buttons, element => (string?)element.Attribute("Command") == "{Binding RefreshCommand}");
+        Assert.All(
+            buttons.Where(element => (string?)element.Attribute("Command") is "{Binding AnalyzeAllPendingCommand}" or "{Binding DeleteInvalidCommand}"),
+            element => Assert.NotNull(element.Attribute("ContentStringFormat")));
         Assert.Contains(document.Descendants(presentation + "Grid"), grid =>
             grid.Descendants(presentation + "Button").Any(button => (string?)button.Attribute("Command") == "{Binding AnalyzeAllPendingCommand}")
             && grid.Descendants(presentation + "Button").Any(button => (string?)button.Attribute("Command") == "{Binding RefreshCommand}"));

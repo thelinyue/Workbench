@@ -2,6 +2,8 @@ namespace HephaestusWorkbench.Data;
 
 /// <summary>
 /// 统一管理程序目录和用户数据目录，避免分析插件把输出写回程序安装目录。
+/// 案例文件的实际位置由监控目录和分析插件决定：源 tgz 与同名解压目录位于监控目录，
+/// 报告位于解压目录下的 report；Cases 目录仅作为旧布局兼容和删除安全校验边界保留。
 /// </summary>
 public sealed class DataPaths
 {
@@ -13,9 +15,15 @@ public sealed class DataPaths
         InboxDirectory = Path.Combine(Root, "Inbox");
         PluginsDirectory = Path.Combine(Root, "Plugins");
         RulesDirectory = Path.Combine(Root, "Rules");
+        OfficialRulesDirectory = Path.Combine(RulesDirectory, "Official");
+        OfficialRulesFile = Path.Combine(OfficialRulesDirectory, "main.json");
         LocalRulesDirectory = Path.Combine(RulesDirectory, "Local");
+        LocalAdditionsFile = Path.Combine(LocalRulesDirectory, "additions.json");
         ActiveRulesDirectory = Path.Combine(RulesDirectory, "Active");
         ActiveRulesFile = Path.Combine(ActiveRulesDirectory, "active.json");
+        RulesHistoryDirectory = Path.Combine(RulesDirectory, "History");
+        RulesStateDirectory = Path.Combine(RulesDirectory, "State");
+        RulesStateFile = Path.Combine(RulesStateDirectory, "rules-state.json");
         LogsDirectory = Path.Combine(Root, "Logs");
         TempDirectory = Path.Combine(Root, "Temp");
         CacheDirectory = Path.Combine(Root, "Cache");
@@ -35,9 +43,15 @@ public sealed class DataPaths
     public string InboxDirectory { get; }
     public string PluginsDirectory { get; }
     public string RulesDirectory { get; }
+    public string OfficialRulesDirectory { get; }
+    public string OfficialRulesFile { get; }
     public string LocalRulesDirectory { get; }
+    public string LocalAdditionsFile { get; }
     public string ActiveRulesDirectory { get; }
     public string ActiveRulesFile { get; }
+    public string RulesHistoryDirectory { get; }
+    public string RulesStateDirectory { get; }
+    public string RulesStateFile { get; }
     public string LogsDirectory { get; }
     public string TempDirectory { get; }
     public string CacheDirectory { get; }
@@ -61,8 +75,11 @@ public sealed class DataPaths
         Directory.CreateDirectory(InboxDirectory);
         Directory.CreateDirectory(PluginsDirectory);
         Directory.CreateDirectory(RulesDirectory);
+        Directory.CreateDirectory(OfficialRulesDirectory);
         Directory.CreateDirectory(LocalRulesDirectory);
         Directory.CreateDirectory(ActiveRulesDirectory);
+        Directory.CreateDirectory(RulesHistoryDirectory);
+        Directory.CreateDirectory(RulesStateDirectory);
         Directory.CreateDirectory(LogsDirectory);
         Directory.CreateDirectory(TempDirectory);
         Directory.CreateDirectory(CacheDirectory);

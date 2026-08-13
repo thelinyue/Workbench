@@ -21,6 +21,12 @@ public sealed class AppSettingsConfig
     public bool AutoRestoreReports { get; set; } = true;
     public bool ManualCleanupEnabled { get; set; }
     public int CleanupRetentionDays { get; set; } = 7;
+
+    /// <summary>
+    /// GitHub 插件包的备用下载地址模板。留空表示只使用官方直连地址；模板中的
+    /// {url} 会被替换为目录中的原始包地址，避免把加速策略写入单个插件配置。
+    /// </summary>
+    public string GitHubDownloadMirrorTemplate { get; set; } = string.Empty;
 }
 
 /// <summary>插件配置仅记录已登记插件和启用状态，插件文件仍由插件目录管理。</summary>

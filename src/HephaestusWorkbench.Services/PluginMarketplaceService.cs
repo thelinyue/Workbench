@@ -14,6 +14,8 @@ public sealed class MarketplaceCatalog
 {
     public int SchemaVersion { get; init; }
     public List<MarketplacePlugin> Plugins { get; init; } = new();
+    [JsonIgnore]
+    public List<string> Issues { get; } = new();
 }
 
 public sealed record MarketplacePlugin
@@ -21,6 +23,16 @@ public sealed record MarketplacePlugin
     public required string Id { get; init; }
     public required string Name { get; init; }
     public string Description { get; init; } = string.Empty;
+    /// <summary>应用商店中展示的开发者名称，兼容目录中的 author 字段。</summary>
+    public string Author { get; init; } = string.Empty;
+    public string Category { get; init; } = "其他";
+    public string? IconUrl { get; init; }
+    public List<string> Screenshots { get; init; } = new();
+    public string License { get; init; } = string.Empty;
+    public string Repository { get; init; } = string.Empty;
+    public MarketplaceManifestInfo? Manifest { get; init; }
+    [JsonIgnore]
+    public IReadOnlyList<string> Capabilities => Manifest?.Capabilities ?? (IReadOnlyList<string>)Array.Empty<string>();
     public required string Version { get; init; }
     public required PluginType Type { get; init; }
     public required string PackageUrl { get; init; }
@@ -30,10 +42,17 @@ public sealed record MarketplacePlugin
     public string? ReleaseNotesUrl { get; init; }
 }
 
+/// <summary>目录条目中的插件清单摘要，用于搜索能力标签而不改变本地 manifest 契约。</summary>
+public sealed class MarketplaceManifestInfo
+{
+    public List<string> Capabilities { get; init; } = new();
+}
+
 public sealed record MarketplaceCatalogResult(
     IReadOnlyList<MarketplacePlugin> Plugins,
     bool IsFromCache,
-    string? Warning);
+    string? Warning,
+    IReadOnlyList<string>? Issues = null);
 
 /// <summary>
 /// 在线插件安装进度。下载阶段提供字节数，解压和校验阶段只提供阶段文字，避免展示没有依据的百分比。
@@ -90,14 +109,14 @@ public sealed partial class PluginMarketplaceService
         {
             var catalog = await DownloadCatalogAsync(cancellationToken);
             await WriteAtomicAsync(_paths.MarketplaceCatalogCacheFile, catalog, cancellationToken);
-            return new MarketplaceCatalogResult(catalog.Plugins, false, null);
+            return new MarketplaceCatalogResult(catalog.Plugins, false, null, catalog.Issues);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
             _logger.Error("刷新在线插件目录失败，正在尝试使用本地缓存。", ex);
             var cached = await ReadCatalogAsync(_paths.MarketplaceCatalogCacheFile, cancellationToken);
             if (cached is null) throw new InvalidOperationException($"无法获取在线插件目录，且没有可用缓存：{ex.Message}", ex);
-            return new MarketplaceCatalogResult(cached.Plugins, true, $"网络不可用，正在显示上次缓存：{ex.Message}");
+            return new MarketplaceCatalogResult(cached.Plugins, true, $"网络不可用，正在显示上次缓存：{ex.Message}", cached.Issues);
         }
     }
 
@@ -110,6 +129,7 @@ public sealed partial class PluginMarketplaceService
         if (_tasks.IsPluginActive(item.Id)) throw new InvalidOperationException("插件正在执行分析任务，暂时不能安装或更新。");
 
         var config = await _configuration.EnsurePluginConfigAsync(cancellationToken);
+        var appSettings = await _configuration.EnsureAppSettingsAsync(cancellationToken: cancellationToken);
         var existingConfig = config.Plugins.FirstOrDefault(x => string.Equals(x.Id, item.Id, StringComparison.OrdinalIgnoreCase));
         if (existingConfig?.Source == PluginInstallSource.Manual)
             throw new InvalidOperationException("同名插件由用户手工管理，在线市场不会覆盖其文件。");
@@ -122,7 +142,7 @@ public sealed partial class PluginMarketplaceService
         try
         {
             progress?.Report(new PluginInstallProgress("正在下载插件…", 0, item.PackageSize > 0 ? item.PackageSize : null));
-            await DownloadPackageAsync(item, packagePath, cancellationToken, progress);
+            await DownloadPackageAsync(item, packagePath, appSettings.GitHubDownloadMirrorTemplate, cancellationToken, progress);
             progress?.Report(new PluginInstallProgress("正在解压并校验插件…", 0, null));
             ExtractAndValidate(packagePath, staging, item);
 
@@ -160,6 +180,10 @@ public sealed partial class PluginMarketplaceService
             await SynchronizePluginInfoAsync(cancellationToken);
             if (Directory.Exists(backup)) Directory.Delete(backup, recursive: true);
             _logger.Info($"插件已安装或更新：{item.Name} {item.Version}");
+        }
+        catch (InvalidDataException)
+        {
+            throw;
         }
         catch (Exception ex)
         {
@@ -269,24 +293,104 @@ public sealed partial class PluginMarketplaceService
         response.EnsureSuccessStatusCode();
         EnsureHttps(response.RequestMessage?.RequestUri);
         await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken);
-        var catalog = await JsonSerializer.DeserializeAsync<MarketplaceCatalog>(stream, _jsonOptions, cancellationToken)
-            ?? throw new InvalidDataException("在线插件目录为空。");
-        ValidateCatalog(catalog);
-        return catalog;
+        return await ParseCatalogAsync(stream, cancellationToken);
     }
 
     private async Task<MarketplaceCatalog?> ReadCatalogAsync(string path, CancellationToken cancellationToken)
     {
         if (!File.Exists(path)) return null;
         await using var stream = File.OpenRead(path);
-        var catalog = await JsonSerializer.DeserializeAsync<MarketplaceCatalog>(stream, _jsonOptions, cancellationToken);
-        if (catalog is not null) ValidateCatalog(catalog);
+        return await ParseCatalogAsync(stream, cancellationToken);
+    }
+
+    private async Task<MarketplaceCatalog> ParseCatalogAsync(Stream stream, CancellationToken cancellationToken)
+    {
+        using var document = await JsonDocument.ParseAsync(stream, cancellationToken: cancellationToken);
+        var root = document.RootElement;
+        if (root.ValueKind != JsonValueKind.Object
+            || (!root.TryGetProperty("schemaVersion", out var schemaElement) && !root.TryGetProperty("SchemaVersion", out schemaElement))
+            || !schemaElement.TryGetInt32(out var schemaVersion))
+            throw new InvalidDataException("在线插件目录缺少有效的 schemaVersion。");
+        if (schemaVersion != 1) throw new InvalidDataException($"不支持的插件目录版本：{schemaVersion}");
+        if ((!root.TryGetProperty("plugins", out var pluginsElement) && !root.TryGetProperty("Plugins", out pluginsElement)) || pluginsElement.ValueKind != JsonValueKind.Array)
+            throw new InvalidDataException("在线插件目录缺少 plugins 数组。");
+
+        var catalog = new MarketplaceCatalog { SchemaVersion = schemaVersion };
+        var ids = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var element in pluginsElement.EnumerateArray())
+        {
+            try
+            {
+                var item = element.Deserialize<MarketplacePlugin>(_jsonOptions) ?? throw new InvalidDataException("条目为空。");
+                ValidateItem(item);
+                if (!ids.Add(item.Id)) throw new InvalidDataException($"目录中包含重复 ID：{item.Id}");
+                catalog.Plugins.Add(item);
+            }
+            catch (Exception ex) when (ex is JsonException or InvalidDataException or ArgumentException or InvalidOperationException)
+            {
+                var id = element.TryGetProperty("id", out var idElement) ? idElement.GetString() : "未知 ID";
+                var issue = $"已跳过在线插件条目 {id}：{ex.Message}";
+                catalog.Issues.Add(issue);
+                _logger.Error(issue, ex);
+            }
+        }
         return catalog;
     }
 
-    private async Task DownloadPackageAsync(MarketplacePlugin item, string destination, CancellationToken cancellationToken, IProgress<PluginInstallProgress>? progress)
+    private async Task DownloadPackageAsync(MarketplacePlugin item, string destination, string? mirrorTemplate, CancellationToken cancellationToken, IProgress<PluginInstallProgress>? progress)
     {
-        using var response = await _http.GetAsync(item.PackageUrl, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
+        var original = new Uri(item.PackageUrl, UriKind.Absolute);
+        var candidates = new List<(Uri Uri, string Label)> { (original, "官方地址") };
+        Uri? mirror = null;
+        try { mirror = GitHubDownloadMirrorTemplate.BuildUri(mirrorTemplate, original); }
+        catch (ArgumentException ex)
+        {
+            _logger.Error("GitHub 下载加速配置无效，将继续使用官方地址。", ex);
+        }
+        if (mirror is not null && !string.Equals(mirror.AbsoluteUri, original.AbsoluteUri, StringComparison.OrdinalIgnoreCase))
+            candidates.Add((mirror, "加速地址"));
+
+        var errors = new List<(string Label, Exception Error)>();
+        for (var index = 0; index < candidates.Count; index++)
+        {
+            var candidate = candidates[index];
+            var temporary = destination + $".{Guid.NewGuid():N}.download";
+            try
+            {
+                if (index > 0)
+                {
+                    progress?.Report(new PluginInstallProgress("官方地址下载失败，正在尝试 GitHub 加速地址…", 0, item.PackageSize > 0 ? item.PackageSize : null));
+                    _logger.Info("插件官方地址下载失败，正在尝试配置的 GitHub 加速地址。" );
+                }
+
+                await DownloadCandidateAsync(item, candidate.Uri, temporary, candidate.Label, cancellationToken, progress);
+                File.Move(temporary, destination, overwrite: true);
+                if (index > 0) _logger.Info($"插件已通过 GitHub 加速地址下载并校验成功：{item.Name}");
+                return;
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                errors.Add((candidate.Label, ex));
+                _logger.Error($"插件{candidate.Label}下载失败：{item.Name}", ex);
+            }
+            finally
+            {
+                if (File.Exists(temporary)) File.Delete(temporary);
+            }
+        }
+
+        if (errors.Count > 0 && errors.All(error => error.Error is InvalidDataException))
+            throw errors[0].Error;
+        throw new InvalidOperationException($"插件下载失败：{string.Join("；", errors.Select(error => $"{error.Label}：{error.Error.Message}"))}");
+    }
+
+    private async Task DownloadCandidateAsync(MarketplacePlugin item, Uri uri, string destination, string label, CancellationToken cancellationToken, IProgress<PluginInstallProgress>? progress)
+    {
+        using var response = await _http.GetAsync(uri, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
         response.EnsureSuccessStatusCode();
         EnsureHttps(response.RequestMessage?.RequestUri);
         if (response.Content.Headers.ContentLength is > MaximumPackageBytes)
@@ -304,7 +408,7 @@ public sealed partial class PluginMarketplaceService
             if (total > MaximumPackageBytes) throw new InvalidDataException("插件安装包超过 200 MB 限制。");
             hash.AppendData(buffer, 0, read);
             await output.WriteAsync(buffer.AsMemory(0, read), cancellationToken);
-            progress?.Report(new PluginInstallProgress("正在下载插件…", total, item.PackageSize > 0 ? item.PackageSize : response.Content.Headers.ContentLength));
+            progress?.Report(new PluginInstallProgress($"正在通过{label}下载插件…", total, item.PackageSize > 0 ? item.PackageSize : response.Content.Headers.ContentLength));
         }
         if (item.PackageSize > 0 && total != item.PackageSize)
             throw new InvalidDataException($"插件安装包大小不符，期望 {item.PackageSize} 字节，实际 {total} 字节。");
@@ -358,17 +462,6 @@ public sealed partial class PluginMarketplaceService
             throw new InvalidDataException("插件入口不存在或指向插件目录之外。");
     }
 
-    private static void ValidateCatalog(MarketplaceCatalog catalog)
-    {
-        if (catalog.SchemaVersion != 1) throw new InvalidDataException($"不支持的插件目录版本：{catalog.SchemaVersion}");
-        var ids = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        foreach (var item in catalog.Plugins)
-        {
-            ValidateItem(item);
-            if (!ids.Add(item.Id)) throw new InvalidDataException($"在线插件目录包含重复 ID：{item.Id}");
-        }
-    }
-
     private static void ValidateItem(MarketplacePlugin item)
     {
         if (!PluginIdPattern().IsMatch(item.Id)) throw new InvalidDataException($"插件 ID 无效：{item.Id}");
@@ -376,6 +469,8 @@ public sealed partial class PluginMarketplaceService
         if (!Version.TryParse(item.Version, out _)) throw new InvalidDataException($"插件版本无效：{item.Version}");
         if (!Version.TryParse(item.MinimumAppVersion, out var minimum)) throw new InvalidDataException($"最低应用版本无效：{item.MinimumAppVersion}");
         if (item.Type is not (PluginType.Exe or PluginType.Web)) throw new InvalidDataException("当前版本仅支持 EXE 或 Web 插件。");
+        if (!string.IsNullOrWhiteSpace(item.Category) && item.Category is not ("日志分析" or "规则工具" or "运维工具" or "其他"))
+            throw new InvalidDataException($"插件分类无效：{item.Category}");
         EnsureHttps(new Uri(item.PackageUrl, UriKind.Absolute));
         if (!Sha256Pattern().IsMatch(item.Sha256)) throw new InvalidDataException($"插件 SHA-256 无效：{item.Id}");
         if (item.PackageSize <= 0 || item.PackageSize > MaximumPackageBytes) throw new InvalidDataException($"插件包大小无效：{item.Id}");
