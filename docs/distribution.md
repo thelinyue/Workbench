@@ -7,10 +7,21 @@ Hephaestus Workbench 的源码仓库保持私有。安装包、官方插件、�
 正式构建由 GitHub Actions 从官方插件 Releases 仓库自动获取最新正式版本，并显式注入授权的插件二进制：
 
 ```powershell
-.\installer\build-installer.ps1 -Configuration Release -Version 1.2.1 -PluginBinaryPath '<CI 下载的 log_analyzer.exe>' -RuleEditorBinaryPath '<CI 下载的 rule_editor.exe>'
+.\installer\build-installer.ps1 -Configuration Release -Version 1.2.1 -PluginBinaryPath '<CI 下载的 log_analyzer.exe>'
 ```
 
-脚本在 `installer/dist` 仅生成名称带版本号的标准离线安装包 `HephaestusWorkbench_Setup_v<版本号>.exe` 及其校验文件。Setup 内含 self-contained 主程序、日志分析插件和规则编辑器，不依赖联网下载应用载荷。没有插件二进制时，普通源码构建仍然可执行，但正式打包会立即返回中文错误。
+脚本在 `installer/dist` 仅生成名称带版本号的标准离线安装包 `Hephaestus工作台_v<版本号>.exe` 及其校验文件。安装包内含 self-contained 主程序和日志分析插件；规则编辑器通过应用商店独立安装和更新。没有日志分析插件二进制时，普通源码构建仍然可执行，但正式打包会立即返回中文错误。
+
+## 主程序发布前的应用更新门禁
+
+主程序发布前必须先检查 `Hephaestus-Workbench-Plugin-Sources` 中日志分析和规则编辑器的源码、manifest、版本及发布清单变化。仅文档或测试变化不视为应用更新。
+
+- 发现应用代码或发布清单存在本地更新、但尚未发布到应用商店时，必须暂停主程序发布并先确认是否发布应用更新。
+- 用户确认后，先完成对应插件 Release 和 `Hephaestus-Workbench-Plugins/catalog.json` 更新，并确认目录、版本、下载地址、大小和 SHA-256 有效。
+- 应用更新完成后，才允许创建主程序版本标签并触发主程序 Release。
+- 没有未发布的应用更新时，可直接继续主程序构建和发布。
+
+主程序安装包只内置日志分析；规则编辑器通过应用商店独立安装。升级已有安装时不得主动删除用户数据目录中的规则编辑器。
 
 ## 公开仓库内容
 

@@ -1,11 +1,9 @@
 ﻿param(
     [ValidateSet('Debug', 'Release')]
     [string]$Configuration = 'Release',
-    [string]$Version = '1.2.7',
+    [string]$Version = '1.2.9',
     [Parameter(Mandatory = $true)]
     [string]$PluginBinaryPath,
-    [Parameter(Mandatory = $true)]
-    [string]$RuleEditorBinaryPath,
     [string]$InnoCompilerPath
 )
 
@@ -18,11 +16,6 @@ $pluginBinary = [System.IO.Path]::GetFullPath($PluginBinaryPath)
 if (-not (Test-Path -LiteralPath $pluginBinary -PathType Leaf)) {
     throw "未找到正式发布所需的日志分析插件：$pluginBinary"
 }
-$ruleEditorBinary = [System.IO.Path]::GetFullPath($RuleEditorBinaryPath)
-if (-not (Test-Path -LiteralPath $ruleEditorBinary -PathType Leaf)) {
-    throw "未找到正式发布所需的规则编辑器插件：$ruleEditorBinary"
-}
-
 if ([string]::IsNullOrWhiteSpace($InnoCompilerPath)) {
     $compilerCandidates = @(
         (Join-Path $env:LOCALAPPDATA 'Programs\Inno Setup 6\ISCC.exe'),
@@ -55,13 +48,13 @@ Write-Host '正在还原 win-x64 发布依赖……'
 if ($LASTEXITCODE -ne 0) { throw "应用还原失败，退出码：$LASTEXITCODE" }
 
 Write-Host '正在发布 self-contained 主程序……'
-& dotnet publish $appProject -c $Configuration -r win-x64 --self-contained true --no-restore -p:Version=$Version -p:PluginBinaryPath=$pluginBinary -p:RuleEditorBinaryPath=$ruleEditorBinary -p:DebugType=None -p:DebugSymbols=false -o $appPublish
+& dotnet publish $appProject -c $Configuration -r win-x64 --self-contained true --no-restore -p:Version=$Version -p:PluginBinaryPath=$pluginBinary -p:DebugType=None -p:DebugSymbols=false -o $appPublish
 if ($LASTEXITCODE -ne 0) { throw "应用发布失败，退出码：$LASTEXITCODE" }
 
 Write-Host '正在生成标准单文件离线安装包……'
 & $InnoCompilerPath "/DMyAppVersion=$Version" "/DAppSource=$appPublish" "/DOutputDir=$dist" $innoScript
 if ($LASTEXITCODE -ne 0) { throw "Inno Setup 编译失败，退出码：$LASTEXITCODE" }
-$setupFileName = "HephaestusWorkbench_Setup_v$Version.exe"
+$setupFileName = "Hephaestus工作台_v$Version.exe"
 $setupExecutable = Join-Path $dist $setupFileName
 if (-not (Test-Path -LiteralPath $setupExecutable -PathType Leaf)) {
     throw "未生成预期的安装包：$setupExecutable"

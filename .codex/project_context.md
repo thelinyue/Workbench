@@ -284,10 +284,12 @@ HephaestusWorkbenchData/
 
 当前清单字段：`id`、`name`、`version`、`type`、`entry`，可选 `runner` 和 `reportPath`。内置插件使用：
 
+主程序只内置日志分析插件；规则编辑器通过应用商店安装和更新，不随主程序安装包分发。
+
 ```json
 {
   "id": "log-analyzer",
-  "name": "日志分析插件",
+  "name": "日志分析",
   "version": "1.49",
   "type": "Exe",
   "entry": "log_analyzer.exe",
@@ -316,6 +318,7 @@ Plugin.exe --case <CaseId> --input <SourcePath> --output <OutputPath>
 - 数据库访问集中在 Data 仓储；schema 变更必须有幂等迁移和测试。
 - 插件执行必须通过 `PluginSDK` 的上下文和 runner 边界，不能在页面中拼接命令行。
 - 修改完成后按风险执行构建、测试和真实场景验证，并如实记录未验证部分。
+- 主程序发布前检查日志分析和规则编辑器源码、manifest、版本及发布清单是否有未发布更新；发现更新时先向用户确认应用商店发布，再继续主程序发布。
 - 文档、代码、测试和日志中的名称应与真实路径、表名、配置键和入口文件一致。
 
 ## 修改代码注意事项

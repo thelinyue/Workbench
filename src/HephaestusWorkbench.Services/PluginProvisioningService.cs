@@ -41,27 +41,8 @@ public sealed class PluginProvisioningService
             File.Copy(sourceExe, destinationExe, overwrite: true);
             File.Copy(sourceManifest, destinationManifest, overwrite: true);
         }
-        ProvisionRuleEditor();
         _logger.Info(shouldUpdateExecutable ? "现有日志分析插件已更新到用户插件目录。" : "现有日志分析插件已登记到用户插件目录。");
         return Task.CompletedTask;
-    }
-
-    private void ProvisionRuleEditor()
-    {
-        var sourceDirectory = Path.Combine(_seedDirectory, "RuleEditor");
-        var sourceEntry = Path.Combine(sourceDirectory, "editor.html");
-        var sourceManifest = Path.Combine(sourceDirectory, "manifest.json");
-        if (!File.Exists(sourceEntry) || !File.Exists(sourceManifest)) return;
-        var destination = Path.Combine(_paths.PluginsDirectory, "log-rule-editor");
-        Directory.CreateDirectory(destination);
-        var destinationEntry = Path.Combine(destination, "editor.html");
-        var destinationManifest = Path.Combine(destination, "manifest.json");
-        if (!File.Exists(destinationEntry) || !File.Exists(destinationManifest) || IsSourceNewer(sourceManifest, destinationManifest, sourceEntry, destinationEntry))
-        {
-            File.Copy(sourceEntry, destinationEntry, true);
-            File.Copy(sourceManifest, destinationManifest, true);
-            _logger.Info("规则编辑器插件已登记到用户插件目录。");
-        }
     }
 
     private static bool IsSourceNewer(string sourceManifest, string destinationManifest, string sourceExe, string destinationExe)

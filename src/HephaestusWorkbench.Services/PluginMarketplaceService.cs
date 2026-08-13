@@ -131,8 +131,7 @@ public sealed partial class PluginMarketplaceService
         var config = await _configuration.EnsurePluginConfigAsync(cancellationToken);
         var appSettings = await _configuration.EnsureAppSettingsAsync(cancellationToken: cancellationToken);
         var existingConfig = config.Plugins.FirstOrDefault(x => string.Equals(x.Id, item.Id, StringComparison.OrdinalIgnoreCase));
-        if (existingConfig?.Source == PluginInstallSource.Manual)
-            throw new InvalidOperationException("同名插件由用户手工管理，在线市场不会覆盖其文件。");
+        var wasManual = existingConfig?.Source == PluginInstallSource.Manual;
 
         var packagePath = Path.Combine(_paths.TempDirectory, $"plugin-{Guid.NewGuid():N}.zip");
         var staging = Path.Combine(_paths.PluginsDirectory, $".install-{Guid.NewGuid():N}");
@@ -179,7 +178,9 @@ public sealed partial class PluginMarketplaceService
             await _configuration.SavePluginConfigAsync(config, cancellationToken);
             await SynchronizePluginInfoAsync(cancellationToken);
             if (Directory.Exists(backup)) Directory.Delete(backup, recursive: true);
-            _logger.Info($"插件已安装或更新：{item.Name} {item.Version}");
+            _logger.Info(wasManual
+                ? $"手工安装插件已通过在线市场更新并接管来源：{item.Name} {item.Version}"
+                : $"插件已安装或更新：{item.Name} {item.Version}");
         }
         catch (InvalidDataException)
         {

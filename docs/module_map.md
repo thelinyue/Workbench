@@ -213,7 +213,7 @@ SSH ──> not implemented
 - manifest、在线目录、压缩包和 HTML 输出属于外部信任边界；v1.1.0 使用 HTTPS、SHA-256、大小和路径边界校验，但尚未提供数字签名或沙箱。
 - `PluginType.Dll` 和 `IAnalysisPlugin` 只是契约，当前没有 DLL 加载实现。
 - `plugins.json` 保存安装来源、启用状态和默认插件，运行、更新与卸载必须遵守这些状态。
-- 内置 EXE 仅在随应用版本更高或目标文件缺失时更新，不能覆盖在线安装的更高版本。
+- 主程序只内置日志分析 EXE；仅在随应用版本更高或目标文件缺失时更新，不能覆盖在线安装的更高版本。规则编辑器不属于主程序内置内容，只通过应用商店安装和更新。
 - legacy runner 保留旧程序的 `-d` 参数，并新增 `-o` 报告输出目录；解压内容留在原始日志目录，工作台只保存报告目录。
 
 ## 11. PluginSDK 模块
@@ -299,7 +299,7 @@ SSH ──> not implemented
 
 依赖：.NET 8 Windows Forms、`Payload.zip`、Windows 文件系统、WebView2 Runtime（目标机前置条件）。  
 输入：Configuration、Version、安装路径、Payload 和可选离线 WebView2 安装器。  
-输出：`installer/dist/HephaestusWorkbench_Setup_v<版本号>.exe`、Windows 卸载入口和安装目录。
+输出：`installer/dist/Hephaestus工作台_v<版本号>.exe`、Windows 卸载入口和安装目录。
 风险点：
 
 - 安装器输出和 Payload 属于生成物，不应被误当作源码模块。
@@ -339,7 +339,7 @@ SSH ──> not implemented
 
 ## 18. 插件及内置资产模块
 
-名称：内置日志分析插件和测试日志资产  
+名称：内置日志分析和测试日志资产
 路径：`插件/log_analyzer.exe`、`插件/宇diag_EC660JJ42230BE31_2608101025.tgz`、`src/HephaestusWorkbench.App/PluginSeed/manifest.json`。  
 职责：提供当前 MVP 使用的旧版日志分析可执行文件、manifest 和验收样例。  
 入口文件：manifest 中的 `entry`，内置入口为 `log_analyzer.exe`；legacy runner 使用 `-d <原始日志文件> -o <报告目录>`。

@@ -65,7 +65,7 @@ public sealed class MarketplacePluginsPageTests
             Plugin = new MarketplacePlugin
             {
                 Id = "log-analyzer",
-                Name = "日志分析插件",
+                Name = "日志分析",
                 Author = "赫菲斯托斯团队",
                 Category = "日志分析",
                 Version = "1.60",
@@ -160,7 +160,7 @@ public sealed class MarketplacePluginsPageTests
                 Manifest = new PluginManifest
                 {
                     Id = "log-analyzer",
-                    Name = "日志分析插件",
+                    Name = "日志分析",
                     Version = "1.50",
                     Type = PluginType.Exe,
                     Entry = "log_analyzer.exe"
