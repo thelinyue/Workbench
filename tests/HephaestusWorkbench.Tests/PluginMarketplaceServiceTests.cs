@@ -28,8 +28,10 @@ public sealed class PluginMarketplaceServiceTests
 
             await context.Service.RefreshAsync();
 
-            Assert.Equal(PluginMarketplaceService.CatalogUrl, context.Handler.LastRequestUri?.AbsoluteUri);
-            Assert.Contains("Hephaestus-Workbench-Plugins", context.Handler.LastRequestUri?.AbsoluteUri);
+            Assert.NotNull(context.Handler.LastRequestUri);
+            Assert.Equal(new Uri(PluginMarketplaceService.CatalogUrl).AbsolutePath, context.Handler.LastRequestUri!.AbsolutePath);
+            Assert.Contains("refresh=", context.Handler.LastRequestUri.Query);
+            Assert.Contains("Hephaestus-Workbench-Plugins", context.Handler.LastRequestUri.AbsoluteUri);
         });
     }
 

@@ -290,7 +290,12 @@ public sealed partial class PluginMarketplaceService
 
     private async Task<MarketplaceCatalog> DownloadCatalogAsync(CancellationToken cancellationToken)
     {
-        using var response = await _http.GetAsync(CatalogUrl, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
+        // GitHub Raw 前面存在 CDN；刷新目录时必须主动绕过旧响应，否则商店可能长期显示已发布前的版本。
+        var requestUri = new Uri($"{CatalogUrl}?refresh={Guid.NewGuid():N}");
+        using var request = new HttpRequestMessage(HttpMethod.Get, requestUri);
+        request.Headers.TryAddWithoutValidation("Cache-Control", "no-cache, no-store");
+        request.Headers.TryAddWithoutValidation("Pragma", "no-cache");
+        using var response = await _http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
         response.EnsureSuccessStatusCode();
         EnsureHttps(response.RequestMessage?.RequestUri);
         await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken);
