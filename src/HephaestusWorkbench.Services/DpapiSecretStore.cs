@@ -12,14 +12,14 @@ internal static class DpapiSecretStore
     [DllImport("crypt32.dll", CharSet = CharSet.Unicode, SetLastError = true)] private static extern bool CryptUnprotectData(ref DataBlob dataIn, out IntPtr description, IntPtr entropy, IntPtr reserved, IntPtr prompt, int flags, out DataBlob dataOut);
     [DllImport("kernel32.dll")] private static extern IntPtr LocalFree(IntPtr memory);
 
-    public static void ProtectToFile(string path, string secret)
+    public static void ProtectToFile(string path, string secret, string description = "Hephaestus Workbench protected secret")
     {
         var input = Encoding.UTF8.GetBytes(secret);
         var handle = GCHandle.Alloc(input, GCHandleType.Pinned);
         try
         {
             var source = new DataBlob { Size = input.Length, Data = handle.AddrOfPinnedObject() };
-            if (!CryptProtectData(ref source, "Hephaestus Workbench rule publisher token", IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, 0, out var output)) throw new Win32Exception(Marshal.GetLastWin32Error(), "DPAPI 保护令牌失败");
+            if (!CryptProtectData(ref source, description, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, 0, out var output)) throw new Win32Exception(Marshal.GetLastWin32Error(), "DPAPI 保护秘密失败");
             try
             {
                 var protectedBytes = new byte[output.Size]; Marshal.Copy(output.Data, protectedBytes, 0, protectedBytes.Length);

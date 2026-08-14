@@ -9,7 +9,7 @@ on:
       version:
         description: "要验证的版本号（不带 v）"
         required: true
-        default: "1.2.8"
+        default: "1.2.10"
         type: string
       publish:
         description: "同时发布到公开 Releases 仓库"
@@ -215,7 +215,7 @@ jobs:
         shell: pwsh
         run: |
           $version = "${{ steps.version.outputs.version }}"
-          $setupName = "Hephaestus工作台_v$version.exe"
+          $setupName = "HephaestusWorkbench_v$version.exe"
           $setup = Join-Path $PWD "installer\dist\$setupName"
           $checksums = Join-Path $PWD "installer\dist\SHA256SUMS.txt"
           if (-not (Test-Path -LiteralPath $setup -PathType Leaf) -or
