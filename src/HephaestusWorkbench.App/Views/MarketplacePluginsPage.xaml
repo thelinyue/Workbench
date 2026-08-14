@@ -1,6 +1,18 @@
 <UserControl x:Class="HephaestusWorkbench.App.Views.MarketplacePluginsPage"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <UserControl.Resources>
+        <Style x:Key="MoreMenuStyle" TargetType="Menu">
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="VerticalAlignment" Value="Center"/>
+        </Style>
+        <Style x:Key="MoreMenuItemStyle" TargetType="MenuItem">
+            <Setter Property="Foreground" Value="{DynamicResource WorkbenchTextBrush}"/>
+            <Setter Property="Background" Value="{DynamicResource WorkbenchSurfaceAltBrush}"/>
+            <Setter Property="FontFamily" Value="Segoe UI"/>
+            <Setter Property="Padding" Value="8,5"/>
+        </Style>
+    </UserControl.Resources>
     <Grid>
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />
@@ -12,14 +24,14 @@
             <Grid>
                 <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
                 <StackPanel>
-                    <TextBlock Text="应用商店" Style="{StaticResource SectionTitleStyle}" />
-                    <TextBlock Text="发现适用于工作台的插件与工具。" Style="{StaticResource MutedTextStyle}" />
+                    <TextBlock Text="应用中心" Style="{StaticResource SectionTitleStyle}" />
+                    <TextBlock Text="发现、安装和管理适用于工作台的应用。" Style="{StaticResource MutedTextStyle}" />
                     <TextBlock Text="{Binding Message}" Style="{StaticResource MutedTextStyle}" Margin="0,6,0,0" TextWrapping="Wrap" />
                     <TextBlock Text="{Binding CatalogStatusText}" Foreground="{Binding IsOffline, Converter={StaticResource StatusBrushConverter}}" Margin="0,3,0,0" />
                     <ProgressBar Value="{Binding ProgressValue, Mode=OneWay}" IsIndeterminate="{Binding IsProgressIndeterminate, Mode=OneWay}" Height="8" Margin="0,8,0,0" Visibility="{Binding IsBusy, Mode=OneWay, Converter={StaticResource BooleanToVisibilityConverter}}" />
                 </StackPanel>
                 <WrapPanel Grid.Column="1" VerticalAlignment="Center">
-                    <Button Content="工具与资源" Command="{Binding OpenToolsAndResourcesCommand}" />
+                    <Button Content="高级工具与资源" Command="{Binding OpenToolsAndResourcesCommand}" />
                     <Button Content="刷新目录" Style="{StaticResource PrimaryButtonStyle}" Command="{Binding RefreshCommand}" Margin="0" />
                 </WrapPanel>
             </Grid>
@@ -51,8 +63,7 @@
                             <ItemsControl.ItemsPanel><ItemsPanelTemplate><WrapPanel /></ItemsPanelTemplate></ItemsControl.ItemsPanel>
                             <ItemsControl.ItemTemplate>
                                 <DataTemplate>
-                                    <Border Style="{StaticResource CardStyle}" Width="330" Margin="0,0,8,8"
-                                            MouseLeftButtonUp="OnlineCard_MouseLeftButtonUp">
+                                    <Border Style="{StaticResource CardStyle}" Width="330" Margin="0,0,8,8">
                                         <Grid>
                                             <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
                                             <Grid>
@@ -71,6 +82,7 @@
                                             <TextBlock Grid.Row="1" Text="{Binding DescriptionText}" Style="{StaticResource MutedTextStyle}" TextWrapping="Wrap" MaxHeight="38" Margin="0,10,0,8" />
                                             <DockPanel Grid.Row="2">
                                                 <TextBlock Text="{Binding VersionText}" Style="{StaticResource MutedTextStyle}" VerticalAlignment="Center" />
+                                                <Button DockPanel.Dock="Right" Content="详情" Command="{Binding DataContext.SelectOnlinePluginCommand, RelativeSource={RelativeSource AncestorType=UserControl}}" CommandParameter="{Binding}" Margin="8,0,0,0" AutomationProperties.Name="查看插件详情" />
                                                 <Button DockPanel.Dock="Right" Content="{Binding ActionText}" IsEnabled="{Binding CanInstall}" Style="{StaticResource PrimaryButtonStyle}" Command="{Binding DataContext.InstallCommand, RelativeSource={RelativeSource AncestorType=UserControl}}" CommandParameter="{Binding}" Margin="8,0,0,0" />
                                             </DockPanel>
                                         </Grid>
@@ -103,9 +115,13 @@
                                                 <Button Content="使用规则编辑器" Visibility="{Binding IsRuleEditor, Converter={StaticResource BooleanToVisibilityConverter}}" Command="{Binding DataContext.UseRuleEditorCommand, RelativeSource={RelativeSource AncestorType=UserControl}}" CommandParameter="{Binding}" />
                                                 <Button Content="启动工具" Visibility="{Binding IsStandaloneTool, Converter={StaticResource BooleanToVisibilityConverter}}" Command="{Binding DataContext.LaunchToolCommand, RelativeSource={RelativeSource AncestorType=UserControl}}" CommandParameter="{Binding}" Style="{StaticResource PrimaryButtonStyle}" />
                                                 <Button Content="更新分析规则" Visibility="{Binding CanUpdateRules, Converter={StaticResource BooleanToVisibilityConverter}}" Command="{Binding DataContext.UpdateRulesCommand, RelativeSource={RelativeSource AncestorType=UserControl}}" Style="{StaticResource PrimaryButtonStyle}" />
-                                                <Button Content="设为默认" Visibility="{Binding CanSetDefault, Converter={StaticResource BooleanToVisibilityConverter}}" Command="{Binding DataContext.SetDefaultCommand, RelativeSource={RelativeSource AncestorType=UserControl}}" CommandParameter="{Binding}" />
-                                                <Button Content="{Binding ToggleText}" Command="{Binding DataContext.ToggleEnabledCommand, RelativeSource={RelativeSource AncestorType=UserControl}}" CommandParameter="{Binding}" />
-                                                <Button Content="卸载" IsEnabled="{Binding CanUninstall}" Command="{Binding DataContext.UninstallCommand, RelativeSource={RelativeSource AncestorType=UserControl}}" CommandParameter="{Binding}" Margin="0" />
+                                                <Menu Style="{StaticResource MoreMenuStyle}" ToolTip="更多插件操作" Margin="0">
+                                                    <MenuItem Header="更多" Style="{StaticResource MoreMenuItemStyle}">
+                                                        <MenuItem Header="设为默认" Visibility="{Binding CanSetDefault, Converter={StaticResource BooleanToVisibilityConverter}}" Command="{Binding DataContext.SetDefaultCommand, RelativeSource={RelativeSource AncestorType=UserControl}}" CommandParameter="{Binding}" />
+                                                        <MenuItem Header="{Binding ToggleText}" Command="{Binding DataContext.ToggleEnabledCommand, RelativeSource={RelativeSource AncestorType=UserControl}}" CommandParameter="{Binding}" />
+                                                        <MenuItem Header="卸载" IsEnabled="{Binding CanUninstall}" Command="{Binding DataContext.UninstallCommand, RelativeSource={RelativeSource AncestorType=UserControl}}" CommandParameter="{Binding}" Foreground="{DynamicResource WorkbenchDangerBrush}" />
+                                                    </MenuItem>
+                                                </Menu>
                                             </WrapPanel>
                                         </Grid>
                                     </Border>
@@ -146,7 +162,7 @@
 
         <Border Grid.Row="2" Background="{DynamicResource WorkbenchSurfaceBrush}" BorderBrush="{DynamicResource WorkbenchBorderBrush}" BorderThickness="1" Padding="14" HorizontalAlignment="Right" VerticalAlignment="Top" Width="340" Visibility="{Binding IsToolsAndResourcesOpen, Converter={StaticResource BooleanToVisibilityConverter}}">
             <StackPanel>
-                <DockPanel><Button DockPanel.Dock="Right" Content="关闭" Command="{Binding OpenToolsAndResourcesCommand}"/><TextBlock Text="规则与插件管理" Style="{StaticResource SectionTitleStyle}"/></DockPanel>
+                <DockPanel><Button DockPanel.Dock="Right" Content="关闭" Command="{Binding OpenToolsAndResourcesCommand}"/><TextBlock Text="规则与应用管理" Style="{StaticResource SectionTitleStyle}"/></DockPanel>
                 <Button Content="打开规则目录" Command="{Binding OpenRulesDirectoryCommand}" HorizontalAlignment="Stretch" Margin="0,12,0,0" />
                 <Button Content="添加本地规则" Command="{Binding ImportRuleCommand}" HorizontalAlignment="Stretch" />
                 <Button Content="上传规则" ToolTip="{Binding UploadRulesHint}" Command="{Binding UploadRuleCommand}" IsEnabled="{Binding CanUploadRules}" HorizontalAlignment="Stretch" />

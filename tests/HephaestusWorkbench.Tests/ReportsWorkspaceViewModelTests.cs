@@ -35,6 +35,11 @@ public sealed class ReportsWorkspaceViewModelTests
             await workspace.OpenReportAsync(first);
             await workspace.OpenReportAsync(first);
             Assert.Single(workspace.OpenTabs);
+            Assert.False(workspace.IsLibraryVisible);
+            workspace.ShowLibraryCommand.Execute(null);
+            Assert.True(workspace.IsLibraryVisible);
+            workspace.OpenTabCommand.Execute(workspace.OpenTabs[0]);
+            Assert.False(workspace.IsLibraryVisible);
             workspace.OpenSelectedExtractDirectoryCommand.Execute(null);
             Assert.Equal(new[] { first.ExtractPath }, openedExtractPaths);
 

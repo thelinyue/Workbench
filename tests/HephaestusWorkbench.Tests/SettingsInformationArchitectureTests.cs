@@ -24,7 +24,8 @@ public sealed class SettingsInformationArchitectureTests
         Assert.DoesNotContain(bindings, value => value.Contains("CleanupRetentionDays", StringComparison.Ordinal));
         Assert.DoesNotContain(bindings, value => value.Contains("GitHubDownloadMirror", StringComparison.Ordinal));
         Assert.Contains(document.Descendants(), element => (string?)element.Attribute("VerticalAlignment") == "Top");
-        Assert.Contains(document.Descendants(), element => (string?)element.Attribute("Text") == "界面与报告");
+        Assert.Contains(document.Descendants(), element => (string?)element.Attribute("Text") == "外观");
+        Assert.Contains(document.Descendants(), element => (string?)element.Attribute("Text") == "报告");
     }
 
     [Fact]

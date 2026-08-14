@@ -66,12 +66,12 @@ public sealed class ReportsViewModel : ViewModelBase, IDisposable
                 Message = "开始日期不能晚于结束日期。";
                 return;
             }
-            var items = await _reports.ListAsync(new ReportQuery(Keyword, DeviceId, SelectedPlugin?.Id, StartDate, EndDate), cancellationToken);
+            var items = await _reports.ListLibraryAsync(new ReportQuery(Keyword, DeviceId, SelectedPlugin?.Id, StartDate, EndDate), cancellationToken);
             Items.Clear();
             foreach (var item in items) Items.Add(item);
             if (PluginOptions.Count == 1 && SelectedPlugin is null)
             {
-                var all = await _reports.ListAsync(new ReportQuery(), cancellationToken);
+                var all = await _reports.ListLibraryAsync(new ReportQuery(), cancellationToken);
                 foreach (var plugin in all.Where(x => !string.IsNullOrWhiteSpace(x.PluginId)).GroupBy(x => x.PluginId).Select(x => x.First()))
                     PluginOptions.Add(new PluginFilterOption(plugin.PluginId, plugin.PluginName));
                 SelectedPlugin = PluginOptions[0];

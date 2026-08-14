@@ -25,11 +25,12 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
         {
             new("dashboard", "首页", "\uE80F"),
             new("analysis", "分析中心", "\uE896"),
-            new("plugins", "应用商店", "\uECAA"),
+            new("reports", "报告", "\uE8A5"),
+            new("plugins", "应用中心", "\uECAA"),
             new("settings", "设置", "\uE713")
         };
-        var reportWorkspace = new ReportsWorkspaceViewModel(reports, settings, OpenCase, OpenExtractDirectory, logger);
-        AnalysisCenter = new AnalysisCenterViewModel(inbox, analysis, reports, storage, settings, reportWorkspace, OpenExtractDirectory, logger);
+        ReportWorkspace = new ReportsWorkspaceViewModel(reports, settings, OpenCase, OpenExtractDirectory, logger);
+        AnalysisCenter = new AnalysisCenterViewModel(inbox, analysis, reports, storage, settings, ReportWorkspace, OpenExtractDirectory, logger);
         TaskPanel = new TaskPanelViewModel(analysis, OpenCase);
         OpenGlobalWarningCommand = new DelegateCommand(() => SelectNavigation("plugins"));
         Dashboard = new DashboardViewModel(
@@ -41,7 +42,8 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
             OpenSettings,
             OpenQuickReportAsync,
             OpenExtractDirectory,
-            logger);
+            logger,
+            () => TaskPanel.ToggleCommand.Execute(null));
         Settings = new SettingsViewModel(settings, inbox, () => AnalysisCenter.Reports.OpenTabCount, applyTheme);
         Plugins = new MarketplacePluginsViewModel(plugins, marketplace, settings, logger, rules, ruleDistribution, new HttpRulePublisher(Environment.GetEnvironmentVariable("HEPHAESTUS_RULE_PUBLISH_URL"), Environment.GetEnvironmentVariable("HEPHAESTUS_RULE_PUBLISH_TOKEN"), logger, protectedTokenPath: rules.RulePublisherTokenPath));
         _selectedNavigationItem = NavigationItems[0];
@@ -56,6 +58,8 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
     public ObservableCollection<NavigationItem> NavigationItems { get; }
     public DashboardViewModel Dashboard { get; }
     public AnalysisCenterViewModel AnalysisCenter { get; }
+    /// <summary>全局唯一的报告工作区，供顶层报告页和分析流程复用同一组报告标签。</summary>
+    public ReportsWorkspaceViewModel ReportWorkspace { get; }
     public TaskPanelViewModel TaskPanel { get; }
     public SettingsViewModel Settings { get; }
     public MarketplacePluginsViewModel Plugins { get; }
@@ -72,9 +76,15 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
         set
         {
             if (!SetProperty(ref _selectedNavigationItem, value) || value is null) return;
+            if (value.Key == "analysis" && !ReportWorkspace.IsLibraryVisible)
+            {
+                // 回到分析中心时恢复日志列表；已打开的报告标签继续保留在顶层报告工作区中。
+                ReportWorkspace.IsLibraryVisible = true;
+            }
             CurrentPage = value.Key switch
             {
                 "analysis" => AnalysisCenter,
+                "reports" => ReportWorkspace,
                 "plugins" => Plugins,
                 "settings" => Settings,
                 _ => Dashboard
@@ -93,8 +103,10 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
         }
     }
     public string PageTitle => SelectedNavigationItem?.Title ?? "Hephaestus工作台";
-    public string PageContext => SelectedNavigationItem?.Key == "analysis" && !AnalysisCenter.Reports.IsLibraryVisible && AnalysisCenter.Reports.SelectedTab is not null
-        ? $"· {AnalysisCenter.Reports.SelectedTab.Title}"
+    public string PageContext => (SelectedNavigationItem?.Key is "analysis" or "reports")
+        && !ReportWorkspace.IsLibraryVisible
+        && ReportWorkspace.SelectedTab is not null
+        ? $"· {ReportWorkspace.SelectedTab.Title}"
         : string.Empty;
 
     public async Task InitializeAsync()
@@ -107,7 +119,7 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
     private async Task<bool> OpenQuickReportAsync(string caseId)
     {
         var opened = await AnalysisCenter.OpenCaseReportAsync(caseId);
-        if (opened) SelectedNavigationItem = NavigationItems.First(x => x.Key == "analysis");
+        if (opened) SelectNavigation("reports");
         return opened;
     }
 
@@ -132,8 +144,18 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
     private void OnPluginStateChanged(object? sender, EventArgs e) => RunOnUi(() => _ = RefreshGlobalWarningAsync());
     private void OnReportWorkspacePropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
     {
-        if (e.PropertyName is nameof(ReportsWorkspaceViewModel.SelectedTab) or nameof(ReportsWorkspaceViewModel.IsLibraryVisible))
-            RunOnUi(() => OnPropertyChanged(nameof(PageContext)));
+        if (e.PropertyName is not (nameof(ReportsWorkspaceViewModel.SelectedTab) or nameof(ReportsWorkspaceViewModel.IsLibraryVisible))) return;
+        RunOnUi(() =>
+        {
+            OnPropertyChanged(nameof(PageContext));
+            if (e.PropertyName == nameof(ReportsWorkspaceViewModel.SelectedTab)
+                && ReportWorkspace.SelectedTab is not null
+                && SelectedNavigationItem?.Key != "reports")
+            {
+                // 分析中心、首页或任务面板打开报告后，统一切换到报告工作区，避免报告查看器被隐藏在旧页面中。
+                SelectNavigation("reports");
+            }
+        });
     }
 
     private async Task RefreshGlobalWarningAsync()

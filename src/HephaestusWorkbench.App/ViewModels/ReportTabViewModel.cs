@@ -7,6 +7,7 @@ public sealed class ReportTabViewModel : ViewModelBase
 {
     private double _scrollPosition;
     private string _loadError = string.Empty;
+    private bool _isActive;
 
     public ReportTabViewModel(ReportSummary report, string? sessionId = null)
     {
@@ -23,6 +24,7 @@ public sealed class ReportTabViewModel : ViewModelBase
     public string ReportFile => Report.ReportFile;
     public DateTime LastOpenTime { get; set; }
     public bool IsAvailable => Report.IsAvailable;
+    public bool IsActive { get => _isActive; internal set => SetProperty(ref _isActive, value); }
     public string LoadError { get => _loadError; set => SetProperty(ref _loadError, value); }
     public double ScrollPosition
     {

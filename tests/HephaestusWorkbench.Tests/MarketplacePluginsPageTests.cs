@@ -52,7 +52,7 @@ public sealed class MarketplacePluginsPageTests
 
         var updateButton = Assert.Single(buttons, button => (string?)button.Attribute("Content") == "更新分析规则");
         Assert.Contains("UpdateRulesCommand", updateButton.Attribute("Command")?.Value);
-        Assert.Contains(document.Descendants(presentation + "TextBlock"), textBlock => (string?)textBlock.Attribute("Text") == "规则与插件管理");
+        Assert.Contains(document.Descendants(presentation + "TextBlock"), textBlock => (string?)textBlock.Attribute("Text") == "规则与应用管理");
         Assert.DoesNotContain(buttons, button => (string?)button.Attribute("Content") == "检查规则更新");
         Assert.DoesNotContain(buttons, button => (string?)button.Attribute("Content") == "更新主规则");
     }
@@ -97,7 +97,7 @@ public sealed class MarketplacePluginsPageTests
     }
 
     [Fact]
-    public void CriticalPages_RenderWithoutBindingRegressionAndKeepAnalysisViewsExclusive()
+    public void CriticalPages_RenderWithoutBindingRegressionAndKeepAnalysisWorkspaceStable()
     {
         Exception? failure = null;
         var thread = new Thread(() =>
@@ -125,15 +125,13 @@ public sealed class MarketplacePluginsPageTests
                 analysisPage.UpdateLayout();
 
                 var analysisList = Assert.IsAssignableFrom<FrameworkElement>(analysisPage.FindName("AnalysisListHost"));
-                var reportWorkspace = Assert.IsAssignableFrom<FrameworkElement>(analysisPage.FindName("ReportWorkspaceHost"));
-                // 复现生产截图中的覆盖问题：列表与报告工作区必须始终严格互斥。
+                // 报告查看器已提升到主窗口的顶层报告页，分析中心不再创建第二个宿主。
+                Assert.Null(analysisPage.FindName("ReportWorkspaceHost"));
                 Assert.Equal(Visibility.Visible, analysisList.Visibility);
-                Assert.Equal(Visibility.Collapsed, reportWorkspace.Visibility);
 
                 analysisData.Reports.IsLibraryVisible = false;
                 analysisPage.UpdateLayout();
                 Assert.Equal(Visibility.Collapsed, analysisList.Visibility);
-                Assert.Equal(Visibility.Visible, reportWorkspace.Visibility);
             }
             catch (Exception ex)
             {

@@ -8,7 +8,7 @@ using HephaestusWorkbench.Services;
 namespace HephaestusWorkbench.App.ViewModels;
 
 /// <summary>
-/// 插件中心模型，展示本地已发现插件、扫描问题和开发入口。
+/// 应用中心模型，展示本地已发现插件、扫描问题和开发入口。
 /// 当前版本不负责在线安装或升级，所有插件文件仍由用户复制到工作台插件目录。
 /// </summary>
 public sealed class PluginsViewModel : ViewModelBase
@@ -72,7 +72,7 @@ public sealed class PluginsViewModel : ViewModelBase
             Message = $"扫描插件失败：{ex.Message}";
             Issues.Clear();
             Issues.Add(Message);
-            _logger.Error("插件中心扫描失败", ex);
+            _logger.Error("应用中心扫描失败", ex);
         }
         finally
         {

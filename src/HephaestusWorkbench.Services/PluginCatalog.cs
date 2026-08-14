@@ -7,7 +7,7 @@ namespace HephaestusWorkbench.Services;
 
 /// <summary>
 /// 本地插件目录，负责发现并校验用户数据目录中的 manifest.json。
-/// 插件中心和分析服务共用此目录，避免 UI 自己拼接插件路径或重复实现扫描逻辑。
+/// 应用中心和分析服务共用此目录，避免 UI 自己拼接插件路径或重复实现扫描逻辑。
 /// </summary>
 public sealed class PluginCatalog : IPluginCatalog
 {

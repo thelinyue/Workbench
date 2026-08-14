@@ -6,7 +6,7 @@
             <Grid>
                 <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
                 <StackPanel>
-                    <TextBlock Text="插件中心" Style="{StaticResource SectionTitleStyle}"/>
+                    <TextBlock Text="应用中心" Style="{StaticResource SectionTitleStyle}"/>
                     <TextBlock Text="管理本地分析插件，查看插件状态和开发入口。" Style="{StaticResource MutedTextStyle}"/>
                     <TextBlock Text="{Binding Message}" Style="{StaticResource MutedTextStyle}" Margin="0,6,0,0"/>
                 </StackPanel>

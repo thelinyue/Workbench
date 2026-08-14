@@ -1,108 +1,236 @@
 <UserControl x:Class="HephaestusWorkbench.App.Views.DashboardPage"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
-    <ScrollViewer VerticalScrollBarVisibility="Auto">
+    <UserControl.Resources>
+        <Style x:Key="MoreMenuStyle" TargetType="Menu">
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="VerticalAlignment" Value="Center"/>
+        </Style>
+    </UserControl.Resources>
+
+    <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
         <StackPanel>
-            <Border Style="{StaticResource CardStyle}" Margin="0,0,0,10" Visibility="{Binding ShowFirstUseGuide, Converter={StaticResource BooleanToVisibilityConverter}}">
+            <Border Style="{StaticResource CommandStripStyle}"
+                    Margin="0,0,0,12"
+                    Visibility="{Binding ShowFirstUseGuide, Converter={StaticResource BooleanToVisibilityConverter}}">
                 <DockPanel>
-                    <Button DockPanel.Dock="Right" Content="前往设置" Command="{Binding OpenSettingsCommand}"/>
+                    <Button DockPanel.Dock="Right" Content="前往设置" Command="{Binding OpenSettingsCommand}" Margin="12,0,0,0"/>
                     <StackPanel>
                         <TextBlock Text="首次使用" FontWeight="SemiBold"/>
-                        <TextBlock Text="可直接在首页选择或拖入 .tgz 日志；监控目录中的日志也会自动出现在最近列表。" Style="{StaticResource MutedTextStyle}" Margin="0,5,0,0"/>
+                        <TextBlock Text="设置监控目录后，日志会自动进入工作台；也可以直接拖入一个 .tgz 文件开始分析。" Style="{StaticResource MutedTextStyle}" Margin="0,4,0,0" TextWrapping="Wrap"/>
                     </StackPanel>
                 </DockPanel>
             </Border>
 
-            <UniformGrid Columns="3" Margin="0,0,0,10">
-                <Border Style="{StaticResource CardStyle}" Margin="0,0,7,0"><StackPanel><TextBlock Text="案例数量" Style="{StaticResource MutedTextStyle}"/><TextBlock Text="{Binding CaseCount}" FontSize="26" FontWeight="SemiBold" Margin="0,7,0,0"/></StackPanel></Border>
-                <Border Style="{StaticResource CardStyle}" Margin="0,0,7,0"><StackPanel><TextBlock Text="数据占用" Style="{StaticResource MutedTextStyle}"/><TextBlock Text="{Binding UsedSpace}" FontSize="26" FontWeight="SemiBold" Margin="0,7,0,0"/></StackPanel></Border>
-                <Border Style="{StaticResource CardStyle}"><StackPanel><TextBlock Text="可释放" Style="{StaticResource MutedTextStyle}"/><TextBlock Text="{Binding ReleasableSpace}" FontSize="26" FontWeight="SemiBold" Margin="0,7,0,0" Foreground="{DynamicResource WorkbenchWarningBrush}"/></StackPanel></Border>
-            </UniformGrid>
+            <Grid x:Name="DashboardWorkspace" Margin="0,0,0,12">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="2.1*"/>
+                    <ColumnDefinition Width="1*" MinWidth="250"/>
+                </Grid.ColumnDefinitions>
 
-            <Border Style="{StaticResource CardStyle}" Margin="0,0,0,10">
-                <StackPanel>
-                    <TextBlock Text="快速分析日志" Style="{StaticResource SectionTitleStyle}"/>
-                    <Border Background="{DynamicResource WorkbenchSurfaceAltBrush}"
-                            BorderBrush="{DynamicResource WorkbenchBorderBrush}"
-                            BorderThickness="1"
-                            CornerRadius="3"
-                            Padding="14"
-                            AllowDrop="True"
-                            DragOver="OnQuickDragOver"
-                            Drop="OnQuickDrop">
-                        <DockPanel>
-                            <Button DockPanel.Dock="Right"
-                                    Content="选择日志并分析"
-                                    Style="{StaticResource PrimaryButtonStyle}"
-                                    IsEnabled="{Binding CanStartQuickAnalysis}"
-                                    Click="OnSelectLogClick"
-                                    Margin="12,0,0,0"/>
+                <Border Style="{StaticResource WorkspacePanelStyle}" Margin="0,0,12,0">
+                    <Grid>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="*"/>
+                        </Grid.RowDefinitions>
+                        <DockPanel Margin="0,0,0,14">
+                            <TextBlock DockPanel.Dock="Right" Text="PRIMARY ACTION" Style="{StaticResource MutedTextStyle}" VerticalAlignment="Center"/>
                             <StackPanel>
-                                <TextBlock Text="将一个 .tgz 日志拖到这里" FontWeight="SemiBold"/>
-                                <TextBlock Text="也可以选择监控目录外的日志；分析成功后会自动打开报告。" Style="{StaticResource MutedTextStyle}" Margin="0,4,0,0"/>
+                                <TextBlock Text="快速分析日志" Style="{StaticResource SectionTitleStyle}" Margin="0"/>
+                                <TextBlock Text="从一个原始压缩包直接进入报告工作流" Style="{StaticResource MutedTextStyle}" Margin="0,4,0,0"/>
                             </StackPanel>
                         </DockPanel>
-                    </Border>
-                    <TextBlock Text="注意：工作台会原地接管所选日志；以后清理或删除案例时会删除原日志及其同名解压目录。"
-                               Foreground="{DynamicResource WorkbenchWarningBrush}" FontSize="12" TextWrapping="Wrap" Margin="0,8,0,0"/>
-                    <StackPanel Visibility="{Binding HasQuickStatus, Converter={StaticResource BooleanToVisibilityConverter}}" Margin="0,8,0,0">
-                        <TextBlock Text="{Binding QuickStatusMessage}" Foreground="{DynamicResource WorkbenchDangerBrush}" TextWrapping="Wrap" Visibility="{Binding QuickStatusIsError, Converter={StaticResource BooleanToVisibilityConverter}}"/>
-                        <TextBlock Text="{Binding QuickStatusMessage}" Foreground="{DynamicResource WorkbenchPrimaryBrush}" TextWrapping="Wrap" Visibility="{Binding QuickStatusIsError, Converter={StaticResource InverseBooleanToVisibilityConverter}}"/>
-                        <TextBlock Text="{Binding QuickSourcePath}" Style="{StaticResource MutedTextStyle}" TextWrapping="Wrap" Margin="0,3,0,0" Visibility="{Binding HasQuickSourcePath, Converter={StaticResource BooleanToVisibilityConverter}}"/>
-                    </StackPanel>
-                </StackPanel>
-            </Border>
-
-            <Border Style="{StaticResource CardStyle}" Margin="0,0,0,10">
-                <StackPanel>
-                    <DockPanel Margin="0,0,0,6">
-                        <Button DockPanel.Dock="Right" Content="查看全部日志" Command="{Binding OpenInboxCommand}" Margin="8,0,0,0"/>
-                        <StackPanel>
-                            <TextBlock Text="最近日志" Style="{StaticResource SectionTitleStyle}" Margin="0"/>
-                            <TextBlock Text="监控目录中最近 5 个可分析日志" Style="{StaticResource MutedTextStyle}" Margin="0,4,0,0"/>
+                        <Border Grid.Row="1"
+                                Style="{StaticResource CommandStripStyle}"
+                                AllowDrop="True"
+                                DragOver="OnQuickDragOver"
+                                Drop="OnQuickDrop">
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto"/>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+                                <TextBlock Text="&#xE898;" FontFamily="Segoe Fluent Icons" FontSize="24" Foreground="{DynamicResource WorkbenchPrimaryBrush}" VerticalAlignment="Center" Margin="0,0,14,0"/>
+                                <StackPanel Grid.Column="1" VerticalAlignment="Center">
+                                    <TextBlock Text="将 .tgz 日志拖到这里" FontWeight="SemiBold"/>
+                                    <TextBlock Text="也可以选择监控目录外的日志；分析成功后会自动打开报告。" Style="{StaticResource MutedTextStyle}" Margin="0,4,0,0" TextWrapping="Wrap"/>
+                                </StackPanel>
+                                <Button Grid.Column="2"
+                                        Content="选择日志并分析"
+                                        Style="{StaticResource PrimaryButtonStyle}"
+                                        IsEnabled="{Binding CanStartQuickAnalysis}"
+                                        Click="OnSelectLogClick"
+                                        Margin="14,0,0,0"/>
+                            </Grid>
+                        </Border>
+                        <Border Grid.Row="2"
+                                Background="{DynamicResource WorkbenchDangerSurfaceBrush}"
+                                BorderBrush="{DynamicResource WorkbenchWarningBrush}"
+                                BorderThickness="1"
+                                Padding="10,8"
+                                Margin="0,12,0,0">
+                            <TextBlock Text="工作台会原地接管所选日志；清理或删除案例时会删除原日志及其同名解压目录。"
+                                       Foreground="{DynamicResource WorkbenchWarningBrush}"
+                                       FontSize="12"
+                                       TextWrapping="Wrap"/>
+                        </Border>
+                        <StackPanel Grid.Row="3"
+                                    Visibility="{Binding HasQuickStatus, Converter={StaticResource BooleanToVisibilityConverter}}"
+                                    Margin="0,12,0,0">
+                            <TextBlock Text="{Binding QuickStatusMessage}"
+                                       Foreground="{DynamicResource WorkbenchDangerBrush}"
+                                       TextWrapping="Wrap"
+                                       Visibility="{Binding QuickStatusIsError, Converter={StaticResource BooleanToVisibilityConverter}}"/>
+                            <TextBlock Text="{Binding QuickStatusMessage}"
+                                       Foreground="{DynamicResource WorkbenchPrimaryBrush}"
+                                       TextWrapping="Wrap"
+                                       Visibility="{Binding QuickStatusIsError, Converter={StaticResource InverseBooleanToVisibilityConverter}}"/>
+                            <TextBlock Text="{Binding QuickSourcePath}"
+                                       Style="{StaticResource MutedTextStyle}"
+                                       TextWrapping="Wrap"
+                                       Margin="0,4,0,0"
+                                       Visibility="{Binding HasQuickSourcePath, Converter={StaticResource BooleanToVisibilityConverter}}"/>
                         </StackPanel>
-                    </DockPanel>
-                    <ItemsControl ItemsSource="{Binding RecentLogs}">
-                        <ItemsControl.ItemTemplate>
-                            <DataTemplate>
-                                <Border BorderBrush="{DynamicResource WorkbenchBorderBrush}" BorderThickness="0,0,0,1" Padding="0,8">
-                                    <Grid>
-                                        <Grid.ColumnDefinitions>
-                                            <ColumnDefinition Width="*"/>
-                                            <ColumnDefinition Width="150"/>
-                                            <ColumnDefinition Width="135"/>
-                                            <ColumnDefinition Width="72"/>
-                                            <ColumnDefinition Width="Auto"/>
-                                        </Grid.ColumnDefinitions>
-                                        <StackPanel>
-                                            <TextBlock Text="{Binding FileName}" FontWeight="SemiBold"/>
-                                            <TextBlock Text="{Binding DetailMessage}" Foreground="{DynamicResource WorkbenchDangerBrush}" FontSize="12" TextWrapping="Wrap" Margin="0,3,8,0" Visibility="{Binding HasDetailMessage, Converter={StaticResource BooleanToVisibilityConverter}}"/>
-                                        </StackPanel>
-                                        <StackPanel Grid.Column="1" Margin="16,0,0,0"><TextBlock Text="设备" Style="{StaticResource MutedTextStyle}"/><TextBlock Text="{Binding DeviceId}" Margin="0,3,0,0"/></StackPanel>
-                                        <StackPanel Grid.Column="2" Margin="16,0,0,0"><TextBlock Text="日志时间" Style="{StaticResource MutedTextStyle}"/><TextBlock Text="{Binding LogTime, StringFormat={}{0:MM-dd HH:mm}}" Margin="0,3,0,0"/><TextBlock Text="{Binding FileSizeText}" Style="{StaticResource MutedTextStyle}" Margin="0,2,0,0"/></StackPanel>
-                                        <Border Grid.Column="3" Background="{Binding State, Converter={StaticResource StatusBrushConverter}}" CornerRadius="10" Padding="8,3" HorizontalAlignment="Left" VerticalAlignment="Center"><TextBlock Text="{Binding StatusText}" FontSize="12"/></Border>
-                                        <WrapPanel Grid.Column="4" VerticalAlignment="Center" Margin="8,0,0,0">
-                                            <Button Content="{Binding ActionText}" Command="{Binding PrimaryCommand}" Style="{StaticResource PrimaryButtonStyle}" MinWidth="84" Margin="0"/>
-                                            <Button Content="解压目录" Command="{Binding OpenExtractDirectoryCommand}" Margin="6,0,0,0" Visibility="{Binding HasExtractDirectory, Converter={StaticResource BooleanToVisibilityConverter}}"/>
-                                        </WrapPanel>
-                                    </Grid>
-                                </Border>
-                            </DataTemplate>
-                        </ItemsControl.ItemTemplate>
-                    </ItemsControl>
-                    <TextBlock Text="当前监控目录没有可分析日志" Style="{StaticResource MutedTextStyle}" HorizontalAlignment="Center" Margin="0,18" Visibility="{Binding ShowNoRecentLogs, Converter={StaticResource BooleanToVisibilityConverter}}"/>
-                    <DockPanel Margin="0,8,0,0" Visibility="{Binding HasInvalidInboxItems, Converter={StaticResource BooleanToVisibilityConverter}}">
-                        <Button DockPanel.Dock="Right" Content="查看异常日志" Command="{Binding OpenInboxCommand}" Margin="8,0,0,0"/>
-                        <TextBlock Text="{Binding InvalidInboxCount, StringFormat=发现 {0} 个命名不合规、损坏或无法读取的日志。}" Foreground="{DynamicResource WorkbenchWarningBrush}" VerticalAlignment="Center"/>
-                    </DockPanel>
-                </StackPanel>
-            </Border>
+                    </Grid>
+                </Border>
 
-            <Grid>
-                <Grid.ColumnDefinitions><ColumnDefinition Width="3*"/><ColumnDefinition Width="2*"/></Grid.ColumnDefinitions>
-                <Border Style="{StaticResource CardStyle}" Margin="0,0,7,0"><StackPanel><TextBlock Text="最近案例" Style="{StaticResource SectionTitleStyle}"/><ItemsControl ItemsSource="{Binding RecentCases}"><ItemsControl.ItemTemplate><DataTemplate><Border BorderBrush="{DynamicResource WorkbenchBorderBrush}" BorderThickness="0,0,0,1" Padding="0,8"><Grid><Grid.ColumnDefinitions><ColumnDefinition Width="2*"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions><StackPanel><TextBlock Text="{Binding DisplayName}" FontWeight="SemiBold"/><TextBlock Text="{Binding DeviceId}" Style="{StaticResource MutedTextStyle}" Margin="0,3,0,0"/></StackPanel><TextBlock Grid.Column="1" Text="{Binding UpdateTime, StringFormat={}{0:MM-dd HH:mm}}" Style="{StaticResource MutedTextStyle}" VerticalAlignment="Center"/><Border Grid.Column="2" Background="{Binding Status, Converter={StaticResource StatusBrushConverter}}" CornerRadius="10" Padding="8,3"><TextBlock Text="{Binding Status, Converter={StaticResource StatusTextConverter}}" FontSize="12"/></Border></Grid></Border></DataTemplate></ItemsControl.ItemTemplate></ItemsControl><TextBlock Text="暂无分析案例" Style="{StaticResource MutedTextStyle}" HorizontalAlignment="Center" Margin="0,18" Visibility="{Binding ShowNoCases, Converter={StaticResource BooleanToVisibilityConverter}}"/></StackPanel></Border>
-                <Border Grid.Column="1" Style="{StaticResource CardStyle}"><StackPanel><TextBlock Text="运行任务" Style="{StaticResource SectionTitleStyle}"/><ItemsControl ItemsSource="{Binding CurrentTasks}"><ItemsControl.ItemTemplate><DataTemplate><Border BorderBrush="{DynamicResource WorkbenchBorderBrush}" BorderThickness="0,0,0,1" Padding="0,8"><StackPanel><TextBlock Text="{Binding CaseId}"/><Border Background="{Binding Status, Converter={StaticResource StatusBrushConverter}}" CornerRadius="10" Padding="8,3" HorizontalAlignment="Left" Margin="0,5,0,0"><TextBlock Text="{Binding Status, Converter={StaticResource StatusTextConverter}}" FontSize="12"/></Border></StackPanel></Border></DataTemplate></ItemsControl.ItemTemplate></ItemsControl><TextBlock Text="当前没有运行中的任务" Style="{StaticResource MutedTextStyle}" HorizontalAlignment="Center" Margin="0,18" Visibility="{Binding ShowNoTasks, Converter={StaticResource BooleanToVisibilityConverter}}"/></StackPanel></Border>
+                <Border Grid.Column="1" Style="{StaticResource WorkspacePanelStyle}">
+                    <StackPanel>
+                        <DockPanel Margin="0,0,0,12">
+                            <Button DockPanel.Dock="Right" Content="查看任务" Command="{Binding OpenTaskPanelCommand}" Margin="8,0,0,0"/>
+                            <StackPanel>
+                                <TextBlock Text="运行任务" Style="{StaticResource SectionTitleStyle}" Margin="0"/>
+                                <TextBlock Text="后台分析实时状态" Style="{StaticResource MutedTextStyle}" Margin="0,4,0,0"/>
+                            </StackPanel>
+                        </DockPanel>
+                        <ItemsControl ItemsSource="{Binding CurrentTasks}">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <Border BorderBrush="{DynamicResource WorkbenchBorderBrush}" BorderThickness="0,0,0,1" Padding="0,10">
+                                        <Grid>
+                                            <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                                            <TextBlock Text="{Binding CaseId}" ToolTip="{Binding CaseId}" TextTrimming="CharacterEllipsis" VerticalAlignment="Center"/>
+                                            <Border Grid.Column="1" Background="{Binding Status, Converter={StaticResource StatusBrushConverter}}" CornerRadius="10" Padding="8,3" VerticalAlignment="Center">
+                                                <TextBlock Text="{Binding Status, Converter={StaticResource StatusTextConverter}}" FontSize="12"/>
+                                            </Border>
+                                        </Grid>
+                                    </Border>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                        <TextBlock Text="当前没有运行中的任务" Style="{StaticResource MutedTextStyle}" HorizontalAlignment="Center" Margin="0,18" Visibility="{Binding ShowNoTasks, Converter={StaticResource BooleanToVisibilityConverter}}"/>
+                    </StackPanel>
+                </Border>
             </Grid>
+
+            <Grid x:Name="DashboardDataWorkspace" Margin="0,0,0,12">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="1.7*"/>
+                    <ColumnDefinition Width="1*" MinWidth="260"/>
+                </Grid.ColumnDefinitions>
+
+                <Border Style="{StaticResource WorkspacePanelStyle}" Margin="0,0,12,0">
+                    <StackPanel>
+                        <DockPanel Margin="0,0,0,10">
+                            <Button DockPanel.Dock="Right" Content="查看全部日志" Command="{Binding OpenInboxCommand}" Margin="8,0,0,0"/>
+                            <StackPanel>
+                                <TextBlock Text="最近日志" Style="{StaticResource SectionTitleStyle}" Margin="0"/>
+                                <TextBlock Text="监控目录中最近 5 个可分析日志" Style="{StaticResource MutedTextStyle}" Margin="0,4,0,0"/>
+                            </StackPanel>
+                        </DockPanel>
+                        <Grid Margin="0,0,0,2">
+                            <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="125"/><ColumnDefinition Width="110"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                            <TextBlock Text="日志" Style="{StaticResource TableHeaderStyle}"/>
+                            <TextBlock Grid.Column="1" Text="设备" Style="{StaticResource TableHeaderStyle}"/>
+                            <TextBlock Grid.Column="2" Text="时间" Style="{StaticResource TableHeaderStyle}"/>
+                            <TextBlock Grid.Column="3" Text="状态 / 操作" Style="{StaticResource TableHeaderStyle}"/>
+                        </Grid>
+                        <ItemsControl ItemsSource="{Binding RecentLogs}">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <Border BorderBrush="{DynamicResource WorkbenchBorderBrush}" BorderThickness="0,1,0,0" Padding="0,9">
+                                        <Grid>
+                                            <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="125"/><ColumnDefinition Width="110"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                                            <StackPanel Margin="0,0,10,0">
+                                                <TextBlock Text="{Binding FileName}" FontWeight="SemiBold" ToolTip="{Binding FileName}"/>
+                                                <TextBlock Text="{Binding DetailMessage}" Foreground="{DynamicResource WorkbenchDangerBrush}" FontSize="12" TextWrapping="Wrap" Margin="0,3,8,0" Visibility="{Binding HasDetailMessage, Converter={StaticResource BooleanToVisibilityConverter}}"/>
+                                            </StackPanel>
+                                            <TextBlock Grid.Column="1" Text="{Binding DeviceId}" VerticalAlignment="Center" ToolTip="{Binding DeviceId}" TextTrimming="CharacterEllipsis"/>
+                                            <StackPanel Grid.Column="2" VerticalAlignment="Center">
+                                                <TextBlock Text="{Binding LogTime, StringFormat={}{0:MM-dd HH:mm}}"/>
+                                                <TextBlock Text="{Binding FileSizeText}" Style="{StaticResource MutedTextStyle}" Margin="0,3,0,0"/>
+                                            </StackPanel>
+                                            <WrapPanel Grid.Column="3" VerticalAlignment="Center" Margin="8,0,0,0">
+                                                <Border Background="{Binding State, Converter={StaticResource StatusBrushConverter}}" CornerRadius="10" Padding="8,3" VerticalAlignment="Center">
+                                                    <TextBlock Text="{Binding StatusText}" FontSize="12"/>
+                                                </Border>
+                                                <Button Content="{Binding ActionText}" Command="{Binding PrimaryCommand}" Style="{StaticResource PrimaryButtonStyle}" MinWidth="84" Margin="8,0,0,0"/>
+                                                <Menu Style="{StaticResource MoreMenuStyle}" ToolTip="更多操作" Margin="4,0,0,0">
+                                                    <MenuItem Header="更多">
+                                                        <MenuItem Header="打开解压目录" Command="{Binding OpenExtractDirectoryCommand}" IsEnabled="{Binding HasExtractDirectory}"/>
+                                                    </MenuItem>
+                                                </Menu>
+                                            </WrapPanel>
+                                        </Grid>
+                                    </Border>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                        <TextBlock Text="当前监控目录没有可分析日志" Style="{StaticResource MutedTextStyle}" HorizontalAlignment="Center" Margin="0,18" Visibility="{Binding ShowNoRecentLogs, Converter={StaticResource BooleanToVisibilityConverter}}"/>
+                        <DockPanel Margin="0,10,0,0" Visibility="{Binding HasInvalidInboxItems, Converter={StaticResource BooleanToVisibilityConverter}}">
+                            <Button DockPanel.Dock="Right" Content="查看异常日志" Command="{Binding OpenInboxCommand}" Margin="8,0,0,0"/>
+                            <TextBlock Text="{Binding InvalidInboxCount, StringFormat=发现 {0} 个命名不合规、损坏或无法读取的日志。}" Foreground="{DynamicResource WorkbenchWarningBrush}" VerticalAlignment="Center" TextWrapping="Wrap"/>
+                        </DockPanel>
+                    </StackPanel>
+                </Border>
+
+                <Border Grid.Column="1" Style="{StaticResource WorkspacePanelStyle}">
+                    <StackPanel>
+                        <DockPanel Margin="0,0,0,10">
+                            <Button DockPanel.Dock="Right" Content="查看全部案例" Command="{Binding OpenCasesCommand}" Margin="8,0,0,0"/>
+                            <StackPanel>
+                                <TextBlock Text="最近案例" Style="{StaticResource SectionTitleStyle}" Margin="0"/>
+                                <TextBlock Text="最近完成或更新的分析" Style="{StaticResource MutedTextStyle}" Margin="0,4,0,0"/>
+                            </StackPanel>
+                        </DockPanel>
+                        <ItemsControl ItemsSource="{Binding RecentCases}">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <Border BorderBrush="{DynamicResource WorkbenchBorderBrush}" BorderThickness="0,1,0,0" Padding="0,9">
+                                        <Grid>
+                                            <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                                            <StackPanel>
+                                                <TextBlock Text="{Binding DisplayName}" FontWeight="SemiBold" ToolTip="{Binding DisplayName}"/>
+                                                <TextBlock Text="{Binding DeviceId}" Style="{StaticResource MutedTextStyle}" Margin="0,3,0,0"/>
+                                            </StackPanel>
+                                            <Border Grid.Column="1" Background="{Binding Status, Converter={StaticResource StatusBrushConverter}}" CornerRadius="10" Padding="8,3" Margin="12,0" VerticalAlignment="Center">
+                                                <TextBlock Text="{Binding Status, Converter={StaticResource StatusTextConverter}}" FontSize="12"/>
+                                            </Border>
+                                            <Button Grid.Column="2" Content="打开" Command="{Binding DataContext.OpenCaseCommand, RelativeSource={RelativeSource AncestorType=ItemsControl}}" CommandParameter="{Binding}" VerticalAlignment="Center" Margin="0"/>
+                                        </Grid>
+                                    </Border>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                        <TextBlock Text="暂无分析案例" Style="{StaticResource MutedTextStyle}" HorizontalAlignment="Center" Margin="0,18" Visibility="{Binding ShowNoCases, Converter={StaticResource BooleanToVisibilityConverter}}"/>
+                    </StackPanel>
+                </Border>
+            </Grid>
+
+            <Border x:Name="DashboardMetricsStrip" Style="{StaticResource MetricStripStyle}" Margin="0,0,0,4">
+                <Grid>
+                    <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                    <StackPanel><TextBlock Text="案例数量" Style="{StaticResource MutedTextStyle}"/><TextBlock Text="{Binding CaseCount}" Style="{StaticResource MetricValueStyle}"/></StackPanel>
+                    <Border Grid.Column="1" Width="1" Background="{DynamicResource WorkbenchBorderBrush}" Margin="14,0"/>
+                    <StackPanel Grid.Column="2"><TextBlock Text="数据占用" Style="{StaticResource MutedTextStyle}"/><TextBlock Text="{Binding UsedSpace}" Style="{StaticResource MetricValueStyle}"/></StackPanel>
+                    <Border Grid.Column="3" Width="1" Background="{DynamicResource WorkbenchBorderBrush}" Margin="14,0"/>
+                    <StackPanel Grid.Column="4"><TextBlock Text="可释放" Style="{StaticResource MutedTextStyle}"/><TextBlock Text="{Binding ReleasableSpace}" Style="{StaticResource MetricValueStyle}" Foreground="{DynamicResource WorkbenchWarningBrush}"/></StackPanel>
+                </Grid>
+            </Border>
         </StackPanel>
     </ScrollViewer>
 </UserControl>

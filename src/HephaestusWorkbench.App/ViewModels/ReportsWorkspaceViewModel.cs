@@ -36,7 +36,7 @@ public sealed class ReportsWorkspaceViewModel : ViewModelBase, IDisposable
         // 报告页仍以工作区作为根 DataContext，Library 是实际承载查询、筛选和操作命令的模型。
         Library = new ReportsViewModel(reports, OpenReportAsync, openCase, openExtractDirectory, DeleteReportAsync);
         ShowLibraryCommand = new DelegateCommand(() => IsLibraryVisible = true);
-        OpenTabCommand = new DelegateCommand(parameter => { if (parameter is ReportTabViewModel tab) SelectedTab = tab; });
+        OpenTabCommand = new DelegateCommand(parameter => { if (parameter is ReportTabViewModel tab) ActivateTab(tab); });
         CloseTabCommand = new DelegateCommand(parameter => { if (parameter is ReportTabViewModel tab) CloseTab(tab); });
         OpenSelectedExtractDirectoryCommand = new DelegateCommand(OpenSelectedExtractDirectory, () => SelectedTab is not null);
     }
@@ -56,7 +56,15 @@ public sealed class ReportsWorkspaceViewModel : ViewModelBase, IDisposable
         get => _selectedTab;
         set
         {
-            if (!SetProperty(ref _selectedTab, value) || value is null) return;
+            if (ReferenceEquals(_selectedTab, value)) return;
+            if (_selectedTab is not null) _selectedTab.IsActive = false;
+            if (!SetProperty(ref _selectedTab, value)) return;
+            if (value is null)
+            {
+                ((DelegateCommand)OpenSelectedExtractDirectoryCommand).RaiseCanExecuteChanged();
+                return;
+            }
+            value.IsActive = true;
             IsLibraryVisible = false;
             ((DelegateCommand)OpenSelectedExtractDirectoryCommand).RaiseCanExecuteChanged();
         }
@@ -70,6 +78,20 @@ public sealed class ReportsWorkspaceViewModel : ViewModelBase, IDisposable
     /// <summary>刷新报告库，供分析中心在后台任务状态变化后同步最新报告。</summary>
     public Task RefreshLibraryAsync(CancellationToken cancellationToken = default)
         => Library.LoadAsync(cancellationToken);
+
+    /// <summary>
+    /// 激活报告标签。即使点击的是当前标签，也必须退出报告库回到查看器，
+    /// 因为用户可能刚刚通过“报告列表”暂时隐藏了当前查看器。
+    /// </summary>
+    private void ActivateTab(ReportTabViewModel tab)
+    {
+        if (ReferenceEquals(SelectedTab, tab))
+        {
+            IsLibraryVisible = false;
+            return;
+        }
+        SelectedTab = tab;
+    }
 
     public async Task<bool> OpenCaseReportAsync(string caseId)
     {

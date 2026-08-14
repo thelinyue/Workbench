@@ -18,6 +18,8 @@ public sealed class DashboardViewModel : ViewModelBase, IDisposable
     private readonly StorageService _storage;
     private readonly LogInboxService _inbox;
     private readonly Func<string, Task<bool>> _openReport;
+    private readonly Action _openCases;
+    private readonly Action? _openTasks;
     private readonly Action<string> _openExtractDirectory;
     private readonly WorkbenchLogger _logger;
     private readonly SemaphoreSlim _loadLock = new(1, 1);
@@ -42,17 +44,22 @@ public sealed class DashboardViewModel : ViewModelBase, IDisposable
         Action openSettings,
         Func<string, Task<bool>> openReport,
         Action<string> openExtractDirectory,
-        WorkbenchLogger logger)
+        WorkbenchLogger logger,
+        Action? openTasks = null)
     {
         _analysis = analysis;
         _storage = storage;
         _inbox = inbox;
+        _openCases = openCases;
+        _openTasks = openTasks;
         _openReport = openReport;
         _openExtractDirectory = openExtractDirectory;
         _logger = logger;
         OpenSettingsCommand = new DelegateCommand(openSettings);
         OpenInboxCommand = new DelegateCommand(openInbox);
         OpenCasesCommand = new DelegateCommand(openCases);
+        OpenCaseCommand = new DelegateCommand(parameter => _ = OpenCaseAsync(parameter as AnalysisCase), parameter => parameter is AnalysisCase);
+        OpenTaskPanelCommand = new DelegateCommand(() => _openTasks?.Invoke());
         _inbox.ConfigurationChanged += OnConfigurationChanged;
         _inbox.ItemsChanged += OnInboxItemsChanged;
         _analysis.StateChanged += OnAnalysisStateChanged;
@@ -69,6 +76,8 @@ public sealed class DashboardViewModel : ViewModelBase, IDisposable
     public ICommand OpenSettingsCommand { get; }
     public ICommand OpenInboxCommand { get; }
     public ICommand OpenCasesCommand { get; }
+    public ICommand OpenCaseCommand { get; }
+    public ICommand OpenTaskPanelCommand { get; }
     public bool ShowNoCases => RecentCases.Count == 0;
     public bool ShowNoTasks => CurrentTasks.Count == 0;
     public bool ShowNoRecentLogs => RecentLogs.Count == 0;
@@ -173,6 +182,17 @@ public sealed class DashboardViewModel : ViewModelBase, IDisposable
             _logger.Error($"检查日志已有分析记录失败：{inspection.Item.FilePath}", ex);
             FinishQuickAnalysis($"读取分析记录失败：{ex.Message}", isError: true);
         }
+    }
+
+    /// <summary>
+    /// 首页案例行使用统一入口：优先打开最新报告，报告不可用时回到分析中心，
+    /// 让摘要列表也能继续完成排查，而不是只能被动阅读状态。
+    /// </summary>
+    private async Task OpenCaseAsync(AnalysisCase? analysisCase)
+    {
+        if (analysisCase is null) return;
+        if (!string.IsNullOrWhiteSpace(analysisCase.ReportPath) && await _openReport(analysisCase.Id)) return;
+        _openCases();
     }
 
     /// <summary>拖放入口只接受一个文件，避免用户误以为当前版本支持批量分析。</summary>

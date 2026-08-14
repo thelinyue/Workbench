@@ -17,6 +17,8 @@ public sealed class SettingsViewModel : ViewModelBase
     private bool _directoryFeedbackIsError;
     private readonly Func<int> _getOpenReportCount;
     private readonly Func<string, string?> _applyTheme;
+    private bool _isLoading;
+    private bool _hasUnsavedChanges;
     private int _maxOpenReports = 10;
     private string _selectedTheme = "Light";
 
@@ -59,6 +61,7 @@ public sealed class SettingsViewModel : ViewModelBase
         }
     }
     public string Message { get => _message; private set => SetProperty(ref _message, value); }
+    public bool HasUnsavedChanges { get => _hasUnsavedChanges; private set => SetProperty(ref _hasUnsavedChanges, value); }
     public string DirectoryFeedback { get => _directoryFeedback; private set => SetProperty(ref _directoryFeedback, value); }
     public bool DirectoryFeedbackIsError { get => _directoryFeedbackIsError; private set => SetProperty(ref _directoryFeedbackIsError, value); }
     public string WatchDirectoryCountText => $"已添加 {WatchDirectories.Count} 个目录";
@@ -68,8 +71,22 @@ public sealed class SettingsViewModel : ViewModelBase
     public ICommand SaveCommand { get; }
     public ICommand AddWatchDirectoryCommand { get; }
     public ICommand RemoveWatchDirectoryCommand { get; }
-    public int MaxOpenReports { get => _maxOpenReports; set => SetProperty(ref _maxOpenReports, value); }
-    public string SelectedTheme { get => _selectedTheme; set => SetProperty(ref _selectedTheme, value); }
+    public int MaxOpenReports
+    {
+        get => _maxOpenReports;
+        set
+        {
+            if (SetProperty(ref _maxOpenReports, value)) MarkUnsaved();
+        }
+    }
+    public string SelectedTheme
+    {
+        get => _selectedTheme;
+        set
+        {
+            if (SetProperty(ref _selectedTheme, value)) MarkUnsaved();
+        }
+    }
 
     public void AddWatchDirectory()
     {
@@ -94,6 +111,7 @@ public sealed class SettingsViewModel : ViewModelBase
         }
 
         WatchDirectories.Add(normalized);
+        MarkUnsaved();
         SelectedWatchDirectory = normalized;
         NewWatchDirectory = string.Empty;
         SetDirectoryFeedback($"已添加目录（共 {WatchDirectories.Count} 个）。", isError: false);
@@ -111,6 +129,7 @@ public sealed class SettingsViewModel : ViewModelBase
         }
 
         WatchDirectories.Remove(SelectedWatchDirectory!);
+        MarkUnsaved();
         SelectedWatchDirectory = WatchDirectories.FirstOrDefault();
         SetDirectoryFeedback($"已移除目录（剩余 {WatchDirectories.Count} 个）。", isError: false);
         OnPropertyChanged(nameof(WatchDirectoryCountText));
@@ -136,6 +155,7 @@ public sealed class SettingsViewModel : ViewModelBase
 
     private async Task LoadAsync()
     {
+        _isLoading = true;
         try
         {
             WatchDirectories.Clear();
@@ -146,8 +166,10 @@ public sealed class SettingsViewModel : ViewModelBase
             (RemoveWatchDirectoryCommand as DelegateCommand)?.RaiseCanExecuteChanged();
             MaxOpenReports = await _settings.GetReportMaxTabsAsync();
             SelectedTheme = await _settings.GetThemeAsync();
+            HasUnsavedChanges = false;
         }
         catch (Exception ex) { Message = $"读取设置失败：{ex.Message}"; }
+        finally { _isLoading = false; }
     }
 
     private async Task SaveAsync()
@@ -177,9 +199,15 @@ public sealed class SettingsViewModel : ViewModelBase
                 Message = $"主题切换失败：{themeError}";
                 return;
             }
+            HasUnsavedChanges = false;
             Message = "设置已保存。";
         }
         catch (Exception ex) { Message = $"保存失败：{ex.Message}"; }
+    }
+
+    private void MarkUnsaved()
+    {
+        if (!_isLoading) HasUnsavedChanges = true;
     }
 }
 

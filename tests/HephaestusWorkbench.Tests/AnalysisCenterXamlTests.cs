@@ -22,11 +22,13 @@ public sealed class AnalysisCenterXamlTests
 
         var buttons = document.Descendants(presentation + "Button").ToArray();
         Assert.Contains(buttons, element => (string?)element.Attribute("Command") == "{Binding AnalyzeAllPendingCommand}");
-        Assert.Contains(buttons, element => (string?)element.Attribute("Command") == "{Binding DeleteInvalidCommand}");
         Assert.Contains(buttons, element => (string?)element.Attribute("Command") == "{Binding RefreshCommand}");
-        Assert.All(
-            buttons.Where(element => (string?)element.Attribute("Command") is "{Binding AnalyzeAllPendingCommand}" or "{Binding DeleteInvalidCommand}"),
-            element => Assert.NotNull(element.Attribute("ContentStringFormat")));
+        var menuItems = document.Descendants(presentation + "MenuItem").ToArray();
+        Assert.Contains(menuItems, element => ((string?)element.Attribute("Command"))?.Contains("DeleteInvalidCommand", StringComparison.Ordinal) == true);
+        Assert.Contains(menuItems, element => ((string?)element.Attribute("Command"))?.Contains("CleanupExpiredCommand", StringComparison.Ordinal) == true);
+        Assert.Contains(menuItems, element => (string?)element.Attribute("HeaderStringFormat") == "删除异常日志（{0}）");
+        Assert.Contains(document.Descendants(presentation + "Expander"), element => (string?)element.Attribute("IsExpanded") == "False");
+        Assert.Contains(buttons, element => (string?)element.Attribute("ContentStringFormat") == "分析全部待分析（{0}）");
         Assert.Contains(document.Descendants(presentation + "Grid"), grid =>
             grid.Descendants(presentation + "Button").Any(button => (string?)button.Attribute("Command") == "{Binding AnalyzeAllPendingCommand}")
             && grid.Descendants(presentation + "Button").Any(button => (string?)button.Attribute("Command") == "{Binding RefreshCommand}"));
@@ -36,8 +38,7 @@ public sealed class AnalysisCenterXamlTests
             .Where(value => value is not null)
             .ToArray();
         Assert.Contains("分析全部待分析（{0}）", formats);
-        Assert.Contains("删除异常日志（{0}）", formats);
-        Assert.Contains("{}{0} 次", formats);
+        Assert.Contains("历史（{0}）", formats);
     }
 
     [Fact]
@@ -46,7 +47,8 @@ public sealed class AnalysisCenterXamlTests
         var document = LoadAnalysisCenterXaml();
         XNamespace presentation = "http://schemas.microsoft.com/winfx/2006/xaml/presentation";
         var menuRoots = document.Descendants(presentation + "MenuItem")
-            .Where(element => element.Elements(presentation + "MenuItem").Any())
+            .Where(element => element.Elements(presentation + "MenuItem").Any()
+                && element.Element(presentation + "MenuItem.Header")?.Element(presentation + "TextBlock") is not null)
             .ToArray();
 
         Assert.Equal(2, menuRoots.Length);
@@ -75,9 +77,21 @@ public sealed class AnalysisCenterXamlTests
             .Select(value => value!)
             .ToArray();
 
-        Assert.Single(commands);
+        Assert.Equal(2, commands.Length);
         Assert.All(commands, command => Assert.Contains("ElementName=Root", command));
         Assert.DoesNotContain(commands, command => command.Contains("AncestorType=Menu", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void RowActionMenus_BindToAnalysisCenterRoot()
+    {
+        var document = LoadAnalysisCenterXaml();
+        var text = document.ToString();
+
+        Assert.DoesNotContain("AncestorType=Menu", text);
+        Assert.Contains("DataContext.AnalyzeSingleCommand, ElementName=Root", text);
+        Assert.Contains("DataContext.OpenExtractDirectoryCommand, ElementName=Root", text);
+        Assert.Contains("DataContext.OpenReportFolderCommand, ElementName=Root", text);
     }
 
     private static XDocument LoadAnalysisCenterXaml()

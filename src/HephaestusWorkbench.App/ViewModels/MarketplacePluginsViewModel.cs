@@ -46,7 +46,7 @@ public sealed class OnlinePluginItem
 }
 
 /// <summary>
-/// 在线插件中心视图模型。文件写入和安全校验均委托给服务层，界面只组合在线目录、本地状态和用户操作。
+/// 在线应用中心视图模型。文件写入和安全校验均委托给服务层，界面只组合在线目录、本地状态和用户操作。
 /// </summary>
 public sealed class MarketplacePluginsViewModel : ViewModelBase
 {
@@ -60,7 +60,7 @@ public sealed class MarketplacePluginsViewModel : ViewModelBase
     private bool _isBusy;
     private double _progressValue;
     private bool _isProgressIndeterminate;
-    private string _message = "正在加载插件中心…";
+    private string _message = "正在加载应用中心…";
     private DateTime? _lastRefresh;
     private RuleStateSnapshot _ruleState = new();
     private string _selectedTab = "发现应用";
@@ -212,10 +212,10 @@ public sealed class MarketplacePluginsViewModel : ViewModelBase
         }
         catch (Exception ex)
         {
-            Message = $"刷新插件中心失败：{ex.Message}";
+            Message = $"刷新应用中心失败：{ex.Message}";
             Issues.Clear();
             Issues.Add(Message);
-            _logger.Error("刷新插件中心失败", ex);
+            _logger.Error("刷新应用中心失败", ex);
         }
         finally { IsBusy = false; NotifyState(); }
     }
@@ -347,7 +347,7 @@ public sealed class MarketplacePluginsViewModel : ViewModelBase
         ProgressValue = 0;
         Message = progress;
         try { await operation(); IsBusy = false; await LoadAsync(); }
-        catch (Exception ex) { Message = $"操作失败：{ex.Message}"; _logger.Error("插件中心操作失败", ex); IsBusy = false; }
+        catch (Exception ex) { Message = $"操作失败：{ex.Message}"; _logger.Error("应用中心操作失败", ex); IsBusy = false; }
         finally { IsProgressIndeterminate = false; ProgressValue = 0; }
     }
 

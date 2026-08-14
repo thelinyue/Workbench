@@ -243,9 +243,12 @@ public sealed class AnalysisCenterViewModelTests
                 && !center.IsBulkOperationActive;
         });
 
+        await center.Reports.Library.LoadAsync();
         var latest = (await environment.Reports.ListAsync(new ReportQuery())).OrderByDescending(x => x.CreateTime).First();
         Assert.NotEqual("report-old", latest.Id);
         Assert.Equal("<html>new-report</html>", await File.ReadAllTextAsync(latest.ReportFile));
+        Assert.Single(center.Reports.Library.Items);
+        Assert.Equal(latest.Id, center.Reports.Library.Items[0].Id);
         Assert.Equal(latest.Id, center.Reports.OpenTabs.Last().Report.Id);
     }
 
