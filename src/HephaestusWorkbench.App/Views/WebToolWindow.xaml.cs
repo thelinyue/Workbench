@@ -198,7 +198,7 @@ public partial class WebToolWindow : Window
                     ? maintainerCandidateNode.Deserialize<UserRuleSet>(RuleMessageJsonOptions)
                     : null;
                 if (maintainerCandidate is null) throw new InvalidDataException("维护者规则内容为空。");
-                var maintainerValidation = _rules.Validate(BuildRuleSet(maintainerCandidate, maintainerCandidate.BaseVersion));
+                var maintainerValidation = _rules.ValidateUserRules(maintainerCandidate);
                 PostRuleMessage("validationResult", maintainerValidation);
                 return;
             case "submitMaintainerRules":
@@ -212,8 +212,13 @@ public partial class WebToolWindow : Window
                 var version = root.TryGetProperty("version", out var versionNode) ? versionNode.GetString()?.Trim() : null;
                 var message = root.TryGetProperty("message", out var messageNode) ? messageNode.GetString()?.Trim() : null;
                 var release = BuildRuleSet(maintainerRules, version);
-                var issue = _rules.Validate(release).FirstOrDefault(x => x.IsError);
-                if (issue is not null) throw new InvalidDataException($"规则校验失败：{issue.Message}");
+                var releaseIssues = _rules.Validate(release);
+                var issue = releaseIssues.FirstOrDefault(x => x.IsError);
+                if (issue is not null)
+                {
+                    PostRuleMessage("validationResult", releaseIssues);
+                    return;
+                }
                 var pullRequest = await _ruleRepository.CreatePullRequestAsync(release, release.Version!, message ?? string.Empty, _githubToken, CancellationToken.None);
                 PostRuleMessage("maintainerSubmissionSucceeded", new { pullRequest.Number, pullRequest.Url, pullRequest.BranchName });
                 return;
@@ -223,8 +228,8 @@ public partial class WebToolWindow : Window
                 PostRuleMessage("maintainerExited", new { });
                 return;
             case "getRuleState":
-                PostRuleMessage("ruleState", await _rules.ReadEditorStateAsync());
-                PostRuleMessage("hostInfo", new { appVersion = AppVersionInfo.DisplayVersion });
+                PostRuleMessage("ruleState", await ReadRuleEditorStateAsync());
+                PostRuleMessage("hostInfo", BuildHostInfoPayload());
                 return;
             case "saveUserRules":
                 var user = root.TryGetProperty("user", out var userNode)
@@ -232,27 +237,49 @@ public partial class WebToolWindow : Window
                     : null;
                 if (user is null) throw new InvalidDataException("用户规则内容为空。");
                 await _rules.SaveUserAsync(user);
-                PostRuleMessage("saveSucceeded", await _rules.ReadEditorStateAsync());
+                PostRuleMessage("saveSucceeded", await ReadRuleEditorStateAsync());
                 return;
             case "validateUserRules":
                 var candidate = root.TryGetProperty("user", out var candidateNode)
                     ? candidateNode.Deserialize<UserRuleSet>(RuleMessageJsonOptions)
                     : null;
                 if (candidate is null) throw new InvalidDataException("用户规则内容为空。");
-                var issues = new List<RuleValidationIssue>();
-                foreach (var group in candidate.Rules.GroupBy(x => (x.File, x.Category)))
-                {
-                    var check = new RuleSet { Version = candidate.BaseVersion ?? "local", Files = new() { new RuleFile { Name = group.Key.File, Category = group.Key.Category, Keywords = group.Select(x => x.Rule).ToList() } } };
-                    issues.AddRange(_rules.Validate(check));
-                }
-                PostRuleMessage("validationResult", issues);
+                PostRuleMessage("validationResult", _rules.ValidateUserRules(candidate));
                 return;
             case "submitSelectedRules":
-                if (_publisher is null) throw new InvalidOperationException("规则提交通道未初始化。");
-                var submission = await _rules.BuildSubmissionAsync();
+                var currentUser = root.TryGetProperty("user", out var currentUserNode)
+                    ? currentUserNode.Deserialize<UserRuleSet>(RuleMessageJsonOptions)
+                    : await _rules.ReadUserAsync();
+                if (currentUser is null) throw new InvalidDataException("用户规则内容为空。");
+                if (!currentUser.Rules.Any(x => x.Selected && x.Status is ("draft" or "rejected")))
+                {
+                    PostRuleMessage("submissionBlocked", new { message = "请先选择至少一条草稿或已退回的规则。" });
+                    return;
+                }
+
+                var userIssues = _rules.ValidateUserRules(currentUser);
+                if (userIssues.Any(x => x.IsError))
+                {
+                    PostRuleMessage("validationResult", userIssues);
+                    return;
+                }
+
+                if (_publisher is null)
+                {
+                    PostRuleMessage("submissionBlocked", new { message = "当前未配置用户规则审核发布通道。请先保存草稿，配置发布通道后再提交。" });
+                    return;
+                }
+
+                if (root.TryGetProperty("user", out _)) await _rules.SaveUserAsync(currentUser);
+                if (!currentUser.Rules.Any(x => x.Selected && x.Status is ("draft" or "rejected")))
+                {
+                    PostRuleMessage("submissionBlocked", new { message = "主规则已发生变化，选中的规则现在存在冲突或已合并。请刷新后处理冲突，再重试提交。" });
+                    return;
+                }
+                var submission = await _rules.BuildSubmissionAsync(currentUser);
                 var submissionId = await _publisher.PublishAsync(submission);
                 await _rules.MarkSubmittedAsync(submission, submissionId);
-                PostRuleMessage("submissionSucceeded", new { submissionId, state = await _rules.ReadEditorStateAsync() });
+                PostRuleMessage("submissionSucceeded", new { submissionId, state = await ReadRuleEditorStateAsync() });
                 return;
             case "exportRules":
                 var exportState = await _rules.ReadEditorStateAsync();
@@ -283,6 +310,24 @@ public partial class WebToolWindow : Window
             repository = BuildRepositoryPayload(_repositoryOptions ?? RuleRepositoryOptions.FromEnvironment())
         };
     }
+
+    private async Task<RuleEditorState> ReadRuleEditorStateAsync()
+    {
+        var state = await _rules!.ReadEditorStateAsync();
+        state.State.SubmissionAvailable = _publisher is not null;
+        state.State.SubmissionUnavailableReason = _publisher is null
+            ? "当前未配置用户规则审核发布通道。"
+            : null;
+        return state;
+    }
+
+    private object BuildHostInfoPayload()
+        => new
+        {
+            appVersion = AppVersionInfo.DisplayVersion,
+            submissionAvailable = _publisher is not null,
+            submissionUnavailableReason = _publisher is null ? "当前未配置用户规则审核发布通道。" : null
+        };
 
     private void InitializeMaintainerConfiguration()
     {
