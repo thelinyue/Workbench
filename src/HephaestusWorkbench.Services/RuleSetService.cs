@@ -98,7 +98,8 @@ public sealed class RuleSetService
     {
         user.SchemaVersion = 1;
         user.Rules ??= new List<UserRuleRecord>();
-        ValidateUserRules(user);
+        var issue = ValidateUserRules(user).FirstOrDefault(x => x.IsError);
+        if (issue is not null) throw new InvalidDataException(issue.Message);
         user.BaseVersion ??= (await ReadOfficialAsync(cancellationToken))?.Version;
         await WriteJsonAtomicAsync(_paths.LocalAdditionsFile, user, cancellationToken);
         await RebuildActiveAsync(cancellationToken);
@@ -139,12 +140,14 @@ public sealed class RuleSetService
         }
     }
 
-    public async Task<RuleSubmission> BuildSubmissionAsync(CancellationToken cancellationToken = default)
+    public async Task<RuleSubmission> BuildSubmissionAsync(
+        UserRuleSet? candidate = null,
+        CancellationToken cancellationToken = default)
     {
         var official = await ReadOfficialAsync(cancellationToken);
-        var user = await ReadUserAsync(cancellationToken);
+        var user = candidate ?? await ReadUserAsync(cancellationToken);
         var changes = user.Rules
-            .Where(x => x.Selected && x.Status is "draft" or "rejected")
+            .Where(x => x.Selected && x.Status is ("draft" or "rejected"))
             .Select(x => new RuleChange
             {
                 LocalId = x.LocalId,
@@ -329,13 +332,84 @@ public sealed class RuleSetService
             ConflictRuleCount = user.Rules.Count(x => x.Status == "conflict")
         };
 
-    private void ValidateUserRules(UserRuleSet user)
+    public IReadOnlyList<RuleValidationIssue> ValidateUserRules(UserRuleSet user)
     {
         var rules = new RuleSet { Version = user.BaseVersion ?? "local" };
+        var issues = new List<RuleValidationIssue>();
         foreach (var group in user.Rules.GroupBy(x => (x.File, x.Category), StringTupleComparer.Instance))
+        {
             rules.Files.Add(new RuleFile { Name = group.Key.File, Category = group.Key.Category, Keywords = group.Select(x => x.Rule).ToList() });
-        var issue = Validate(rules).FirstOrDefault(x => x.IsError);
-        if (issue is not null) throw new InvalidDataException(issue.Message);
+            var groupRecords = group.ToList();
+            var groupIssues = Validate(new RuleSet
+            {
+                Version = rules.Version,
+                Files = new List<RuleFile>
+                {
+                    new() { Name = group.Key.File, Category = group.Key.Category, Keywords = groupRecords.Select(x => x.Rule).ToList() }
+                }
+            });
+
+            foreach (var issue in groupIssues)
+            {
+                var localIds = ResolveLocalIds(issue.Message, groupRecords);
+                issues.Add(issue with
+                {
+                    LocalIds = localIds,
+                    Field = ResolveField(issue.Message)
+                });
+            }
+        }
+
+        var versionIssue = Validate(rules).FirstOrDefault(x => x.Message.Contains("version", StringComparison.OrdinalIgnoreCase));
+        if (versionIssue is not null)
+            issues.Add(versionIssue with { Field = "version" });
+
+        return issues;
+    }
+
+    private static IReadOnlyList<string>? ResolveLocalIds(string message, IReadOnlyList<UserRuleRecord> records)
+    {
+        var marker = "规则 ";
+        var start = message.IndexOf(marker, StringComparison.Ordinal);
+        if (start < 0)
+        {
+            // 文件级错误没有规则序号，但当前分组中的规则都受该文件/分类字段影响，
+            // 前端仍应能把问题定位到可编辑的规则卡片，而不是只弹出一条全局通知。
+            return message.Contains("文件名", StringComparison.Ordinal)
+                || message.Contains("分类", StringComparison.Ordinal)
+                ? records.Select(x => x.LocalId).ToList()
+                : null;
+        }
+        start += marker.Length;
+        var end = message.IndexOf('：', start);
+        if (end < 0) end = message.Length;
+        if (!int.TryParse(message[start..end], out var index) || index < 1 || index > records.Count) return null;
+
+        if (message.Contains("重复", StringComparison.Ordinal))
+        {
+            var current = records[index - 1].Rule;
+            var duplicateIds = records
+                .Where(x => RuleKey(x.Rule, includeResult: true) == RuleKey(current, includeResult: true))
+                .Select(x => x.LocalId)
+                .ToList();
+            return duplicateIds.Count > 1 ? duplicateIds : new[] { records[index - 1].LocalId };
+        }
+
+        return new[] { records[index - 1].LocalId };
+    }
+
+    private static string? ResolveField(string message)
+    {
+        if (message.Contains("版本", StringComparison.OrdinalIgnoreCase) || message.Contains("version", StringComparison.OrdinalIgnoreCase)) return "version";
+        if (message.Contains("文件名", StringComparison.Ordinal)) return "file";
+        if (message.Contains("分类", StringComparison.Ordinal)) return "category";
+        if (message.Contains("关键词", StringComparison.Ordinal) || message.Contains("正则表达式", StringComparison.Ordinal)) return "term";
+        if (message.Contains("问题描述", StringComparison.Ordinal)) return "result";
+        if (message.Contains("上下文行数", StringComparison.Ordinal)) return "context_lines";
+        if (message.Contains("上下文方向", StringComparison.Ordinal)) return "context_direction";
+        if (message.Contains("搜索方向", StringComparison.Ordinal)) return "search_direction";
+        if (message.Contains("严重程度", StringComparison.Ordinal)) return "severity";
+        return null;
     }
 
     private void ThrowIfInvalid(RuleSet rules, string source)

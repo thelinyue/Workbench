@@ -144,6 +144,10 @@ public sealed class RuleStateSnapshot
     public DateTime? LastCheckedAt { get; set; }
     [JsonPropertyName("lastError")]
     public string? LastError { get; set; }
+    [JsonPropertyName("submissionAvailable")]
+    public bool SubmissionAvailable { get; set; }
+    [JsonPropertyName("submissionUnavailableReason")]
+    public string? SubmissionUnavailableReason { get; set; }
 }
 
 /// <summary>规则编辑器一次加载所需的只读主规则、本地规则和激活结果。</summary>
@@ -165,7 +169,11 @@ public sealed record RuleSyncResult(bool Updated, string? Version, string Messag
 public sealed record LocalRuleFile(string Name, string Path, string? Version, DateTime LastWriteTime);
 
 /// <summary>规则校验结果；错误会阻止导入或激活，警告用于提示可改进内容。</summary>
-public sealed record RuleValidationIssue(string Severity, string Message)
+public sealed record RuleValidationIssue(
+    [property: JsonPropertyName("severity")] string Severity,
+    [property: JsonPropertyName("message")] string Message,
+    [property: JsonPropertyName("localIds")] IReadOnlyList<string>? LocalIds = null,
+    [property: JsonPropertyName("field")] string? Field = null)
 {
     public bool IsError => string.Equals(Severity, "error", StringComparison.OrdinalIgnoreCase);
 }
