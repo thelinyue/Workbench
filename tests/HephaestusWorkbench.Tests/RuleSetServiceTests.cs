@@ -84,6 +84,51 @@ public sealed class RuleSetServiceTests
     }
 
     [Fact]
+    public async Task SaveUserRules_PersistsCategoryBeforeAnyRuleExists()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "HephaestusWorkbenchTests", Guid.NewGuid().ToString("N"));
+        var paths = new DataPaths(root);
+        var service = new RuleSetService(paths, new WorkbenchLogger(root));
+
+        await service.SaveUserAsync(new UserRuleSet
+        {
+            Categories = new() { "磁盘健康" },
+            Rules = new()
+        });
+
+        var saved = await service.ReadUserAsync();
+        Assert.Equal(new[] { "磁盘健康" }, saved.Categories);
+        Assert.Empty(saved.Rules);
+    }
+
+    [Fact]
+    public void ValidateUserRules_RejectsRuleOutsideCreatedCategory()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "HephaestusWorkbenchTests", Guid.NewGuid().ToString("N"));
+        var service = new RuleSetService(new DataPaths(root), new WorkbenchLogger(root));
+
+        var issues = service.ValidateUserRules(new UserRuleSet
+        {
+            Categories = new() { "系统日志" },
+            Rules = new()
+            {
+                new UserRuleRecord
+                {
+                    LocalId = "unknown-category",
+                    File = "syslog",
+                    Category = "网络连接",
+                    Rule = new RuleDefinition { Term = "ERROR", Result = "错误" }
+                }
+            }
+        });
+
+        var issue = Assert.Single(issues);
+        Assert.Equal("category", issue.Field);
+        Assert.Equal(new[] { "unknown-category" }, issue.LocalIds);
+        Assert.Contains("请先创建分类", issue.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void ValidateUserRules_MapsFieldsAndDuplicateRuleIds()
     {
         var root = Path.Combine(Path.GetTempPath(), "HephaestusWorkbenchTests", Guid.NewGuid().ToString("N"));

@@ -299,6 +299,10 @@ public partial class WebToolWindow : Window
         return new
         {
             version = official.Version,
+            categories = official.Files.Select(file => file.Category)
+                .Where(category => !string.IsNullOrWhiteSpace(category))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList(),
             rules = official.Files.SelectMany(file => file.Keywords.Select((rule, index) => new UserRuleRecord
             {
                 LocalId = $"{file.Name}:{index}",

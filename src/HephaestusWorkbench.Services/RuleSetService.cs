@@ -69,6 +69,7 @@ public sealed class RuleSetService
             var result = await JsonSerializer.DeserializeAsync<UserRuleSet>(stream, _options, cancellationToken)
                 ?? new UserRuleSet();
             result.Rules ??= new List<UserRuleRecord>();
+            result.Categories ??= DeriveCategories(result.Rules);
             return result;
         }
         catch (JsonException ex)
@@ -98,8 +99,10 @@ public sealed class RuleSetService
     {
         user.SchemaVersion = 1;
         user.Rules ??= new List<UserRuleRecord>();
+        user.Categories ??= DeriveCategories(user.Rules);
         var issue = ValidateUserRules(user).FirstOrDefault(x => x.IsError);
         if (issue is not null) throw new InvalidDataException(issue.Message);
+        user.Categories = user.Categories.Select(category => category.Trim()).ToList();
         user.BaseVersion ??= (await ReadOfficialAsync(cancellationToken))?.Version;
         await WriteJsonAtomicAsync(_paths.LocalAdditionsFile, user, cancellationToken);
         await RebuildActiveAsync(cancellationToken);
@@ -334,8 +337,31 @@ public sealed class RuleSetService
 
     public IReadOnlyList<RuleValidationIssue> ValidateUserRules(UserRuleSet user)
     {
+        var categories = (user.Categories ?? DeriveCategories(user.Rules)).Select(category => category.Trim()).ToList();
+        if (categories.Any(string.IsNullOrWhiteSpace))
+            return new[] { new RuleValidationIssue("error", "分类名称不能为空。", Field: "category") };
+
+        var duplicateCategory = categories
+            .GroupBy(category => category, StringComparer.OrdinalIgnoreCase)
+            .FirstOrDefault(group => group.Count() > 1);
+        if (duplicateCategory is not null)
+            return new[] { new RuleValidationIssue("error", $"分类“{duplicateCategory.Key}”已存在，不能重复创建。", Field: "category") };
+
         var rules = new RuleSet { Version = user.BaseVersion ?? "local" };
         var issues = new List<RuleValidationIssue>();
+        var categorySet = categories.ToHashSet(StringComparer.OrdinalIgnoreCase);
+        foreach (var record in user.Rules)
+        {
+            var category = record.Category.Trim();
+            if (string.IsNullOrWhiteSpace(category))
+                issues.Add(new RuleValidationIssue("error", "规则必须归属一个已创建的分类。", new[] { record.LocalId }, "category"));
+            else if (!categorySet.Contains(category))
+                issues.Add(new RuleValidationIssue("error", $"分类“{category}”尚未创建，请先创建分类。", new[] { record.LocalId }, "category"));
+        }
+
+        if (issues.Any(issue => issue.IsError))
+            return issues;
+
         foreach (var group in user.Rules.GroupBy(x => (x.File, x.Category), StringTupleComparer.Instance))
         {
             rules.Files.Add(new RuleFile { Name = group.Key.File, Category = group.Key.Category, Keywords = group.Select(x => x.Rule).ToList() });
@@ -366,6 +392,15 @@ public sealed class RuleSetService
 
         return issues;
     }
+
+    // 兼容旧版本地文件：旧数据没有独立分类清单时，先从已有规则恢复分类；
+    // 新数据则以 UserRuleSet.Categories 为准，允许分类在没有规则时单独存在。
+    private static List<string> DeriveCategories(IEnumerable<UserRuleRecord> rules)
+        => rules.Select(record => record.Category?.Trim())
+            .Where(category => !string.IsNullOrWhiteSpace(category))
+            .Select(category => category!)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
 
     private static IReadOnlyList<string>? ResolveLocalIds(string message, IReadOnlyList<UserRuleRecord> records)
     {
