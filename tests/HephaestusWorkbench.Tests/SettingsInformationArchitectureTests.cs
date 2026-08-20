@@ -26,6 +26,12 @@ public sealed class SettingsInformationArchitectureTests
         Assert.Contains(document.Descendants(), element => (string?)element.Attribute("VerticalAlignment") == "Top");
         Assert.Contains(document.Descendants(), element => (string?)element.Attribute("Text") == "外观");
         Assert.Contains(document.Descendants(), element => (string?)element.Attribute("Text") == "报告");
+        Assert.Contains(bindings, value => value.Contains("HasWatchDirectories", StringComparison.Ordinal));
+        Assert.Contains(bindings, value => value.Contains("HasDirectoryFeedback", StringComparison.Ordinal));
+        Assert.Contains(bindings, value => value.Contains("MessageIsError", StringComparison.Ordinal));
+        Assert.Contains(document.Descendants(), element => (string?)element.Attribute("Text") == "尚未添加监控目录");
+        Assert.Contains(document.Descendants(), element => (string?)element.Attribute("Text") == "同时打开的报告标签上限（1–10）");
+        Assert.Contains(document.Descendants(), element => (string?)element.Attribute("LastChildFill") == "False");
     }
 
     [Fact]

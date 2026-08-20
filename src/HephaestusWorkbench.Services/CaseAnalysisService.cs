@@ -22,7 +22,7 @@ public sealed class CaseAnalysisService
     private readonly WorkbenchLogger _logger;
     private readonly WorkbenchConfigurationService? _configuration;
     private readonly RuleSetService? _rules;
-    private readonly IAnalysisLifecycleRepository? _lifecycle;
+    private readonly IAnalysisLifecycleRepository _lifecycle;
     public event EventHandler? StateChanged;
 
     public sealed record CleanupResult(int Deleted, int Skipped, int Failed);
@@ -37,9 +37,9 @@ public sealed class CaseAnalysisService
         IPluginRunner standardRunner,
         TaskCenter taskCenter,
         WorkbenchLogger logger,
+        IAnalysisLifecycleRepository lifecycle,
         WorkbenchConfigurationService? configuration = null,
-        RuleSetService? rules = null,
-        IAnalysisLifecycleRepository? lifecycle = null)
+        RuleSetService? rules = null)
     {
         _paths = paths;
         _cases = cases;
@@ -52,7 +52,7 @@ public sealed class CaseAnalysisService
         _logger = logger;
         _configuration = configuration;
         _rules = rules;
-        _lifecycle = lifecycle;
+        _lifecycle = lifecycle ?? throw new ArgumentNullException(nameof(lifecycle));
     }
 
     public async Task<AnalysisTask?> StartAsync(LogInboxItem item, CancellationToken cancellationToken = default)
@@ -109,13 +109,7 @@ public sealed class CaseAnalysisService
             PluginId = plugin.Id,
             Status = AnalysisTaskStatus.Waiting
         };
-        if (_lifecycle is not null)
-            await _lifecycle.CreateAsync(analysisCase, task, cancellationToken);
-        else
-        {
-            await _cases.InsertAsync(analysisCase, cancellationToken);
-            await _tasks.InsertAsync(task, cancellationToken);
-        }
+        await _lifecycle.CreateAsync(analysisCase, task, cancellationToken);
         StateChanged?.Invoke(this, EventArgs.Empty);
         _ = _taskCenter.EnqueueAsync(task, token => RunAsync(analysisCase, task, plugin, token));
         return task;
@@ -172,21 +166,12 @@ public sealed class CaseAnalysisService
         await _cases.UpdateAsync(item, cancellationToken);
     }
 
+    /// <summary>删除案例所属源日志的完整生命周期，确保文件和全部关联记录一起删除。</summary>
     public async Task DeleteAsync(string caseId, CancellationToken cancellationToken = default)
     {
         var item = await _cases.GetAsync(caseId, cancellationToken);
         if (item is null) return;
-        try
-        {
-            FileUtilities.DeleteCaseArtifacts(item, _paths, deleteReport: true);
-        }
-        catch (Exception ex)
-        {
-            _logger.Error($"删除案例数据失败：{item.DisplayName}", ex);
-            throw new InvalidOperationException($"删除案例数据失败：{ex.Message}", ex);
-        }
-        await _cases.DeleteAsync(caseId, cancellationToken);
-        StateChanged?.Invoke(this, EventArgs.Empty);
+        await DeleteLifecycleAsync(item.SourcePath, cancellationToken);
     }
 
     /// <summary>
@@ -213,10 +198,10 @@ public sealed class CaseAnalysisService
         try
         {
             foreach (var item in cases)
-            {
                 FileUtilities.DeleteCaseArtifacts(item, _paths, deleteReport: true);
-                await _cases.DeleteAsync(item.Id, cancellationToken);
-            }
+
+            // 文件删除成功后，再用单个数据库事务清理全部关联记录；不依赖旧库的外键级联。
+            await _lifecycle.DeleteByCaseIdsAsync(caseIds, cancellationToken);
         }
         catch (Exception ex)
         {
@@ -285,13 +270,7 @@ public sealed class CaseAnalysisService
             task.StartTime = DateTime.Now;
             analysisCase.Status = CaseStatus.Running;
             analysisCase.UpdateTime = DateTime.Now;
-            if (_lifecycle is not null)
-                await _lifecycle.MarkRunningAsync(analysisCase, task);
-            else
-            {
-                await _tasks.UpdateAsync(task);
-                await _cases.UpdateAsync(analysisCase);
-            }
+            await _lifecycle.MarkRunningAsync(analysisCase, task);
             StateChanged?.Invoke(this, EventArgs.Empty);
 
             var context = new PluginExecutionContext(
@@ -327,14 +306,7 @@ public sealed class CaseAnalysisService
                     PluginVersion = plugin.Version,
                     CreateTime = DateTime.Now
                 };
-            if (_lifecycle is not null)
-                await _lifecycle.CompleteAsync(analysisCase, task, report);
-            else
-            {
-                await _cases.UpdateAsync(analysisCase);
-                if (report is not null) await _reports.InsertAsync(report);
-                await _tasks.UpdateAsync(task);
-            }
+            await _lifecycle.CompleteAsync(analysisCase, task, report);
 
             // 只有报告记录和案例状态都落库后，任务才对外呈现为完成，避免读取到半完成状态。
             StateChanged?.Invoke(this, EventArgs.Empty);
@@ -349,13 +321,7 @@ public sealed class CaseAnalysisService
             analysisCase.UpdateTime = DateTime.Now;
             try
             {
-                if (_lifecycle is not null)
-                    await _lifecycle.CompleteAsync(analysisCase, task, null);
-                else
-                {
-                    await _cases.UpdateAsync(analysisCase);
-                    await _tasks.UpdateAsync(task);
-                }
+                await _lifecycle.CompleteAsync(analysisCase, task, null);
             }
             catch (Exception persistException)
             {

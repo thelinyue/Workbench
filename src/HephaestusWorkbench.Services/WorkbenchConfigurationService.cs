@@ -74,9 +74,6 @@ public sealed class WorkbenchConfigurationService
         var created = new AppSettingsConfig();
         if (legacyStore is not null)
         {
-            var restore = await legacyStore.GetAsync("report_restore_enabled", cancellationToken);
-            if (bool.TryParse(restore, out var restoreValue)) created.AutoRestoreReports = restoreValue;
-
             var maxTabs = await legacyStore.GetAsync("report_max_tabs", cancellationToken);
             if (int.TryParse(maxTabs, out var maxTabValue)) created.MaxReportTabs = maxTabValue;
         }

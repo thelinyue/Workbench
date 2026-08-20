@@ -18,7 +18,6 @@ public sealed class AppSettingsConfig
 
     public string Theme { get; set; } = LightTheme;
     public int MaxReportTabs { get; set; } = 10;
-    public bool AutoRestoreReports { get; set; } = true;
     public bool ManualCleanupEnabled { get; set; }
     public int CleanupRetentionDays { get; set; } = 7;
 

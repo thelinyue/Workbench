@@ -27,7 +27,7 @@ public sealed class WorkbenchConfigurationTests
             var withMirror = await configuration.EnsureAppSettingsAsync();
             Assert.Equal("https://mirror.example/{url}", withMirror.GitHubDownloadMirrorTemplate);
 
-            await File.WriteAllTextAsync(paths.AppSettingsFile, "{\"Theme\":\"unknown\",\"MaxReportTabs\":10,\"AutoRestoreReports\":true}");
+            await File.WriteAllTextAsync(paths.AppSettingsFile, "{\"Theme\":\"unknown\",\"MaxReportTabs\":10}");
             var normalized = await configuration.EnsureAppSettingsAsync();
             Assert.Equal("Light", normalized.Theme);
         }
@@ -46,7 +46,6 @@ public sealed class WorkbenchConfigurationTests
         var legacy = new MemorySettingsStore();
         var external = Path.Combine(root, "CustomerLogs");
         await legacy.SetAsync("watch_directory", external);
-        await legacy.SetAsync("report_restore_enabled", "false");
         await legacy.SetAsync("report_max_tabs", "7");
 
         try
@@ -60,7 +59,6 @@ public sealed class WorkbenchConfigurationTests
             var plugins = await configuration.EnsurePluginConfigAsync();
 
             Assert.Equal(Path.GetFullPath(external), Assert.Single(workspace.MonitorPaths));
-            Assert.False(appSettings.AutoRestoreReports);
             Assert.Equal(7, appSettings.MaxReportTabs);
             Assert.Empty(plugins.Plugins);
             Assert.True(File.Exists(paths.WorkspaceConfigFile));

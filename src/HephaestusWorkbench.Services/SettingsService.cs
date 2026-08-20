@@ -73,27 +73,6 @@ public sealed class SettingsService
 
         await _store.SetAsync("watch_directory", normalized[0], cancellationToken);
     }
-
-    public async Task<bool> GetReportRestoreEnabledAsync(CancellationToken cancellationToken = default)
-    {
-        if (_configuration is not null)
-            return (await _configuration.EnsureAppSettingsAsync(_store, cancellationToken)).AutoRestoreReports;
-
-        return !bool.TryParse(await _store.GetAsync("report_restore_enabled", cancellationToken), out var enabled) || enabled;
-    }
-
-    public async Task SetReportRestoreEnabledAsync(bool enabled, CancellationToken cancellationToken = default)
-    {
-        if (_configuration is not null)
-        {
-            var settings = await _configuration.EnsureAppSettingsAsync(_store, cancellationToken);
-            settings.AutoRestoreReports = enabled;
-            await _configuration.SaveAppSettingsAsync(settings, cancellationToken);
-            return;
-        }
-        await _store.SetAsync("report_restore_enabled", enabled.ToString(), cancellationToken);
-    }
-
     public async Task<int> GetReportMaxTabsAsync(CancellationToken cancellationToken = default)
     {
         if (_configuration is not null)

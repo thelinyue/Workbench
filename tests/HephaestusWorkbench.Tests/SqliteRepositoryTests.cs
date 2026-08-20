@@ -53,7 +53,7 @@ public sealed class SqliteRepositoryTests
     }
 
     [Fact]
-    public async Task ReportQueryAndSession_PersistFilterAndCascadeWithCase()
+    public async Task ReportQuery_PersistsFilterAndCascadeWithCase()
     {
         var root = Path.Combine(Path.GetTempPath(), "HephaestusWorkbenchTests", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(root);
@@ -64,7 +64,6 @@ public sealed class SqliteRepositoryTests
             await new DatabaseInitializer(factory).InitializeAsync();
             var cases = new SqliteCaseRepository(factory);
             var reports = new SqliteReportRepository(factory);
-            var sessions = new SqliteReportSessionRepository(factory);
             var plugins = new SqlitePluginInfoRepository(factory);
             var now = DateTime.Now;
             var extractDirectory = Path.Combine(root, "Extract");
@@ -86,13 +85,7 @@ public sealed class SqliteRepositoryTests
             Assert.Equal(extractDirectory, filtered[0].ExtractPath);
             Assert.Equal("Network Analyzer", filtered[0].PluginName);
 
-            await sessions.ReplaceAsync(new[] { new ReportSession { Id = "session-1", ReportId = "report-1", OrderIndex = 0, IsActive = true, ScrollPosition = 321.5, LastOpenTime = now } });
-            var saved = Assert.Single(await sessions.ListAsync());
-            Assert.Equal(321.5, saved.ScrollPosition);
-            Assert.True(saved.IsActive);
-
             await cases.DeleteAsync("case-report");
-            Assert.Empty(await sessions.ListAsync());
             Assert.Empty(await reports.ListAsync(new ReportQuery()));
         }
         finally

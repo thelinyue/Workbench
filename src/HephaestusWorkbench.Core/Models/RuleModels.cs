@@ -45,6 +45,9 @@ public sealed class UserRuleSet
     public int SchemaVersion { get; set; } = 1;
     [JsonPropertyName("baseVersion")]
     public string? BaseVersion { get; set; }
+    /// <summary>用户先创建的分类清单；分类可以暂时没有规则，旧文件缺失该字段时由规则记录迁移生成。</summary>
+    [JsonPropertyName("categories")]
+    public List<string>? Categories { get; set; }
     [JsonPropertyName("rules")]
     public List<UserRuleRecord> Rules { get; set; } = new();
 }

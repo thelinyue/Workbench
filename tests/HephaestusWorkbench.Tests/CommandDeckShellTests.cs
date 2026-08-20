@@ -53,12 +53,13 @@ public sealed class CommandDeckShellTests
     }
 
     [Fact]
-    public void App_RegistersReportWorkspaceAsTheTopLevelPageTemplate()
+    public void App_DoesNotRegisterStandaloneReportPageTemplate()
     {
         var document = LoadAppFile("App.xaml");
+        var text = document.ToString();
 
-        Assert.Contains("ReportsWorkspaceViewModel", document.ToString());
-        Assert.Contains("views:ReportPage", document.ToString());
+        Assert.DoesNotContain("ReportPage", text);
+        Assert.DoesNotContain("ReportsWorkspaceViewModel", text);
     }
 
     [Fact]
@@ -88,28 +89,25 @@ public sealed class CommandDeckShellTests
         Assert.Contains("TableHeaderStyle", text);
         Assert.Contains("AnalyzeAllPendingCommand", text);
         Assert.Contains("RefreshCommand", text);
-        Assert.Contains("ToggleHistoryCommand", text);
+        Assert.Contains("AnalyzeSingleCommand", text);
+        Assert.DoesNotContain("ToggleHistoryCommand", text);
         Assert.Contains("CleanupExpiredCommand", text);
     }
 
     [Fact]
-    public void ReportsPage_UsesLibraryToolbarTabStripAndSingleViewerHost()
+    public void AnalysisCenter_EmbedsReportTabsAndSingleViewerHost()
     {
-        var document = LoadAppFile("Views\\ReportPage.xaml");
+        var document = LoadAppFile("Views\\AnalysisCenterPage.xaml");
         var text = document.ToString();
         XNamespace x = "http://schemas.microsoft.com/winfx/2006/xaml";
 
         Assert.Contains("ReportTabStrip", text);
-        Assert.Contains("ReportLibraryToolbar", text);
         Assert.Contains("OpenTabs", text);
         Assert.Contains("ViewerHost", text);
         Assert.Contains("OpenSelectedExtractDirectoryCommand", text);
-        Assert.Contains("Command=\"{Binding ShowLibraryCommand, ElementName=Root}\"", text);
-        Assert.Contains("Click=\"OnShowLibraryClick\"", text);
-        Assert.Contains("Command=\"{Binding DataContext.OpenTabCommand, RelativeSource={RelativeSource AncestorType=UserControl}}\"", text);
-        Assert.Contains("Command=\"{Binding DataContext.CloseTabCommand, RelativeSource={RelativeSource AncestorType=UserControl}}\"", text);
-        Assert.Contains("Visibility=\"{Binding DataContext.IsLibraryVisible, ElementName=Root, Converter={StaticResource BooleanToVisibilityConverter}}\"", text);
-        Assert.Contains("Visibility=\"{Binding DataContext.IsLibraryVisible, ElementName=Root, Converter={StaticResource InverseBooleanToVisibilityConverter}}\"", text);
+        Assert.Contains("ShowAnalysisListCommand", text);
+        Assert.Contains("返回分析中心", text);
+        Assert.Contains("IsAnalysisListVisible", text);
         Assert.Equal(1, document.Descendants().Count(element => (string?)element.Attribute(x + "Name") == "ViewerHost"));
     }
 

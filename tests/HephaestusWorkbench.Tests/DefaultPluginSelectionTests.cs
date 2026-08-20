@@ -33,7 +33,7 @@ public sealed class DefaultPluginSelectionTests
             });
             var runner = new FailedRunner();
             var taskCenter = new TaskCenter(tasks);
-            var service = new CaseAnalysisService(paths, cases, tasks, reports, new TwoPluginCatalog(), runner, runner, taskCenter, new WorkbenchLogger(root), configuration);
+            var service = new CaseAnalysisService(paths, cases, tasks, reports, new TwoPluginCatalog(), runner, runner, taskCenter, new WorkbenchLogger(root), new SqliteAnalysisLifecycleRepository(factory), configuration);
             var log = Path.Combine(root, "test.tgz");
             await File.WriteAllTextAsync(log, "test");
 
@@ -76,7 +76,7 @@ public sealed class DefaultPluginSelectionTests
             var reportRepository = new SqliteReportRepository(factory);
             var taskCenter = new TaskCenter(taskRepository);
             var runner = new FailedRunner();
-            var service = new CaseAnalysisService(paths, repository, taskRepository, reportRepository, new WebOnlyCatalog(), runner, runner, taskCenter, new WorkbenchLogger(root), configuration);
+            var service = new CaseAnalysisService(paths, repository, taskRepository, reportRepository, new WebOnlyCatalog(), runner, runner, taskCenter, new WorkbenchLogger(root), new SqliteAnalysisLifecycleRepository(factory), configuration);
             var log = Path.Combine(root, "test.tgz");
             await File.WriteAllTextAsync(log, "test");
 

@@ -1,26 +1,34 @@
 using System.Collections.ObjectModel;
 using System.IO;
 using System.Windows.Input;
+using HephaestusWorkbench.Core.Models;
 using HephaestusWorkbench.Services;
 
 namespace HephaestusWorkbench.App.ViewModels;
 
-/// <summary>设置页模型，管理日志监控目录和基础界面偏好。</summary>
+/// <summary>
+/// 设置页模型，管理日志监控目录和基础界面偏好。
+/// 目录在界面中使用带状态的展示项，但保存时仍转换为原有的字符串路径集合，避免改变配置接口。
+/// </summary>
 public sealed class SettingsViewModel : ViewModelBase
 {
     private readonly SettingsService _settings;
     private readonly LogInboxService _inbox;
-    private string _newWatchDirectory = string.Empty;
-    private string? _selectedWatchDirectory;
-    private string _message = string.Empty;
-    private string _directoryFeedback = string.Empty;
-    private bool _directoryFeedbackIsError;
     private readonly Func<int> _getOpenReportCount;
     private readonly Func<string, string?> _applyTheme;
+    private readonly List<string> _savedWatchDirectories = new();
+    private string _newWatchDirectory = string.Empty;
+    private WatchDirectoryItemViewModel? _selectedWatchDirectory;
+    private string _message = string.Empty;
+    private bool _messageIsError;
+    private string _directoryFeedback = string.Empty;
+    private bool _directoryFeedbackIsError;
     private bool _isLoading;
     private bool _hasUnsavedChanges;
     private int _maxOpenReports = 10;
-    private string _selectedTheme = "Light";
+    private string _selectedTheme = AppSettingsConfig.LightTheme;
+    private string _persistedTheme = AppSettingsConfig.LightTheme;
+    private string? _themePreviewError;
 
     public SettingsViewModel(SettingsService settings, LogInboxService inbox, Func<int> getOpenReportCount, Func<string, string?> applyTheme)
     {
@@ -28,18 +36,20 @@ public sealed class SettingsViewModel : ViewModelBase
         _inbox = inbox;
         _getOpenReportCount = getOpenReportCount;
         _applyTheme = applyTheme;
-        SaveCommand = new DelegateCommand(() => _ = SaveAsync());
+        SaveCommand = new DelegateCommand(() => _ = SaveAsync(), CanSave);
         AddWatchDirectoryCommand = new DelegateCommand(AddWatchDirectory);
         RemoveWatchDirectoryCommand = new DelegateCommand(RemoveWatchDirectory, CanRemoveWatchDirectory);
         _ = LoadAsync();
     }
 
-    public ObservableCollection<string> WatchDirectories { get; } = new();
+    public ObservableCollection<WatchDirectoryItemViewModel> WatchDirectories { get; } = new();
+
     public IReadOnlyList<ThemeOption> ThemeOptions { get; } = new[]
     {
-        new ThemeOption("Light", "亮色"),
-        new ThemeOption("Dark", "深色")
+        new ThemeOption(AppSettingsConfig.LightTheme, "亮色"),
+        new ThemeOption(AppSettingsConfig.DarkTheme, "深色")
     };
+
     public string NewWatchDirectory
     {
         get => _newWatchDirectory;
@@ -48,29 +58,74 @@ public sealed class SettingsViewModel : ViewModelBase
             if (SetProperty(ref _newWatchDirectory, value)) ClearDirectoryFeedback();
         }
     }
-    public string? SelectedWatchDirectory
+
+    public WatchDirectoryItemViewModel? SelectedWatchDirectory
     {
         get => _selectedWatchDirectory;
         set
         {
-            if (SetProperty(ref _selectedWatchDirectory, value))
-            {
-                (RemoveWatchDirectoryCommand as DelegateCommand)?.RaiseCanExecuteChanged();
-                OnPropertyChanged(nameof(RemoveWatchDirectoryHint));
-            }
+            if (!SetProperty(ref _selectedWatchDirectory, value)) return;
+            (RemoveWatchDirectoryCommand as DelegateCommand)?.RaiseCanExecuteChanged();
+            OnPropertyChanged(nameof(RemoveWatchDirectoryHint));
         }
     }
-    public string Message { get => _message; private set => SetProperty(ref _message, value); }
-    public bool HasUnsavedChanges { get => _hasUnsavedChanges; private set => SetProperty(ref _hasUnsavedChanges, value); }
-    public string DirectoryFeedback { get => _directoryFeedback; private set => SetProperty(ref _directoryFeedback, value); }
-    public bool DirectoryFeedbackIsError { get => _directoryFeedbackIsError; private set => SetProperty(ref _directoryFeedbackIsError, value); }
-    public string WatchDirectoryCountText => $"已添加 {WatchDirectories.Count} 个目录";
+
+    public string Message
+    {
+        get => _message;
+        private set => SetProperty(ref _message, value);
+    }
+
+    public bool MessageIsError
+    {
+        get => _messageIsError;
+        private set => SetProperty(ref _messageIsError, value);
+    }
+
+    public bool HasUnsavedChanges
+    {
+        get => _hasUnsavedChanges;
+        private set
+        {
+            if (!SetProperty(ref _hasUnsavedChanges, value)) return;
+            OnPropertyChanged(nameof(WatchDirectoryCountText));
+            (SaveCommand as DelegateCommand)?.RaiseCanExecuteChanged();
+        }
+    }
+
+    public string DirectoryFeedback
+    {
+        get => _directoryFeedback;
+        private set
+        {
+            if (!SetProperty(ref _directoryFeedback, value)) return;
+            OnPropertyChanged(nameof(HasDirectoryFeedback));
+        }
+    }
+
+    public bool DirectoryFeedbackIsError
+    {
+        get => _directoryFeedbackIsError;
+        private set => SetProperty(ref _directoryFeedbackIsError, value);
+    }
+
+    public bool HasDirectoryFeedback => !string.IsNullOrWhiteSpace(DirectoryFeedback);
+    public bool HasWatchDirectories => WatchDirectories.Count > 0;
+    public bool HasUnsavedWatchDirectoryChanges => !CurrentWatchDirectoriesEqualSaved();
+
+    public string WatchDirectoryCountText
+        => HasUnsavedWatchDirectoryChanges
+            ? $"已添加 {WatchDirectories.Count} 个目录 · 待保存"
+            : $"已添加 {WatchDirectories.Count} 个目录";
+
     public string RemoveWatchDirectoryHint => WatchDirectories.Count <= 1
         ? "至少保留一个目录"
-        : string.IsNullOrWhiteSpace(SelectedWatchDirectory) ? "请选择一个目录" : "移除所选目录";
+        : SelectedWatchDirectory is null ? "请选择一个目录" : "移除所选目录";
+
     public ICommand SaveCommand { get; }
     public ICommand AddWatchDirectoryCommand { get; }
     public ICommand RemoveWatchDirectoryCommand { get; }
+
     public int MaxOpenReports
     {
         get => _maxOpenReports;
@@ -79,12 +134,15 @@ public sealed class SettingsViewModel : ViewModelBase
             if (SetProperty(ref _maxOpenReports, value)) MarkUnsaved();
         }
     }
+
     public string SelectedTheme
     {
         get => _selectedTheme;
         set
         {
-            if (SetProperty(ref _selectedTheme, value)) MarkUnsaved();
+            if (!SetProperty(ref _selectedTheme, value)) return;
+            MarkUnsaved();
+            ApplyThemePreview();
         }
     }
 
@@ -104,20 +162,19 @@ public sealed class SettingsViewModel : ViewModelBase
             return;
         }
 
-        if (WatchDirectories.Contains(normalized, StringComparer.OrdinalIgnoreCase))
+        if (WatchDirectories.Any(item => string.Equals(item.Path, normalized, StringComparison.OrdinalIgnoreCase)))
         {
             SetDirectoryFeedback("该目录已经添加，无需重复添加。", isError: true);
             return;
         }
 
-        WatchDirectories.Add(normalized);
+        var item = new WatchDirectoryItemViewModel(normalized);
+        WatchDirectories.Add(item);
         MarkUnsaved();
-        SelectedWatchDirectory = normalized;
+        SelectedWatchDirectory = item;
         NewWatchDirectory = string.Empty;
         SetDirectoryFeedback($"已添加目录（共 {WatchDirectories.Count} 个）。", isError: false);
-        OnPropertyChanged(nameof(WatchDirectoryCountText));
-        OnPropertyChanged(nameof(RemoveWatchDirectoryHint));
-        (RemoveWatchDirectoryCommand as DelegateCommand)?.RaiseCanExecuteChanged();
+        NotifyDirectoryCollectionChanged();
     }
 
     public void RemoveWatchDirectory()
@@ -132,13 +189,13 @@ public sealed class SettingsViewModel : ViewModelBase
         MarkUnsaved();
         SelectedWatchDirectory = WatchDirectories.FirstOrDefault();
         SetDirectoryFeedback($"已移除目录（剩余 {WatchDirectories.Count} 个）。", isError: false);
-        OnPropertyChanged(nameof(WatchDirectoryCountText));
-        OnPropertyChanged(nameof(RemoveWatchDirectoryHint));
-        (RemoveWatchDirectoryCommand as DelegateCommand)?.RaiseCanExecuteChanged();
+        NotifyDirectoryCollectionChanged();
     }
 
     private bool CanRemoveWatchDirectory()
-        => !string.IsNullOrWhiteSpace(SelectedWatchDirectory) && WatchDirectories.Count > 1;
+        => SelectedWatchDirectory is not null && WatchDirectories.Count > 1;
+
+    private bool CanSave() => HasUnsavedChanges && !_isLoading;
 
     private void SetDirectoryFeedback(string message, bool isError)
     {
@@ -153,61 +210,159 @@ public sealed class SettingsViewModel : ViewModelBase
         DirectoryFeedbackIsError = false;
     }
 
+    private void SetMessage(string message, bool isError)
+    {
+        MessageIsError = isError;
+        Message = message;
+    }
+
     private async Task LoadAsync()
     {
         _isLoading = true;
         try
         {
             WatchDirectories.Clear();
-            foreach (var directory in await _settings.GetWatchDirectoriesAsync()) WatchDirectories.Add(directory);
+            foreach (var directory in await _settings.GetWatchDirectoriesAsync())
+                WatchDirectories.Add(new WatchDirectoryItemViewModel(directory));
+
+            _savedWatchDirectories.Clear();
+            _savedWatchDirectories.AddRange(CurrentWatchDirectories());
             SelectedWatchDirectory = WatchDirectories.FirstOrDefault();
-            OnPropertyChanged(nameof(WatchDirectoryCountText));
-            OnPropertyChanged(nameof(RemoveWatchDirectoryHint));
-            (RemoveWatchDirectoryCommand as DelegateCommand)?.RaiseCanExecuteChanged();
+            NotifyDirectoryCollectionChanged();
+
             MaxOpenReports = await _settings.GetReportMaxTabsAsync();
             SelectedTheme = await _settings.GetThemeAsync();
+            _persistedTheme = SelectedTheme;
+            _themePreviewError = null;
             HasUnsavedChanges = false;
         }
-        catch (Exception ex) { Message = $"读取设置失败：{ex.Message}"; }
-        finally { _isLoading = false; }
+        catch (Exception ex)
+        {
+            SetMessage($"读取设置失败：{ex.Message}", isError: true);
+        }
+        finally
+        {
+            _isLoading = false;
+            (SaveCommand as DelegateCommand)?.RaiseCanExecuteChanged();
+        }
     }
 
     private async Task SaveAsync()
     {
+        if (!HasUnsavedChanges) return;
+
+        var themeChanged = !string.Equals(SelectedTheme, _persistedTheme, StringComparison.OrdinalIgnoreCase);
         try
         {
             if (MaxOpenReports is < 1 or > 10)
             {
-                Message = "最大打开报告数量必须在 1 到 10 之间。";
+                SetMessage("最大打开报告数量必须在 1 到 10 之间。", isError: true);
                 return;
             }
             if (WatchDirectories.Count == 0)
             {
-                Message = "至少需要一个日志监控目录。";
+                SetMessage("至少需要一个日志监控目录。", isError: true);
                 return;
             }
             if (MaxOpenReports < _getOpenReportCount())
             {
-                Message = $"当前已打开 {_getOpenReportCount()} 个报告，请先关闭多余报告。";
+                SetMessage($"当前已打开 {_getOpenReportCount()} 个报告，请先关闭多余报告。", isError: true);
                 return;
             }
-            await _inbox.SetWatchDirectoriesAsync(WatchDirectories);
+            if (_themePreviewError is not null)
+            {
+                SetMessage($"主题预览失败，未保存主题：{_themePreviewError}", isError: true);
+                return;
+            }
+
+            await _inbox.SetWatchDirectoriesAsync(CurrentWatchDirectories());
             await _settings.SetReportMaxTabsAsync(MaxOpenReports);
             await _settings.SetThemeAsync(SelectedTheme);
-            if (_applyTheme(SelectedTheme) is { } themeError)
-            {
-                Message = $"主题切换失败：{themeError}";
-                return;
-            }
+
+            foreach (var directory in WatchDirectories) directory.RefreshAvailability();
+            _savedWatchDirectories.Clear();
+            _savedWatchDirectories.AddRange(CurrentWatchDirectories());
+            _persistedTheme = SelectedTheme;
             HasUnsavedChanges = false;
-            Message = "设置已保存。";
+            SetMessage("设置已保存。", isError: false);
         }
-        catch (Exception ex) { Message = $"保存失败：{ex.Message}"; }
+        catch (Exception ex)
+        {
+            var prefix = themeChanged && _themePreviewError is null
+                ? "设置保存失败：主题预览已应用但尚未保存。"
+                : "保存失败：";
+            SetMessage($"{prefix}{ex.Message}", isError: true);
+        }
+    }
+
+    private void ApplyThemePreview()
+    {
+        if (_isLoading) return;
+
+        try
+        {
+            _themePreviewError = _applyTheme(SelectedTheme);
+        }
+        catch (Exception ex)
+        {
+            _themePreviewError = ex.Message;
+        }
+
+        if (_themePreviewError is null)
+            SetMessage("主题预览已应用，点击保存设置后持久化。", isError: false);
+        else
+            SetMessage($"主题预览失败：{_themePreviewError}", isError: true);
     }
 
     private void MarkUnsaved()
     {
         if (!_isLoading) HasUnsavedChanges = true;
+    }
+
+    private IReadOnlyList<string> CurrentWatchDirectories()
+        => WatchDirectories.Select(item => item.Path).ToArray();
+
+    private bool CurrentWatchDirectoriesEqualSaved()
+        => CurrentWatchDirectories().SequenceEqual(_savedWatchDirectories, StringComparer.OrdinalIgnoreCase);
+
+    private void NotifyDirectoryCollectionChanged()
+    {
+        OnPropertyChanged(nameof(HasWatchDirectories));
+        OnPropertyChanged(nameof(HasUnsavedWatchDirectoryChanges));
+        OnPropertyChanged(nameof(WatchDirectoryCountText));
+        OnPropertyChanged(nameof(RemoveWatchDirectoryHint));
+        (RemoveWatchDirectoryCommand as DelegateCommand)?.RaiseCanExecuteChanged();
+    }
+}
+
+/// <summary>
+/// 设置页中的目录展示项。
+/// 目录状态只用于帮助用户判断配置是否可用，不参与配置持久化。
+/// </summary>
+public sealed class WatchDirectoryItemViewModel : ViewModelBase
+{
+    private bool _isAccessible;
+
+    public WatchDirectoryItemViewModel(string path)
+    {
+        Path = path;
+        RefreshAvailability();
+    }
+
+    public string Path { get; }
+    public bool IsAccessible
+    {
+        get => _isAccessible;
+        private set => SetProperty(ref _isAccessible, value);
+    }
+
+    public string AvailabilityText => IsAccessible ? "可访问" : "路径不存在或无法访问";
+
+    public void RefreshAvailability()
+    {
+        var isAccessible = Directory.Exists(Path);
+        if (!SetProperty(ref _isAccessible, isAccessible)) return;
+        OnPropertyChanged(nameof(AvailabilityText));
     }
 }
 

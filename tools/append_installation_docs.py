@@ -42,7 +42,7 @@ def append_sds() -> None:
     ])
 
     document.add_heading("5.4 正常启动顺序", level=2)
-    document.add_paragraph("加载 bootstrap 指针 → 初始化目录和数据库 → 读取当前设置 → 登记内置插件 → 启动多目录日志监控 → 恢复报告会话 → 进入 Dashboard。")
+    document.add_paragraph("加载 bootstrap 指针 → 初始化目录和数据库 → 读取当前设置 → 登记内置插件 → 启动多目录日志监控 → 进入 Dashboard。")
 
     document.add_heading("5.5 升级、卸载与恢复", level=2)
     add_bullets(document, [
@@ -65,7 +65,7 @@ def append_tdd() -> None:
     document.add_heading("5.1 配置模型", level=2)
     document.add_paragraph("WorkbenchConfigurationService 负责三个 JSON 文件的读取、默认值校验和原子写入：")
     add_bullets(document, [
-        "appsettings.json：Theme、MaxReportTabs、AutoRestoreReports。",
+        "appsettings.json：Theme、MaxReportTabs。",
         "workspace.json：DataPath、MonitorPaths。路径保存为绝对路径并去重。",
         "plugins.json：插件 Id、Version 和 Enabled；插件文件仍由 Plugins 目录发现。",
     ])
