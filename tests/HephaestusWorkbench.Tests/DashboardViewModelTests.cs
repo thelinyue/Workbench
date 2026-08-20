@@ -191,7 +191,8 @@ public sealed class DashboardViewModelTests
                 runner,
                 runner,
                 new TaskCenter(tasks),
-                logger);
+                logger,
+                new SqliteAnalysisLifecycleRepository(factory));
             var inbox = new LogInboxService(new LogFileParser(), new ArchiveValidator(), new MemorySettingsStore(), logger, paths.InboxDirectory);
             return new TestEnvironment(root, paths, inbox, analysis, new StorageService(paths, cases, logger), logger);
         }

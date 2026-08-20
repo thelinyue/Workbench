@@ -40,7 +40,7 @@ SSH ──> not implemented
 | Case Analysis | 写 Case/Task/Report | 读取插件目录结果 | 管理监控目录中的原始日志、同名解压目录和 report 子目录 | 通过 runner 启动 | `StateChanged` |
 | Task Center | 写入由 Analysis 完成 | 不访问 | 不直接访问 | 管理取消令牌 | `TaskChanged` |
 | Plugin | 同步 plugin_info | 读在线目录和 manifest，写默认/启用配置 | 安全安装、更新和卸载 Plugins 目录 | 启动 EXE | 在线目录、安装状态、Issues |
-| Report | 查询 reports/session/case | 读取报告偏好 | 读取 `report.html` | WebView2 宿主进程 | Tab、筛选、阅读位置 |
+| Report（分析中心内嵌） | 查询 reports/case | 读取报告偏好 | 读取 `report.html` | WebView2 宿主进程 | 分析中心 Tab、阅读位置 |
 | Storage | 读取案例元数据 | 不访问 | 按数据库路径统计/删除原始日志、解压目录和报告 | 不负责 | 占用统计 |
 | Installer | 不访问运行时数据库 | 不访问运行时配置 | 安装目录、Payload、升级备份 | 发布/运行安装器 | 安装器窗口 |
 | Legacy Script | 不访问 WPF 数据库 | 自有脚本配置 | 直接处理日志和配置 | 可生成 SSH 命令 | 控制台交互 |
@@ -71,7 +71,7 @@ SSH ──> not implemented
 
 名称：Core Models 与 Repository Interfaces  
 路径：`src/HephaestusWorkbench.Core`  
-职责：定义 `AnalysisCase`、`AnalysisTask`、`Report`、`ReportSummary`、`ReportSession`、`PluginInfo`、`LogInboxItem`、配置模型、状态枚举以及仓储接口。  
+职责：定义 `AnalysisCase`、`AnalysisTask`、`Report`、`ReportSummary`、`PluginInfo`、`LogInboxItem`、配置模型、状态枚举以及仓储接口。
 入口文件：
 
 - `Models/*.cs`
@@ -89,7 +89,7 @@ SSH ──> not implemented
 
 名称：Data、SQLite 初始化与仓储  
 路径：`src/HephaestusWorkbench.Data`  
-职责：管理用户数据根目录、SQLite 连接、数据库初始化/迁移以及 Case、Task、Report、ReportSession、PluginInfo、Settings 仓储。  
+职责：管理用户数据根目录、SQLite 连接、数据库初始化/迁移以及 Case、Task、Report、PluginInfo、Settings 仓储。
 入口文件：
 
 - `DataPaths.cs`
@@ -233,27 +233,25 @@ SSH ──> not implemented
 
 ## 12. Report Service 与 Report Workspace 模块
 
-名称：报告服务、报告库、Tab 工作区和查看器  
+名称：报告服务、分析中心 Tab 工作区和查看器
 路径：
 
 - `src/HephaestusWorkbench.Services/ReportService.cs`
-- `src/HephaestusWorkbench.App/ViewModels/ReportsViewModel.cs`
 - `ReportsWorkspaceViewModel.cs`
 - `ReportTabViewModel.cs`
-- `src/HephaestusWorkbench.App/Views/ReportPage.xaml.cs`
 - `ReportViewerControl.xaml.cs`
 
-职责：查询报告、按关键字/设备/插件/日期筛选、打开和关闭报告 Tab、保存恢复状态，并使用 WebView2 加载只读 `report.html`。  
-入口文件：`ReportService.ListAsync`、`ReportsWorkspaceViewModel.InitializeAsync`、`OpenReportAsync`、`ReportViewerControl.OnLoaded`。  
+职责：为分析中心查询报告状态、打开和关闭报告 Tab，并使用 WebView2 加载只读 `report.html`。
+入口文件：`ReportService.ListAsync`、`ReportsWorkspaceViewModel.OpenReportAsync`、`ReportViewerControl.OnLoaded`。
 依赖：Core、Data repositories、SettingsService、CaseAnalysisService、WebView2。  
-输入：`ReportQuery`、ReportSession、报告目录、用户筛选和 Tab 操作。  
-输出：`ReportSummary` 列表、`ReportSession` 持久化、WebView2 内容和滚动位置。  
+输入：`ReportQuery`、报告目录和 Tab 操作。
+输出：`ReportSummary` 列表、进程内报告 Tab、WebView2 内容和滚动位置。
 风险点：
 
 - 当前最多打开 10 个报告，设置值和活动 Tab 状态需要保持一致。
-- 报告中心删除报告的产品语义是删除所属 Case 及全部数据，不只是删除 HTML。
+- 分析中心删除案例的产品语义是删除所属 Case 及全部数据，不只是删除 HTML。
 - 本地 HTML 由插件生成，报告内容的信任边界需要明确。
-- 报告文件丢失时必须保持非阻断提示和可恢复的报告库状态。
+- 报告文件丢失时必须保持非阻断提示，并允许用户继续使用分析中心其他日志。
 
 ## 13. Storage 模块
 
@@ -380,7 +378,6 @@ SSH ──> not implemented
   → TaskCenter
   → PluginCatalog + IPluginRunner
   → Case/Task/Report repositories
-  → ReportsViewModel
   → ReportsWorkspaceViewModel
   → WebView2 report.html
 ```
@@ -388,12 +385,12 @@ SSH ──> not implemented
 ### 报告删除与数据清理
 
 ```text
-报告中心删除
+分析中心删除案例
   → ReportService.DeleteReportAndCaseAsync
   → CaseAnalysisService.DeleteAsync
   → 删除数据库记录中的源日志、解压目录和报告路径
   → 删除 analysis_cases
-  → SQLite 外键级联删除 Tasks/Reports/ReportSessions
+  → SQLite 外键级联删除 Tasks/Reports（历史 report_sessions 表保留但不再由运行时代码使用）
 
 存储页面清理
   → StorageService.CleanCaseDataAsync

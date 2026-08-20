@@ -125,11 +125,11 @@ public sealed class MarketplacePluginsPageTests
                 analysisPage.UpdateLayout();
 
                 var analysisList = Assert.IsAssignableFrom<FrameworkElement>(analysisPage.FindName("AnalysisListHost"));
-                // 报告查看器已提升到主窗口的顶层报告页，分析中心不再创建第二个宿主。
+                // 报告查看器内嵌于分析中心，列表宿主仍由分析中心承载。
                 Assert.Null(analysisPage.FindName("ReportWorkspaceHost"));
                 Assert.Equal(Visibility.Visible, analysisList.Visibility);
 
-                analysisData.Reports.IsLibraryVisible = false;
+                analysisData.Reports.IsAnalysisListVisible = false;
                 analysisPage.UpdateLayout();
                 Assert.Equal(Visibility.Collapsed, analysisList.Visibility);
             }
@@ -212,25 +212,25 @@ public sealed class MarketplacePluginsPageTests
 
     private sealed class ReportWorkspaceData : INotifyPropertyChanged
     {
-        private bool _isLibraryVisible = true;
+        private bool _isAnalysisListVisible = true;
 
         public event PropertyChangedEventHandler? PropertyChanged;
 
-        public bool IsLibraryVisible
+        public bool IsAnalysisListVisible
         {
-            get => _isLibraryVisible;
+            get => _isAnalysisListVisible;
             set
             {
-                if (_isLibraryVisible == value) return;
-                _isLibraryVisible = value;
-                PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(IsLibraryVisible)));
+                if (_isAnalysisListVisible == value) return;
+                _isAnalysisListVisible = value;
+                PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(IsAnalysisListVisible)));
             }
         }
 
         public bool HasOpenTabs => false;
         public object Library { get; } = new();
         public ObservableCollection<object> OpenTabs { get; } = new();
-        public ICommand ShowLibraryCommand { get; } = ApplicationCommands.NotACommand;
+        public ICommand ShowAnalysisListCommand { get; } = ApplicationCommands.NotACommand;
         public ICommand OpenTabCommand { get; } = ApplicationCommands.NotACommand;
         public ICommand CloseTabCommand { get; } = ApplicationCommands.NotACommand;
         public ICommand OpenSelectedExtractDirectoryCommand { get; } = ApplicationCommands.NotACommand;

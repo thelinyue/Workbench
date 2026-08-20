@@ -16,7 +16,6 @@
         <DataTemplate DataType="{x:Type vm:AnalysisCenterViewModel}"><views:AnalysisCenterPage /></DataTemplate>
         <DataTemplate DataType="{x:Type vm:SettingsViewModel}"><views:SettingsPage /></DataTemplate>
         <DataTemplate DataType="{x:Type vm:MarketplacePluginsViewModel}"><views:MarketplacePluginsPage /></DataTemplate>
-        <DataTemplate DataType="{x:Type vm:ReportsWorkspaceViewModel}"><views:ReportPage /></DataTemplate>
         </ResourceDictionary>
     </Application.Resources>
 </Application>

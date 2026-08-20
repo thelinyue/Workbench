@@ -136,6 +136,47 @@ public sealed class SqliteAnalysisLifecycleRepository : IAnalysisLifecycleReposi
         await transaction.CommitAsync(cancellationToken);
     }
 
+    /// <summary>
+    /// 显式删除完整分析生命周期的数据库记录，不依赖历史数据库是否配置了外键级联。
+    /// 删除顺序必须先处理报告会话，再处理报告、任务和案例，避免旧库留下孤儿记录。
+    /// </summary>
+    public async Task DeleteByCaseIdsAsync(IReadOnlyCollection<string> caseIds, CancellationToken cancellationToken = default)
+    {
+        var ids = caseIds
+            .Where(id => !string.IsNullOrWhiteSpace(id))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+        if (ids.Length == 0) return;
+
+        await using var connection = await _factory.OpenAsync(cancellationToken);
+        await using var transaction = (Microsoft.Data.Sqlite.SqliteTransaction)await connection.BeginTransactionAsync(cancellationToken);
+        var parameters = string.Join(", ", ids.Select((_, index) => $"$case_id_{index}"));
+
+        await ExecuteAsync(connection, transaction,
+            $"DELETE FROM report_sessions WHERE report_id IN (SELECT id FROM reports WHERE case_id IN ({parameters}));",
+            AddCaseIdParameters,
+            cancellationToken);
+        await ExecuteAsync(connection, transaction,
+            $"DELETE FROM reports WHERE case_id IN ({parameters});",
+            AddCaseIdParameters,
+            cancellationToken);
+        await ExecuteAsync(connection, transaction,
+            $"DELETE FROM analysis_tasks WHERE case_id IN ({parameters});",
+            AddCaseIdParameters,
+            cancellationToken);
+        await ExecuteAsync(connection, transaction,
+            $"DELETE FROM analysis_cases WHERE id IN ({parameters});",
+            AddCaseIdParameters,
+            cancellationToken);
+
+        await transaction.CommitAsync(cancellationToken);
+
+        void AddCaseIdParameters(Microsoft.Data.Sqlite.SqliteCommand command)
+        {
+            for (var index = 0; index < ids.Length; index++)
+                command.Parameters.AddWithValue($"$case_id_{index}", ids[index]);
+        }
+    }
     public async Task<int> RecoverInterruptedAsync(DateTime recoveredAt, CancellationToken cancellationToken = default)
     {
         await using var connection = await _factory.OpenAsync(cancellationToken);

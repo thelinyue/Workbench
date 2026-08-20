@@ -24,14 +24,23 @@
                         </StackPanel>
                         <TextBlock Text="{Binding WatchDirectoryCountText}" Style="{StaticResource MutedTextStyle}" HorizontalAlignment="Right" VerticalAlignment="Center"/>
                     </Grid>
-                    <TextBlock Text="程序会扫描以下目录中符合命名规则的 .tgz 文件。可输入路径或点击浏览选择文件夹。" Style="{StaticResource MutedTextStyle}" TextWrapping="Wrap" Margin="0,0,0,12"/>
-                    <ListBox ItemsSource="{Binding WatchDirectories}" SelectedItem="{Binding SelectedWatchDirectory}" Height="150" ScrollViewer.VerticalScrollBarVisibility="Auto" ItemContainerStyle="{StaticResource DirectoryListItemStyle}">
+                    <TextBlock Text="程序会扫描以下目录中符合命名规则的 .tgz 文件。添加或移除目录后，请点击“保存设置”使更改生效。" Style="{StaticResource MutedTextStyle}" TextWrapping="Wrap" Margin="0,0,0,12"/>
+                    <ListBox ItemsSource="{Binding WatchDirectories}" SelectedItem="{Binding SelectedWatchDirectory}" MinHeight="64" MaxHeight="150" ScrollViewer.VerticalScrollBarVisibility="Auto" ItemContainerStyle="{StaticResource DirectoryListItemStyle}" Visibility="{Binding HasWatchDirectories, Converter={StaticResource BooleanToVisibilityConverter}}">
                         <ListBox.ItemTemplate>
                             <DataTemplate>
-                                <TextBlock Text="{Binding}" ToolTip="{Binding}" TextTrimming="CharacterEllipsis"/>
+                                <StackPanel>
+                                    <TextBlock Text="{Binding Path}" ToolTip="{Binding Path}" TextTrimming="CharacterEllipsis"/>
+                                    <TextBlock Text="{Binding AvailabilityText}" Style="{StaticResource MutedTextStyle}" Margin="0,3,0,0"/>
+                                </StackPanel>
                             </DataTemplate>
                         </ListBox.ItemTemplate>
                     </ListBox>
+                    <Border Style="{StaticResource CommandStripStyle}" Visibility="{Binding HasWatchDirectories, Converter={StaticResource InverseBooleanToVisibilityConverter}}">
+                        <StackPanel>
+                            <TextBlock Text="尚未添加监控目录" FontWeight="SemiBold"/>
+                            <TextBlock Text="添加一个目录后，程序才会扫描其中符合命名规则的 .tgz 文件。" Style="{StaticResource MutedTextStyle}" TextWrapping="Wrap" Margin="0,4,0,0"/>
+                        </StackPanel>
+                    </Border>
                     <Grid Margin="0,12,0,0">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="*"/>
@@ -46,8 +55,8 @@
                         <Button Grid.Column="1" Content="浏览" Click="BrowseWatchDirectory_Click" Width="88"/>
                         <Button Grid.Column="2" Content="添加目录" Command="{Binding AddWatchDirectoryCommand}" Style="{StaticResource PrimaryButtonStyle}" Width="108" Margin="0"/>
                     </Grid>
-                    <TextBlock Text="{Binding DirectoryFeedback}" Style="{StaticResource InlineFeedbackStyle}"/>
-                    <DockPanel Margin="0,12,0,0">
+                    <TextBlock Text="{Binding DirectoryFeedback}" Style="{StaticResource InlineFeedbackStyle}" Visibility="{Binding HasDirectoryFeedback, Converter={StaticResource BooleanToVisibilityConverter}}"/>
+                    <DockPanel LastChildFill="False" Margin="0,12,0,0">
                         <TextBlock Text="{Binding RemoveWatchDirectoryHint}" Style="{StaticResource MutedTextStyle}" VerticalAlignment="Center"/>
                         <Button DockPanel.Dock="Right" Content="移除选中目录" Command="{Binding RemoveWatchDirectoryCommand}" ToolTipService.ShowOnDisabled="True" ToolTip="{Binding RemoveWatchDirectoryHint}" Margin="0"/>
                     </DockPanel>
@@ -67,7 +76,7 @@
                     <StackPanel>
                         <TextBlock Text="报告" Style="{StaticResource SectionTitleStyle}"/>
                         <TextBlock Text="报告仅在当前运行期间保留，程序重启后不恢复报告标签。" Style="{StaticResource MutedTextStyle}" TextWrapping="Wrap" Margin="0,0,0,12"/>
-                        <TextBlock Text="最大打开报告数量（1–10）" Style="{StaticResource MutedTextStyle}" Margin="0,0,0,5"/>
+                        <TextBlock Text="同时打开的报告标签上限（1–10）" Style="{StaticResource MutedTextStyle}" Margin="0,0,0,5"/>
                         <TextBox Width="100" HorizontalAlignment="Left" ToolTip="请输入 1 到 10">
                             <TextBox.Text>
                                 <Binding Path="MaxOpenReports" UpdateSourceTrigger="PropertyChanged" ValidatesOnExceptions="True">
@@ -81,17 +90,20 @@
                 </Border>
             </StackPanel>
 
-            <Grid x:Name="SettingsActionsPanel" Grid.Row="1" Grid.ColumnSpan="2" Margin="0,2,0,0">
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="Auto"/>
-                    <ColumnDefinition Width="*"/>
-                </Grid.ColumnDefinitions>
-                <Button Content="保存设置" Style="{StaticResource PrimaryButtonStyle}" Command="{Binding SaveCommand}" HorizontalAlignment="Left"/>
-                <StackPanel Grid.Column="1" Margin="4,0,0,0" VerticalAlignment="Center">
-                    <TextBlock Text="有未保存更改" Foreground="{DynamicResource WorkbenchWarningBrush}" Visibility="{Binding HasUnsavedChanges, Converter={StaticResource BooleanToVisibilityConverter}}"/>
-                    <TextBlock Text="{Binding Message}" Foreground="{DynamicResource WorkbenchSuccessBrush}" TextWrapping="Wrap"/>
-                </StackPanel>
-            </Grid>
+            <Border x:Name="SettingsActionsPanel" Grid.Row="1" Grid.ColumnSpan="2" Style="{StaticResource CommandStripStyle}" Margin="0,2,0,0">
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+                    <StackPanel Grid.Column="0" VerticalAlignment="Center">
+                        <TextBlock Text="有未保存更改" Foreground="{DynamicResource WorkbenchWarningBrush}" Visibility="{Binding HasUnsavedChanges, Converter={StaticResource BooleanToVisibilityConverter}}"/>
+                        <TextBlock Text="{Binding Message}" Foreground="{DynamicResource WorkbenchDangerBrush}" TextWrapping="Wrap" Visibility="{Binding MessageIsError, Converter={StaticResource BooleanToVisibilityConverter}}"/>
+                        <TextBlock Text="{Binding Message}" Foreground="{DynamicResource WorkbenchSuccessBrush}" TextWrapping="Wrap" Visibility="{Binding MessageIsError, Converter={StaticResource InverseBooleanToVisibilityConverter}}"/>
+                    </StackPanel>
+                    <Button Grid.Column="1" Content="保存设置" Style="{StaticResource PrimaryButtonStyle}" Command="{Binding SaveCommand}" HorizontalAlignment="Right" Margin="0"/>
+                </Grid>
+            </Border>
         </Grid>
     </ScrollViewer>
 </UserControl>

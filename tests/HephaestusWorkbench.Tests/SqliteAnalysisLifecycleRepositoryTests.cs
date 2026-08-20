@@ -72,6 +72,43 @@ public sealed class SqliteAnalysisLifecycleRepositoryTests
         }
     }
 
+    [Fact]
+    public async Task DeleteByCaseIdsAsync_DeletesSessionsReportsTasksAndCasesInOneTransaction()
+    {
+        var root = CreateRoot();
+        try
+        {
+            var paths = new DataPaths(root);
+            var factory = new SqliteConnectionFactory(paths);
+            await new DatabaseInitializer(factory).InitializeAsync();
+            var cases = new SqliteCaseRepository(factory);
+            var tasks = new SqliteTaskRepository(factory);
+            var reports = new SqliteReportRepository(factory);
+            var lifecycle = new SqliteAnalysisLifecycleRepository(factory);
+            var now = DateTime.Now;
+            await cases.InsertAsync(NewCase("case-delete", now, CaseStatus.Completed));
+            await tasks.InsertAsync(NewTask("case-delete", AnalysisTaskStatus.Completed));
+            await reports.InsertAsync(new Report
+            {
+                Id = "report-delete",
+                CaseId = "case-delete",
+                Path = Path.Combine(root, "report"),
+                CreateTime = now
+            });
+            await InsertReportSessionAsync(factory, "report-delete");
+
+            await lifecycle.DeleteByCaseIdsAsync(new[] { "case-delete" });
+
+            Assert.Equal(0, await CountRowsAsync(factory, "report_sessions"));
+            Assert.Equal(0, await CountRowsAsync(factory, "reports"));
+            Assert.Equal(0, await CountRowsAsync(factory, "analysis_tasks"));
+            Assert.Equal(0, await CountRowsAsync(factory, "analysis_cases"));
+        }
+        finally
+        {
+            DeleteRoot(root);
+        }
+    }
     private static AnalysisCase NewCase(string id, DateTime now, CaseStatus status) => new()
     {
         Id = id,
@@ -94,6 +131,27 @@ public sealed class SqliteAnalysisLifecycleRepositoryTests
         Status = status
     };
 
+    private static async Task InsertReportSessionAsync(SqliteConnectionFactory factory, string reportId)
+    {
+        await using var connection = await factory.OpenAsync();
+        await using var command = connection.CreateCommand();
+        command.CommandText = """
+            INSERT INTO report_sessions (id, report_id, order_index, is_active, scroll_position, last_open_time)
+            VALUES ($id, $report_id, 0, 1, 0, $last_open_time)
+            """;
+        command.Parameters.AddWithValue("$id", $"session-{reportId}");
+        command.Parameters.AddWithValue("$report_id", reportId);
+        command.Parameters.AddWithValue("$last_open_time", DateTime.Now.ToString("O"));
+        await command.ExecuteNonQueryAsync();
+    }
+
+    private static async Task<long> CountRowsAsync(SqliteConnectionFactory factory, string table)
+    {
+        await using var connection = await factory.OpenAsync();
+        await using var command = connection.CreateCommand();
+        command.CommandText = $"SELECT COUNT(*) FROM {table}";
+        return (long)(await command.ExecuteScalarAsync())!;
+    }
     private static string CreateRoot()
     {
         var root = Path.Combine(Path.GetTempPath(), "HephaestusWorkbenchTests", Guid.NewGuid().ToString("N"));

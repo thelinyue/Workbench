@@ -21,6 +21,50 @@
             <Setter Property="FontFamily" Value="Segoe UI"/>
             <Setter Property="Padding" Value="8,5"/>
         </Style>
+        <!--
+            标签按钮仍然保留可聚焦和键盘操作能力，但不复用全局 Button 模板中
+            “IsKeyboardFocused -> 加粗边框”的视觉反馈。FocusVisualStyle 只在键盘导航
+            获得焦点时显示，因此鼠标点击切换标签不会留下选中框。
+        -->
+        <Style x:Key="ReportTabKeyboardFocusVisualStyle" TargetType="Control">
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate>
+                        <Border BorderBrush="{DynamicResource WorkbenchPrimaryBrush}" BorderThickness="2" CornerRadius="5">
+                            <AdornedElementPlaceholder/>
+                        </Border>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+        <Style x:Key="ReportTabButtonStyle" TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
+            <Setter Property="FocusVisualStyle" Value="{StaticResource ReportTabKeyboardFocusVisualStyle}"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="Border"
+                                Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}"
+                                CornerRadius="5"
+                                Padding="{TemplateBinding Padding}">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Border" Property="Background" Value="{DynamicResource WorkbenchHoverBrush}"/>
+                            </Trigger>
+                            <Trigger Property="IsPressed" Value="True">
+                                <Setter TargetName="Border" Property="Opacity" Value="0.78"/>
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter TargetName="Border" Property="Opacity" Value="0.45"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
         <Style x:Key="AnalysisRowItemStyle" TargetType="ListBoxItem" BasedOn="{StaticResource {x:Type ListBoxItem}}">
             <Setter Property="Margin" Value="0,0,0,4"/>
             <Setter Property="Padding" Value="0"/>
@@ -50,7 +94,40 @@
         </Style>
     </UserControl.Resources>
 
-    <Grid x:Name="AnalysisListHost" Visibility="{Binding Reports.IsLibraryVisible, Converter={StaticResource BooleanToVisibilityConverter}}">
+    <Grid>
+        <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
+        <Border x:Name="ReportTabStrip" Grid.Row="0" Style="{StaticResource TabStripStyle}" Padding="10,8" Margin="0,0,0,10" Visibility="{Binding Reports.HasOpenTabs, Converter={StaticResource BooleanToVisibilityConverter}}">
+            <DockPanel>
+                <StackPanel DockPanel.Dock="Left" Margin="0,0,14,0" VerticalAlignment="Center">
+                    <TextBlock Text="报告查看器" FontWeight="SemiBold"/>
+                    <TextBlock Text="ANALYSIS CENTER" Style="{StaticResource MutedTextStyle}" Margin="0,3,0,0"/>
+                </StackPanel>
+                <Button DockPanel.Dock="Left" Content="返回分析中心" Command="{Binding Reports.ShowAnalysisListCommand}" Click="OnShowAnalysisListClick" Margin="0,0,8,0" ToolTip="返回分析中心日志列表" AutomationProperties.Name="返回分析中心"/>
+                <Button DockPanel.Dock="Right" Content="打开解压目录" Command="{Binding Reports.OpenSelectedExtractDirectoryCommand}" Margin="8,0,0,0" Visibility="{Binding Reports.IsAnalysisListVisible, Converter={StaticResource InverseBooleanToVisibilityConverter}}"/>
+                <ScrollViewer HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled">
+                    <ItemsControl ItemsSource="{Binding Reports.OpenTabs}">
+                        <ItemsControl.ItemsPanel><ItemsPanelTemplate><StackPanel Orientation="Horizontal"/></ItemsPanelTemplate></ItemsControl.ItemsPanel>
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate>
+                                <Border BorderThickness="1" CornerRadius="3" Margin="0,0,6,0" Padding="10,6">
+                                    <Border.Style>
+                                        <Style TargetType="Border">
+                                            <Setter Property="Background" Value="{DynamicResource WorkbenchSurfaceAltBrush}"/>
+                                            <Setter Property="BorderBrush" Value="{DynamicResource WorkbenchBorderBrush}"/>
+                                        </Style>
+                                    </Border.Style>
+                                    <StackPanel Orientation="Horizontal">
+                                        <Button Content="{Binding Title}" Style="{StaticResource ReportTabButtonStyle}" Command="{Binding DataContext.Reports.OpenTabCommand, RelativeSource={RelativeSource AncestorType=UserControl}}" CommandParameter="{Binding}" Background="Transparent" BorderThickness="0" Padding="0" Margin="0,0,8,0" IsTabStop="True" AutomationProperties.Name="打开报告标签"/>
+                                        <Button Content="×" Style="{StaticResource ReportTabButtonStyle}" Command="{Binding DataContext.Reports.CloseTabCommand, RelativeSource={RelativeSource AncestorType=UserControl}}" CommandParameter="{Binding}" Background="Transparent" BorderThickness="0" Padding="2,0" IsTabStop="True" AutomationProperties.Name="关闭报告标签"/>
+                                    </StackPanel>
+                                </Border>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                </ScrollViewer>
+            </DockPanel>
+        </Border>
+        <Grid x:Name="AnalysisListHost" Grid.Row="1" Visibility="{Binding Reports.IsAnalysisListVisible, Converter={StaticResource BooleanToVisibilityConverter}}">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="Auto"/>
@@ -145,7 +222,7 @@
                                         <TextBlock Text="{Binding SourceStateText}" Style="{StaticResource MutedTextStyle}" Margin="0,4,0,0" ToolTip="{Binding SourceStateText}"/>
                                     </StackPanel>
                                     <StackPanel Grid.Column="3" Orientation="Horizontal" VerticalAlignment="Center">
-                                        <Button Content="{Binding Attempts.Count}" ContentStringFormat="历史（{0}）" Style="{StaticResource CompactButtonStyle}" Command="{Binding DataContext.ToggleHistoryCommand, ElementName=Root}" CommandParameter="{Binding}" ToolTip="展开或收起该日志的历史分析记录"/>
+                                        <Button Content="{Binding SingleAnalysisText}" Style="{StaticResource CompactButtonStyle}" Command="{Binding DataContext.AnalyzeSingleCommand, ElementName=Root}" CommandParameter="{Binding}" ToolTip="开始分析或重新分析该日志"/>
                                         <Button Content="打开报告" Style="{StaticResource CompactPrimaryButtonStyle}" Command="{Binding DataContext.OpenRowReportCommand, ElementName=Root}" CommandParameter="{Binding}"/>
                                         <Menu Style="{StaticResource MoreMenuStyle}" ToolTip="更多操作">
                                             <MenuItem Style="{StaticResource MoreMenuItemStyle}">
@@ -160,49 +237,6 @@
                                     </StackPanel>
                                 </Grid>
 
-                                <Border Background="{DynamicResource WorkbenchSurfaceAltBrush}" BorderBrush="{DynamicResource WorkbenchBorderBrush}" BorderThickness="0,1,0,0" Padding="12,10" Visibility="{Binding IsHistoryExpanded, Converter={StaticResource BooleanToVisibilityConverter}}">
-                                    <StackPanel>
-                                        <TextBlock Text="历次分析记录" FontWeight="SemiBold" Margin="0,0,0,7"/>
-                                        <ItemsControl ItemsSource="{Binding Attempts}">
-                                            <ItemsControl.ItemTemplate>
-                                                <DataTemplate>
-                                                    <Border BorderBrush="{DynamicResource WorkbenchBorderBrush}" BorderThickness="0,0,0,1" Padding="0,8">
-                                                        <Grid>
-                                                            <Grid.ColumnDefinitions><ColumnDefinition Width="*" MinWidth="180"/><ColumnDefinition Width="120"/><ColumnDefinition Width="110"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
-                                                            <StackPanel Margin="0,0,12,0">
-                                                                <TextBlock Text="{Binding Case.DisplayName}" FontWeight="SemiBold" Visibility="{Binding IsRenaming, Converter={StaticResource InverseBooleanToVisibilityConverter}}"/>
-                                                                <DockPanel Visibility="{Binding IsRenaming, Converter={StaticResource BooleanToVisibilityConverter}}">
-                                                                    <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Margin="6,0,0,0">
-                                                                        <Button Content="保存" Style="{StaticResource CompactPrimaryButtonStyle}" Command="{Binding DataContext.RenameCommand, ElementName=Root}" CommandParameter="{Binding}"/>
-                                                                        <Button Content="取消" Style="{StaticResource CompactButtonStyle}" Command="{Binding DataContext.CancelRenameCommand, ElementName=Root}" CommandParameter="{Binding}" Margin="0"/>
-                                                                    </StackPanel>
-                                                                    <TextBox Text="{Binding DataContext.CaseName, ElementName=Root, UpdateSourceTrigger=PropertyChanged}" Margin="0"/>
-                                                                </DockPanel>
-                                                                <TextBlock Text="{Binding PluginName}" Style="{StaticResource MutedTextStyle}" Margin="0,3,0,0"/>
-                                                                <TextBlock Text="{Binding ErrorMessage}" Foreground="{DynamicResource WorkbenchDangerBrush}" FontSize="12" TextWrapping="Wrap" Margin="0,3,0,0" Visibility="{Binding HasError, Converter={StaticResource BooleanToVisibilityConverter}}"/>
-                                                            </StackPanel>
-                                                            <Border Grid.Column="1" Background="{Binding StatusValue, Converter={StaticResource StatusBrushConverter}}" CornerRadius="10" Padding="8,3" HorizontalAlignment="Left" VerticalAlignment="Center">
-                                                                <TextBlock Text="{Binding StatusValue, Converter={StaticResource StatusTextConverter}}" FontSize="12"/>
-                                                            </Border>
-                                                            <TextBlock Grid.Column="2" Text="{Binding ActivityTime, StringFormat={}{0:MM-dd HH:mm}}" Style="{StaticResource MutedTextStyle}" VerticalAlignment="Center"/>
-                                                            <StackPanel Grid.Column="3" Orientation="Horizontal" VerticalAlignment="Center">
-                                                                <Button Content="打开报告" Style="{StaticResource CompactPrimaryButtonStyle}" Command="{Binding DataContext.OpenAttemptReportCommand, ElementName=Root}" CommandParameter="{Binding}"/>
-                                                                <Menu Style="{StaticResource MoreMenuStyle}" ToolTip="更多操作">
-                                                                    <MenuItem Style="{StaticResource MoreMenuItemStyle}">
-                                                                        <MenuItem.Header><TextBlock Text="&#xE712;" FontFamily="Segoe Fluent Icons"/></MenuItem.Header>
-                                                                        <MenuItem Header="重命名" Command="{Binding DataContext.BeginRenameCommand, ElementName=Root}" CommandParameter="{Binding}"/>
-                                                                        <MenuItem Header="打开解压目录" Command="{Binding DataContext.OpenExtractDirectoryCommand, ElementName=Root}" CommandParameter="{Binding}"/>
-                                                                        <MenuItem Header="报告位置" Command="{Binding DataContext.OpenReportFolderCommand, ElementName=Root}" CommandParameter="{Binding}"/>
-                                                                    </MenuItem>
-                                                                </Menu>
-                                                            </StackPanel>
-                                                        </Grid>
-                                                    </Border>
-                                                </DataTemplate>
-                                            </ItemsControl.ItemTemplate>
-                                        </ItemsControl>
-                                    </StackPanel>
-                                </Border>
                             </StackPanel>
                         </DataTemplate>
                     </ListBox.ItemTemplate>
@@ -215,5 +249,7 @@
                 </StackPanel>
             </Grid>
         </Grid>
+        </Grid>
+        <ContentControl x:Name="ViewerHost" Grid.Row="1" Visibility="{Binding Reports.IsAnalysisListVisible, Converter={StaticResource InverseBooleanToVisibilityConverter}}"/>
     </Grid>
 </UserControl>

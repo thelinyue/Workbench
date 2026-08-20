@@ -82,7 +82,7 @@ public sealed class CasesViewModel : ViewModelBase
         var message = $"确认删除案例“{SelectedCase.DisplayName}”吗？\n\n"
             + $"原始日志：{SelectedCase.SourcePath}\n"
             + $"解压目录：{SelectedCase.ExtractPath}\n\n"
-            + "案例、报告、上述原始日志和解压目录都会被删除，此操作不可恢复。";
+            + "报告文件、原始日志、解压目录及全部数据库记录（案例、任务、报告、报告会话）都会被删除，此操作不可恢复。";
         if (Wpf.MessageBox.Show(message, "确认删除", Wpf.MessageBoxButton.YesNo, Wpf.MessageBoxImage.Warning) != Wpf.MessageBoxResult.Yes) return;
         await _analysis.DeleteAsync(SelectedCase.Id);
         await LoadAsync();

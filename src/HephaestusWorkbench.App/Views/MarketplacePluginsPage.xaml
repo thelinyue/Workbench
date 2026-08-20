@@ -12,6 +12,12 @@
             <Setter Property="FontFamily" Value="Segoe UI"/>
             <Setter Property="Padding" Value="8,5"/>
         </Style>
+        <Style x:Key="ToolsPanelButtonStyle" TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
+            <Setter Property="HorizontalAlignment" Value="Stretch"/>
+            <Setter Property="HorizontalContentAlignment" Value="Center"/>
+            <Setter Property="MinHeight" Value="30"/>
+            <Setter Property="Margin" Value="0,0,0,6"/>
+        </Style>
     </UserControl.Resources>
     <Grid>
         <Grid.RowDefinitions>
@@ -162,12 +168,12 @@
 
         <Border Grid.Row="2" Background="{DynamicResource WorkbenchSurfaceBrush}" BorderBrush="{DynamicResource WorkbenchBorderBrush}" BorderThickness="1" Padding="14" HorizontalAlignment="Right" VerticalAlignment="Top" Width="340" Visibility="{Binding IsToolsAndResourcesOpen, Converter={StaticResource BooleanToVisibilityConverter}}">
             <StackPanel>
-                <DockPanel><Button DockPanel.Dock="Right" Content="关闭" Command="{Binding OpenToolsAndResourcesCommand}"/><TextBlock Text="规则与应用管理" Style="{StaticResource SectionTitleStyle}"/></DockPanel>
-                <Button Content="打开规则目录" Command="{Binding OpenRulesDirectoryCommand}" HorizontalAlignment="Stretch" Margin="0,12,0,0" />
-                <Button Content="添加本地规则" Command="{Binding ImportRuleCommand}" HorizontalAlignment="Stretch" />
-                <Button Content="上传规则" ToolTip="{Binding UploadRulesHint}" Command="{Binding UploadRuleCommand}" IsEnabled="{Binding CanUploadRules}" HorizontalAlignment="Stretch" />
-                <Button Content="打开插件目录" Command="{Binding OpenPluginDirectoryCommand}" HorizontalAlignment="Stretch" />
-                <Button Content="开发文档" Command="{Binding OpenDocumentationCommand}" HorizontalAlignment="Stretch" />
+                <DockPanel LastChildFill="True"><Button DockPanel.Dock="Right" Content="关闭" Command="{Binding OpenToolsAndResourcesCommand}" VerticalAlignment="Center"/><TextBlock Text="规则与应用管理" Style="{StaticResource SectionTitleStyle}" VerticalAlignment="Center"/></DockPanel>
+                <Button Content="打开规则目录" Command="{Binding OpenRulesDirectoryCommand}" Style="{StaticResource ToolsPanelButtonStyle}" Margin="0,12,0,6" />
+                <Button Content="添加本地规则" Command="{Binding ImportRuleCommand}" Style="{StaticResource ToolsPanelButtonStyle}" />
+                <Button Content="上传规则" ToolTip="{Binding UploadRulesHint}" Command="{Binding UploadRuleCommand}" IsEnabled="{Binding CanUploadRules}" Style="{StaticResource ToolsPanelButtonStyle}" />
+                <Button Content="打开插件目录" Command="{Binding OpenPluginDirectoryCommand}" Style="{StaticResource ToolsPanelButtonStyle}" />
+                <Button Content="开发文档" Command="{Binding OpenDocumentationCommand}" Style="{StaticResource ToolsPanelButtonStyle}" />
                 <Expander Header="下载设置" IsExpanded="{Binding IsDownloadSettingsOpen}" Margin="0,12,0,0">
                     <StackPanel Margin="0,8,0,0">
                         <TextBlock Text="直连失败时使用备用地址重新下载，留空表示停用。" Style="{StaticResource MutedTextStyle}" TextWrapping="Wrap"/>

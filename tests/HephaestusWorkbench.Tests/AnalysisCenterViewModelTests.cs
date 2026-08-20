@@ -46,39 +46,6 @@ public sealed class AnalysisCenterViewModelTests
     }
 
     [Fact]
-    public async Task LoadAsync_RefreshesReportLibraryAfterNewReportIsInserted()
-    {
-        await using var environment = await TestEnvironment.CreateAsync();
-        using var center = environment.CreateAnalysisCenter();
-        await center.InitializeAsync();
-        Assert.Empty(center.Reports.Library.Items);
-
-        var reportCase = CreateCase(
-            "case-new-report",
-            Path.Combine(environment.Root, "diag_DEVICE02_2608111600.tgz"),
-            Path.Combine(environment.Root, "diag_DEVICE02_2608111600"),
-            CaseStatus.Completed,
-            DateTime.Now);
-        await environment.Cases.InsertAsync(reportCase);
-        var reportPath = environment.Paths.GetReportDirectory(reportCase.ExtractPath);
-        Directory.CreateDirectory(reportPath);
-        await File.WriteAllTextAsync(Path.Combine(reportPath, "report.html"), "<html>ok</html>");
-        await environment.Reports.InsertAsync(new Report
-        {
-            Id = "report-new",
-            CaseId = reportCase.Id,
-            Path = reportPath,
-            PluginId = "test-plugin",
-            CreateTime = DateTime.Now
-        });
-
-        await center.LoadAsync();
-
-        var report = Assert.Single(center.Reports.Library.Items);
-        Assert.Equal("report-new", report.Id);
-    }
-
-    [Fact]
     public async Task AnalyzeAllPendingCommand_SubmitsAllPendingLogs()
     {
         await using var environment = await TestEnvironment.CreateAsync();
@@ -232,7 +199,10 @@ public sealed class AnalysisCenterViewModelTests
 
         using var center = environment.CreateAnalysisCenter();
         await center.InitializeAsync();
-        center.AnalyzeSingleCommand.Execute(Assert.Single(center.Items));
+        var row = Assert.Single(center.Items);
+        Assert.True(row.CanAnalyzeSingle);
+        Assert.Equal("重新分析", row.SingleAnalysisText);
+        center.AnalyzeSingleCommand.Execute(row);
 
         await WaitUntilAsync(async () =>
         {
@@ -243,12 +213,9 @@ public sealed class AnalysisCenterViewModelTests
                 && !center.IsBulkOperationActive;
         });
 
-        await center.Reports.Library.LoadAsync();
         var latest = (await environment.Reports.ListAsync(new ReportQuery())).OrderByDescending(x => x.CreateTime).First();
         Assert.NotEqual("report-old", latest.Id);
         Assert.Equal("<html>new-report</html>", await File.ReadAllTextAsync(latest.ReportFile));
-        Assert.Single(center.Reports.Library.Items);
-        Assert.Equal(latest.Id, center.Reports.Library.Items[0].Id);
         Assert.Equal(latest.Id, center.Reports.OpenTabs.Last().Report.Id);
     }
 
@@ -337,14 +304,13 @@ public sealed class AnalysisCenterViewModelTests
 
     private sealed class TestEnvironment : IAsyncDisposable
     {
-        private TestEnvironment(string root, DataPaths paths, SqliteCaseRepository cases, SqliteTaskRepository tasks, SqliteReportRepository reports, SqliteReportSessionRepository sessions, SqliteSettingsStore settingsStore, LogInboxService inbox, CaseAnalysisService analysis, WorkbenchLogger logger)
+        private TestEnvironment(string root, DataPaths paths, SqliteCaseRepository cases, SqliteTaskRepository tasks, SqliteReportRepository reports, SqliteSettingsStore settingsStore, LogInboxService inbox, CaseAnalysisService analysis, WorkbenchLogger logger)
         {
             Root = root;
             Paths = paths;
             Cases = cases;
             Tasks = tasks;
             Reports = reports;
-            Sessions = sessions;
             SettingsStore = settingsStore;
             Inbox = inbox;
             Analysis = analysis;
@@ -356,7 +322,6 @@ public sealed class AnalysisCenterViewModelTests
         public SqliteCaseRepository Cases { get; }
         public SqliteTaskRepository Tasks { get; }
         public SqliteReportRepository Reports { get; }
-        public SqliteReportSessionRepository Sessions { get; }
         public SqliteSettingsStore SettingsStore { get; }
         public LogInboxService Inbox { get; }
         public CaseAnalysisService Analysis { get; }
@@ -371,20 +336,19 @@ public sealed class AnalysisCenterViewModelTests
             var cases = new SqliteCaseRepository(factory);
             var tasks = new SqliteTaskRepository(factory);
             var reports = new SqliteReportRepository(factory);
-            var sessions = new SqliteReportSessionRepository(factory);
             var settingsStore = new SqliteSettingsStore(factory);
             var logger = new WorkbenchLogger(root);
             runner ??= new FailedRunner();
-            var analysis = new CaseAnalysisService(paths, cases, tasks, reports, new TestPluginCatalog(), runner, runner, new TaskCenter(tasks), logger);
+            var analysis = new CaseAnalysisService(paths, cases, tasks, reports, new TestPluginCatalog(), runner, runner, new TaskCenter(tasks), logger, new SqliteAnalysisLifecycleRepository(factory));
             var inbox = new LogInboxService(new LogFileParser(), new ArchiveValidator(), new MemorySettingsStore(), logger, paths.InboxDirectory);
-            return new TestEnvironment(root, paths, cases, tasks, reports, sessions, settingsStore, inbox, analysis, logger);
+            return new TestEnvironment(root, paths, cases, tasks, reports, settingsStore, inbox, analysis, logger);
         }
 
         public AnalysisCenterViewModel CreateAnalysisCenter(Func<string, bool>? confirmDeleteLifecycle = null)
         {
-            var reportService = new ReportService(Reports, Sessions, Analysis);
+            var reportService = new ReportService(Reports, Analysis);
             var settings = new SettingsService(SettingsStore, Paths.InboxDirectory);
-            var workspace = new ReportsWorkspaceViewModel(reportService, settings, _ => { }, _ => { }, Logger, _ => true);
+            var workspace = new ReportsWorkspaceViewModel(reportService, settings, _ => { }, Logger, _ => true);
             var storage = new StorageService(Paths, Cases, Logger);
             return new AnalysisCenterViewModel(Inbox, Analysis, reportService, storage, settings, workspace, _ => { }, Logger, confirmDeleteLifecycle ?? (_ => true));
         }

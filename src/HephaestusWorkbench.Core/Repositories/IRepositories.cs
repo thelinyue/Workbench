@@ -27,11 +27,6 @@ public interface IReportRepository
     Task<IReadOnlyList<ReportSummary>> ListAsync(ReportQuery query, CancellationToken cancellationToken = default);
 }
 
-public interface IReportSessionRepository
-{
-    Task<IReadOnlyList<ReportSession>> ListAsync(CancellationToken cancellationToken = default);
-    Task ReplaceAsync(IReadOnlyList<ReportSession> sessions, CancellationToken cancellationToken = default);
-}
 
 public interface IPluginInfoRepository
 {
@@ -53,5 +48,7 @@ public interface IAnalysisLifecycleRepository
     Task CreateAsync(AnalysisCase analysisCase, AnalysisTask task, CancellationToken cancellationToken = default);
     Task MarkRunningAsync(AnalysisCase analysisCase, AnalysisTask task, CancellationToken cancellationToken = default);
     Task CompleteAsync(AnalysisCase analysisCase, AnalysisTask task, Report? report, CancellationToken cancellationToken = default);
+    /// <summary>在一个事务中删除案例及其关联的报告会话、报告和分析任务记录。</summary>
+    Task DeleteByCaseIdsAsync(IReadOnlyCollection<string> caseIds, CancellationToken cancellationToken = default);
     Task<int> RecoverInterruptedAsync(DateTime recoveredAt, CancellationToken cancellationToken = default);
 }

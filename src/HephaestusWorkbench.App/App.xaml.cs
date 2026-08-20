@@ -77,7 +77,6 @@ internal sealed class WorkbenchHost : IDisposable
         CasesRepository = new SqliteCaseRepository(_factory);
         TasksRepository = new SqliteTaskRepository(_factory);
         ReportsRepository = new SqliteReportRepository(_factory);
-        ReportSessionsRepository = new SqliteReportSessionRepository(_factory);
         PluginsRepository = new SqlitePluginInfoRepository(_factory);
         SettingsStore = new SqliteSettingsStore(_factory);
         LifecycleRepository = new SqliteAnalysisLifecycleRepository(_factory);
@@ -91,9 +90,9 @@ internal sealed class WorkbenchHost : IDisposable
         TaskCenter = new TaskCenter(TasksRepository);
         var legacyRunner = new LegacyLogAnalyzerRunner(Logger);
         var standardRunner = new StandardExePluginRunner(Logger);
-        Analysis = new CaseAnalysisService(Paths, CasesRepository, TasksRepository, ReportsRepository, PluginCatalog, legacyRunner, standardRunner, TaskCenter, Logger, Configuration, Rules, LifecycleRepository);
+        Analysis = new CaseAnalysisService(Paths, CasesRepository, TasksRepository, ReportsRepository, PluginCatalog, legacyRunner, standardRunner, TaskCenter, Logger, LifecycleRepository, Configuration, Rules);
         PluginMarketplace = new PluginMarketplaceService(Paths, PluginCatalog, Configuration, TaskCenter, Logger, PluginsRepository);
-        Reports = new ReportService(ReportsRepository, ReportSessionsRepository, Analysis);
+        Reports = new ReportService(ReportsRepository, Analysis);
         Inbox = new LogInboxService(new LogFileParser(), new ArchiveValidator(), Configuration, Logger, Paths.InboxDirectory);
         Storage = new StorageService(Paths, CasesRepository, Logger);
         Settings = new SettingsService(Configuration, SettingsStore, Paths.InboxDirectory);
@@ -104,7 +103,6 @@ internal sealed class WorkbenchHost : IDisposable
     public IAnalysisCaseRepository CasesRepository { get; }
     public IAnalysisTaskRepository TasksRepository { get; }
     public IReportRepository ReportsRepository { get; }
-    public IReportSessionRepository ReportSessionsRepository { get; }
     public IPluginInfoRepository PluginsRepository { get; }
     public ISettingsStore SettingsStore { get; }
     public IAnalysisLifecycleRepository LifecycleRepository { get; }

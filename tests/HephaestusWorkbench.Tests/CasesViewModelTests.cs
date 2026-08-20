@@ -30,7 +30,8 @@ public sealed class CasesViewModelTests
                 new LegacyLogAnalyzerRunner(logger),
                 new StandardExePluginRunner(logger),
                 new TaskCenter(tasks),
-                logger);
+                logger,
+                new SqliteAnalysisLifecycleRepository(factory));
             var extractPath = Path.Combine(root, "Extract");
             await cases.InsertAsync(new AnalysisCase
             {
