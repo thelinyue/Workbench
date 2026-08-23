@@ -15,8 +15,8 @@ namespace HephaestusWorkbench.App.Views;
 /// </summary>
 public partial class WorkspaceHostWindow : Window
 {
-    internal const string VirtualHostName = "workspace.hephaestus.invalid";
-    internal const string VirtualOrigin = $"https://{VirtualHostName}";
+    internal const string VirtualHostName = WorkspaceBrowserSecurityPolicy.VirtualHostName;
+    internal const string VirtualOrigin = WorkspaceBrowserSecurityPolicy.VirtualOrigin;
 
     private const string ResourceFilter = "*";
     private const string UnknownRequestId = "unknown";
@@ -41,7 +41,7 @@ public partial class WorkspaceHostWindow : Window
 
         InitializeComponent();
         // 禁止把宿主文件拖入不受信任页面，避免页面借浏览器默认行为读取本地文件。
-        Browser.AllowExternalDrop = false;
+        Browser.AllowExternalDrop = WorkspaceBrowserSecurityPolicy.AllowExternalDrop;
         Title = manifest.Name;
         Loaded += OnLoaded;
         Closed += OnClosed;
@@ -66,7 +66,7 @@ public partial class WorkspaceHostWindow : Window
             Browser.CoreWebView2.SetVirtualHostNameToFolderMapping(
                 VirtualHostName,
                 _manifest.DirectoryPath,
-                CoreWebView2HostResourceAccessKind.Deny);
+                WorkspaceBrowserSecurityPolicy.HostResourceAccessKind);
             Browser.CoreWebView2.Navigate(BuildVirtualEntryUri(_manifest.DirectoryPath, entryPath).AbsoluteUri);
         }
         catch (Exception exception)
@@ -141,13 +141,7 @@ public partial class WorkspaceHostWindow : Window
 
     /// <summary>导航、资源请求和 Web Message 共用同一严格来源判定，避免各事件采用不同口径。</summary>
     internal static bool IsCurrentVirtualOrigin(string? source)
-    {
-        if (!Uri.TryCreate(source, UriKind.Absolute, out var uri)) return false;
-        return string.Equals(uri.Scheme, Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase)
-               && string.Equals(uri.Host, VirtualHostName, StringComparison.OrdinalIgnoreCase)
-               && uri.IsDefaultPort
-               && string.IsNullOrEmpty(uri.UserInfo);
-    }
+        => !WorkspaceBrowserSecurityPolicy.ShouldCancelNavigation(source);
 
     /// <summary>
     /// v2.0.0 没有获批的 Workspace Bridge 方法。合法请求统一返回 methodNotAllowed；
@@ -223,7 +217,7 @@ public partial class WorkspaceHostWindow : Window
         settings.AreDevToolsEnabled = false;
         settings.IsStatusBarEnabled = false;
         settings.AreDefaultContextMenusEnabled = false;
-        settings.AreDefaultScriptDialogsEnabled = false;
+        settings.AreDefaultScriptDialogsEnabled = WorkspaceBrowserSecurityPolicy.AreDefaultScriptDialogsEnabled;
         settings.AreHostObjectsAllowed = false;
         settings.AreBrowserAcceleratorKeysEnabled = false;
         settings.IsBuiltInErrorPageEnabled = false;
@@ -251,31 +245,30 @@ public partial class WorkspaceHostWindow : Window
 
     private void OnNavigationStarting(object? sender, CoreWebView2NavigationStartingEventArgs e)
     {
-        if (IsCurrentVirtualOrigin(e.Uri)) return;
-        e.Cancel = true;
-        _logger.Error($"Workspace 扩展阻止了非同源导航：{e.Uri}");
+        e.Cancel = WorkspaceBrowserSecurityPolicy.ShouldCancelNavigation(e.Uri);
+        if (e.Cancel) _logger.Error($"Workspace 扩展阻止了非同源导航：{e.Uri}");
     }
 
     /// <summary>子框架与顶层页面共用固定虚拟源策略，禁止 iframe 绕过顶层导航边界。</summary>
     private void OnFrameNavigationStarting(object? sender, CoreWebView2NavigationStartingEventArgs e)
     {
-        if (IsCurrentVirtualOrigin(e.Uri)) return;
-        e.Cancel = true;
-        _logger.Error($"Workspace 扩展阻止了子框架非同源导航：{e.Uri}");
+        e.Cancel = WorkspaceBrowserSecurityPolicy.ShouldCancelNavigation(e.Uri);
+        if (e.Cancel) _logger.Error($"Workspace 扩展阻止了子框架非同源导航：{e.Uri}");
     }
 
     /// <summary>任何外部 URI Scheme 都不得离开 WebView2 交给操作系统处理。</summary>
     private void OnLaunchingExternalUriScheme(object? sender, CoreWebView2LaunchingExternalUriSchemeEventArgs e)
     {
-        e.Cancel = true;
+        e.Cancel = WorkspaceBrowserSecurityPolicy.ShouldCancelExternalUriScheme(e.Uri);
         _logger.Error($"Workspace 扩展阻止了外部 URI Scheme：{e.Uri}");
     }
 
     /// <summary>Workspace 页面只允许读取映射内静态资源，不允许向本机文件系统写入下载内容。</summary>
     private void OnDownloadStarting(object? sender, CoreWebView2DownloadStartingEventArgs e)
     {
-        e.Cancel = true;
-        e.Handled = true;
+        var decision = WorkspaceBrowserSecurityPolicy.DecideDownload();
+        e.Cancel = decision.Cancel;
+        e.Handled = decision.Handled;
         _logger.Error("Workspace 扩展阻止了下载请求。");
     }
 

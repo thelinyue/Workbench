@@ -1,6 +1,7 @@
 using System.Text.Json;
 using HephaestusWorkbench.App.Views;
 using HephaestusWorkbench.PluginSDK;
+using Microsoft.Web.WebView2.Core;
 
 namespace HephaestusWorkbench.Tests;
 
@@ -107,14 +108,47 @@ public sealed class WorkspaceHostWindowTests
     }
 
     [Fact]
-    public void BrowserSecurityContract_DisablesUnsafeSettingsAndCrossOriginFolderAccess()
+    public void BrowserSecurityPolicy_UsesLockedDownDefaults()
     {
-        var source = LoadWorkspaceHostSource();
+        Assert.False(WorkspaceBrowserSecurityPolicy.AllowExternalDrop);
+        Assert.False(WorkspaceBrowserSecurityPolicy.AreDefaultScriptDialogsEnabled);
+        Assert.Equal(
+            CoreWebView2HostResourceAccessKind.Deny,
+            WorkspaceBrowserSecurityPolicy.HostResourceAccessKind);
+    }
 
-        Assert.Contains("Browser.AllowExternalDrop = false;", source, StringComparison.Ordinal);
-        Assert.Contains("settings.AreDefaultScriptDialogsEnabled = false;", source, StringComparison.Ordinal);
-        Assert.Contains("CoreWebView2HostResourceAccessKind.Deny);", source, StringComparison.Ordinal);
-        Assert.DoesNotContain("CoreWebView2HostResourceAccessKind.DenyCors", source, StringComparison.Ordinal);
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("mailto:security@example.com")]
+    [InlineData("custom-scheme://open")]
+    public void BrowserSecurityPolicy_AlwaysCancelsExternalUriScheme(string? uri)
+    {
+        Assert.True(WorkspaceBrowserSecurityPolicy.ShouldCancelExternalUriScheme(uri));
+    }
+
+    [Fact]
+    public void BrowserSecurityPolicy_CancelsAndHandlesDownloads()
+    {
+        var decision = WorkspaceBrowserSecurityPolicy.DecideDownload();
+
+        Assert.True(decision.Cancel);
+        Assert.True(decision.Handled);
+    }
+
+    [Theory]
+    [InlineData("https://workspace.hephaestus.invalid/index.html", false)]
+    [InlineData("https://workspace.hephaestus.invalid/assets/app.js?version=2", false)]
+    [InlineData("http://workspace.hephaestus.invalid/index.html", true)]
+    [InlineData("https://workspace.hephaestus.invalid.evil.example/index.html", true)]
+    [InlineData("https://workspace.hephaestus.invalid:444/index.html", true)]
+    [InlineData("file:///C:/extension/index.html", true)]
+    [InlineData("not-a-uri", true)]
+    public void BrowserSecurityPolicy_FrameNavigationAllowsOnlyFixedVirtualOrigin(
+        string source,
+        bool expectedCancel)
+    {
+        Assert.Equal(expectedCancel, WorkspaceBrowserSecurityPolicy.ShouldCancelNavigation(source));
     }
 
     [Theory]
@@ -132,26 +166,35 @@ public sealed class WorkspaceHostWindowTests
     }
 
     [Fact]
-    public void BrowserSecurityContract_ExternalSchemeAndDownloadHandlersAlwaysCancel()
+    public void BrowserSecurityContract_WindowAppliesExecutablePolicy()
     {
         var source = LoadWorkspaceHostSource();
-        var externalSchemeHandler = ExtractMethod(source, "OnLaunchingExternalUriScheme");
-        var downloadHandler = ExtractMethod(source, "OnDownloadStarting");
+        const string navigationDecision =
+            "e.Cancel = WorkspaceBrowserSecurityPolicy.ShouldCancelNavigation(e.Uri);";
 
-        Assert.Contains("e.Cancel = true;", externalSchemeHandler, StringComparison.Ordinal);
-        Assert.DoesNotContain("IsCurrentVirtualOrigin", externalSchemeHandler, StringComparison.Ordinal);
-        Assert.Contains("e.Cancel = true;", downloadHandler, StringComparison.Ordinal);
-        Assert.Contains("e.Handled = true;", downloadHandler, StringComparison.Ordinal);
-    }
-
-    [Fact]
-    public void BrowserSecurityContract_FrameNavigationUsesTopLevelOriginPolicy()
-    {
-        var source = LoadWorkspaceHostSource();
-        var handler = ExtractMethod(source, "OnFrameNavigationStarting");
-
-        Assert.Contains("IsCurrentVirtualOrigin(e.Uri)", handler, StringComparison.Ordinal);
-        Assert.Contains("e.Cancel = true;", handler, StringComparison.Ordinal);
+        Assert.Contains(
+            "Browser.AllowExternalDrop = WorkspaceBrowserSecurityPolicy.AllowExternalDrop;",
+            source,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "settings.AreDefaultScriptDialogsEnabled = WorkspaceBrowserSecurityPolicy.AreDefaultScriptDialogsEnabled;",
+            source,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "WorkspaceBrowserSecurityPolicy.HostResourceAccessKind);",
+            source,
+            StringComparison.Ordinal);
+        Assert.Equal(2, source.Split(navigationDecision, StringSplitOptions.None).Length - 1);
+        Assert.Contains(
+            "e.Cancel = WorkspaceBrowserSecurityPolicy.ShouldCancelExternalUriScheme(e.Uri);",
+            source,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "var decision = WorkspaceBrowserSecurityPolicy.DecideDownload();",
+            source,
+            StringComparison.Ordinal);
+        Assert.Contains("e.Cancel = decision.Cancel;", source, StringComparison.Ordinal);
+        Assert.Contains("e.Handled = decision.Handled;", source, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -202,27 +245,6 @@ public sealed class WorkspaceHostWindowTests
             "HephaestusWorkbench.App",
             "Views",
             "WorkspaceHostWindow.xaml.cs"));
-
-    private static string ExtractMethod(string source, string methodName)
-    {
-        var methodStart = source.IndexOf($" {methodName}(", StringComparison.Ordinal);
-        Assert.True(methodStart >= 0, $"未找到安全事件处理方法：{methodName}");
-
-        var bodyStart = source.IndexOf('{', methodStart);
-        Assert.True(bodyStart >= 0, $"安全事件处理方法缺少方法体：{methodName}");
-
-        var depth = 0;
-        for (var index = bodyStart; index < source.Length; index++)
-        {
-            if (source[index] == '{') depth++;
-            if (source[index] != '}') continue;
-
-            depth--;
-            if (depth == 0) return source[bodyStart..(index + 1)];
-        }
-
-        throw new Xunit.Sdk.XunitException($"安全事件处理方法缺少结束括号：{methodName}");
-    }
 
     private static string FindRepositoryRoot()
     {
