@@ -24,6 +24,21 @@ public sealed class ExtensionRegistryTests
     }
 
     [Fact]
+    public async Task LoadAsync_AcceptsExtensionsRootWithTrailingSeparator()
+    {
+        using var layout = new ExtensionTestLayout();
+        layout.WriteManifest("sample", "1.0.0");
+        layout.WriteCurrent("sample", "1.0.0", ExtensionTestLayout.HashA, ExtensionActivationState.Healthy);
+        var rootWithSeparator = layout.ExtensionsRoot + Path.DirectorySeparatorChar;
+        var registry = new ExtensionRegistry(rootWithSeparator, new StubHealthChecker());
+
+        var active = await registry.LoadAsync();
+
+        Assert.Equal("sample", Assert.Single(active).Id);
+        Assert.Empty(registry.Issues);
+    }
+
+    [Fact]
     public async Task LoadAsync_DoesNotRecursivelyLoadOrphanManifest()
     {
         using var layout = new ExtensionTestLayout();

@@ -28,7 +28,7 @@ public sealed class ExtensionRegistry
         if (string.IsNullOrWhiteSpace(extensionsRoot))
             throw new ArgumentException("扩展目录根路径不能为空。", nameof(extensionsRoot));
 
-        _extensionsRoot = Path.GetFullPath(extensionsRoot);
+        _extensionsRoot = Path.TrimEndingDirectorySeparator(Path.GetFullPath(extensionsRoot));
         _healthChecker = healthChecker ?? throw new ArgumentNullException(nameof(healthChecker));
     }
 
