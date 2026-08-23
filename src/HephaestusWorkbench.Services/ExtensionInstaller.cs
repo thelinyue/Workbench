@@ -1,4 +1,6 @@
+using System.Collections.Concurrent;
 using System.IO.Compression;
+using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
@@ -14,6 +16,52 @@ public sealed class ExtensionInstallResult
     public required string VersionDirectory { get; init; }
 
     public bool AlreadyInstalled { get; init; }
+}
+
+/// <summary>删除安装器拥有的随机暂存目录；实现必须避免跟随目录中的重解析点。</summary>
+public interface IExtensionStagingCleaner
+{
+    void Delete(string stagingDirectory);
+}
+
+/// <summary>正式文件系统暂存目录清理器。任何清理失败都会上抛给安装事务，不会静默遗留目录。</summary>
+public sealed class ExtensionStagingCleaner : IExtensionStagingCleaner
+{
+    public void Delete(string stagingDirectory)
+    {
+        if (string.IsNullOrWhiteSpace(stagingDirectory))
+            throw new ArgumentException("扩展安装暂存目录不能为空。", nameof(stagingDirectory));
+
+        DeleteWithoutFollowingLinks(Path.GetFullPath(stagingDirectory));
+    }
+
+    private static void DeleteWithoutFollowingLinks(string path)
+    {
+        FileAttributes attributes;
+        try
+        {
+            attributes = File.GetAttributes(path);
+        }
+        catch (Exception exception) when (exception is FileNotFoundException or DirectoryNotFoundException)
+        {
+            return;
+        }
+
+        if (!attributes.HasFlag(FileAttributes.Directory))
+        {
+            File.Delete(path);
+            return;
+        }
+        if (attributes.HasFlag(FileAttributes.ReparsePoint))
+        {
+            Directory.Delete(path);
+            return;
+        }
+
+        foreach (var child in Directory.EnumerateFileSystemEntries(path))
+            DeleteWithoutFollowingLinks(child);
+        Directory.Delete(path);
+    }
 }
 
 /// <summary>
@@ -33,18 +81,22 @@ public sealed class ExtensionInstaller
     {
         "CON", "PRN", "AUX", "NUL",
         "COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7", "COM8", "COM9",
-        "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9"
+        "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9",
+        "COM¹", "COM²", "COM³", "LPT¹", "LPT²", "LPT³"
     };
+
+    private static readonly ConcurrentDictionary<string, SemaphoreSlim> InstallGates = new(StringComparer.OrdinalIgnoreCase);
 
     private readonly string _extensionsRoot;
     private readonly IExtensionPackageVerifier _packageVerifier;
     private readonly ExtensionRegistry _registry;
-    private readonly SemaphoreSlim _installGate = new(1, 1);
+    private readonly IExtensionStagingCleaner _stagingCleaner;
 
     public ExtensionInstaller(
         string extensionsRoot,
         IExtensionPackageVerifier packageVerifier,
-        ExtensionRegistry registry)
+        ExtensionRegistry registry,
+        IExtensionStagingCleaner? stagingCleaner = null)
     {
         if (string.IsNullOrWhiteSpace(extensionsRoot))
             throw new ArgumentException("扩展目录根路径不能为空。", nameof(extensionsRoot));
@@ -52,6 +104,7 @@ public sealed class ExtensionInstaller
         _extensionsRoot = Path.TrimEndingDirectorySeparator(Path.GetFullPath(extensionsRoot));
         _packageVerifier = packageVerifier ?? throw new ArgumentNullException(nameof(packageVerifier));
         _registry = registry ?? throw new ArgumentNullException(nameof(registry));
+        _stagingCleaner = stagingCleaner ?? new ExtensionStagingCleaner();
     }
 
     /// <summary>
@@ -68,10 +121,11 @@ public sealed class ExtensionInstaller
             throw new InvalidDataException("扩展安装请求缺少 ZIP、Catalog 条目或发布信息。");
 
         cancellationToken.ThrowIfCancellationRequested();
+        // 私有快照只由安装器读取；验签器收到另一份副本，不能在验签期间篡改随后将被解压的字节。
         var packageBytes = request.PackageBytes.ToArray();
         var verificationRequest = new ExtensionPackageVerificationRequest
         {
-            PackageBytes = packageBytes,
+            PackageBytes = packageBytes.ToArray(),
             CatalogItem = request.CatalogItem,
             Release = request.Release
         };
@@ -79,36 +133,20 @@ public sealed class ExtensionInstaller
         if (verified?.Manifest is null || string.IsNullOrWhiteSpace(verified.PackageSha256))
             throw new InvalidDataException("扩展包验签服务没有返回有效的 manifest 或 SHA-256。");
 
-        await _installGate.WaitAsync(cancellationToken);
+        var localPackageSha256 = Convert.ToHexString(SHA256.HashData(packageBytes)).ToLowerInvariant();
+        if (!string.Equals(localPackageSha256, verified.PackageSha256, StringComparison.OrdinalIgnoreCase))
+            throw new InvalidDataException("扩展包验签结果的 SHA-256 与安装器私有 ZIP 快照不一致，已拒绝安装。");
+
+        var extensionDirectory = GetExtensionDirectory(verified.Manifest.Id);
+        var versionDirectory = GetVersionDirectory(extensionDirectory, verified.Manifest.Version);
+        var installGate = InstallGates.GetOrAdd(versionDirectory, static _ => new SemaphoreSlim(1, 1));
+        await installGate.WaitAsync(cancellationToken);
         string? stagingDirectory = null;
         try
         {
             EnsureExtensionsRootIsSafe();
             Directory.CreateDirectory(_extensionsRoot);
             EnsureExtensionsRootIsSafe();
-
-            var extensionDirectory = GetExtensionDirectory(verified.Manifest.Id);
-            var versionDirectory = GetVersionDirectory(extensionDirectory, verified.Manifest.Version);
-            if (PathExists(versionDirectory))
-            {
-                EnsureVersionDirectoryIsSafe(extensionDirectory, versionDirectory);
-                await EnsureExistingVersionMatchesAsync(
-                    versionDirectory,
-                    verified.Manifest,
-                    verified.PackageSha256,
-                    cancellationToken);
-                var activeManifest = await _registry.ActivateAsync(
-                    verified.Manifest.Id,
-                    verified.Manifest.Version,
-                    verified.PackageSha256,
-                    cancellationToken);
-                return new ExtensionInstallResult
-                {
-                    Manifest = activeManifest,
-                    VersionDirectory = versionDirectory,
-                    AlreadyInstalled = true
-                };
-            }
 
             stagingDirectory = Path.Combine(_extensionsRoot, $".install-{Guid.NewGuid():N}");
             EnsureDirectChild(_extensionsRoot, stagingDirectory, "扩展安装暂存目录");
@@ -118,44 +156,90 @@ public sealed class ExtensionInstaller
             await ExtractPackageAsync(packageBytes, stagingDirectory, cancellationToken);
             var stagedManifest = await ReadAndValidateRootManifestAsync(stagingDirectory, cancellationToken);
             EnsureManifestMatchesVerification(stagedManifest, verified.Manifest);
-            await WritePackageMetadataAsync(stagingDirectory, verified.PackageSha256, cancellationToken);
+            await WritePackageMetadataAsync(stagingDirectory, localPackageSha256, cancellationToken);
 
             EnsureExtensionDirectoryIsSafe(extensionDirectory, createIfMissing: true);
             EnsureVersionDirectoryIsSafe(extensionDirectory, versionDirectory);
+            var alreadyInstalled = false;
             if (PathExists(versionDirectory))
             {
                 await EnsureExistingVersionMatchesAsync(
                     versionDirectory,
                     verified.Manifest,
-                    verified.PackageSha256,
+                    localPackageSha256,
                     cancellationToken);
+                alreadyInstalled = true;
             }
             else
             {
-                Directory.Move(stagingDirectory, versionDirectory);
-                stagingDirectory = null;
+                try
+                {
+                    Directory.Move(stagingDirectory, versionDirectory);
+                    stagingDirectory = null;
+                }
+                catch (IOException) when (PathExists(versionDirectory))
+                {
+                    // 另一个宿主进程可能抢先完成同版本落盘；不能覆盖，必须重新验证现有版本后才可幂等继续。
+                    EnsureExtensionDirectoryIsSafe(extensionDirectory);
+                    EnsureVersionDirectoryIsSafe(extensionDirectory, versionDirectory);
+                    await EnsureExistingVersionMatchesAsync(
+                        versionDirectory,
+                        verified.Manifest,
+                        localPackageSha256,
+                        cancellationToken);
+                    alreadyInstalled = true;
+                }
             }
 
             var manifest = await _registry.ActivateAsync(
                 verified.Manifest.Id,
                 verified.Manifest.Version,
-                verified.PackageSha256,
+                localPackageSha256,
                 cancellationToken);
             return new ExtensionInstallResult
             {
                 Manifest = manifest,
                 VersionDirectory = versionDirectory,
-                AlreadyInstalled = false
+                AlreadyInstalled = alreadyInstalled
             };
+        }
+        catch (Exception installException)
+        {
+            var failedStagingDirectory = stagingDirectory;
+            stagingDirectory = null;
+            try
+            {
+                if (failedStagingDirectory is not null)
+                    _stagingCleaner.Delete(failedStagingDirectory);
+            }
+            catch (Exception cleanupException)
+            {
+                throw new InvalidOperationException(
+                    $"扩展安装失败，且清理暂存目录也失败。原始错误：{installException.Message}；清理错误：{cleanupException.Message}",
+                    new AggregateException(installException, cleanupException));
+            }
+
+            throw;
         }
         finally
         {
-            if (stagingDirectory is not null)
-                DeleteStagingWithoutFollowingLinks(stagingDirectory);
-            _installGate.Release();
+            try
+            {
+                if (stagingDirectory is not null)
+                    _stagingCleaner.Delete(stagingDirectory);
+            }
+            catch (Exception cleanupException)
+            {
+                throw new InvalidOperationException(
+                    $"扩展安装已完成，但清理暂存目录失败：{cleanupException.Message}",
+                    cleanupException);
+            }
+            finally
+            {
+                installGate.Release();
+            }
         }
     }
-
     private async Task ExtractPackageAsync(
         byte[] packageBytes,
         string stagingDirectory,
@@ -334,12 +418,24 @@ public sealed class ExtensionInstaller
         ExtensionManifest extracted,
         ExtensionManifest verified)
     {
-        if (!string.Equals(extracted.Id, verified.Id, StringComparison.Ordinal) ||
+        var dependenciesMatch = extracted.Dependencies.Count == verified.Dependencies.Count &&
+                                extracted.Dependencies.Zip(verified.Dependencies).All(pair =>
+                                    string.Equals(pair.First.Id, pair.Second.Id, StringComparison.Ordinal) &&
+                                    string.Equals(pair.First.Version, pair.Second.Version, StringComparison.Ordinal));
+        if (extracted.SchemaVersion != verified.SchemaVersion ||
+            !string.Equals(extracted.Id, verified.Id, StringComparison.Ordinal) ||
+            !string.Equals(extracted.Name, verified.Name, StringComparison.Ordinal) ||
             !string.Equals(extracted.Version, verified.Version, StringComparison.Ordinal) ||
             !string.Equals(extracted.PublisherId, verified.PublisherId, StringComparison.Ordinal) ||
             extracted.Kind != verified.Kind ||
             !string.Equals(extracted.HostApiVersion, verified.HostApiVersion, StringComparison.Ordinal) ||
-            !string.Equals(extracted.MinHostVersion, verified.MinHostVersion, StringComparison.Ordinal))
+            !string.Equals(extracted.MinHostVersion, verified.MinHostVersion, StringComparison.Ordinal) ||
+            extracted.Runtime.Kind != verified.Runtime.Kind ||
+            !string.Equals(extracted.Runtime.Protocol, verified.Runtime.Protocol, StringComparison.Ordinal) ||
+            !string.Equals(extracted.Runtime.Entry, verified.Runtime.Entry, StringComparison.Ordinal) ||
+            !extracted.Capabilities.SequenceEqual(verified.Capabilities, StringComparer.Ordinal) ||
+            !extracted.Permissions.SequenceEqual(verified.Permissions, StringComparer.Ordinal) ||
+            !dependenciesMatch)
         {
             throw new InvalidDataException("解压后的根 manifest.json 与验签结果不一致。");
         }
@@ -471,33 +567,6 @@ public sealed class ExtensionInstaller
 
     private static bool IsSha256(string? value)
         => value is { Length: 64 } && value.All(character => Uri.IsHexDigit(character));
-
-    private static void DeleteStagingWithoutFollowingLinks(string path)
-    {
-        try
-        {
-            if (!PathExists(path)) return;
-            var attributes = File.GetAttributes(path);
-            if (!attributes.HasFlag(FileAttributes.Directory))
-            {
-                File.Delete(path);
-                return;
-            }
-            if (attributes.HasFlag(FileAttributes.ReparsePoint))
-            {
-                Directory.Delete(path);
-                return;
-            }
-
-            foreach (var child in Directory.EnumerateFileSystemEntries(path))
-                DeleteStagingWithoutFollowingLinks(child);
-            Directory.Delete(path);
-        }
-        catch
-        {
-            // 清理失败不能掩盖原始安装错误；暂存目录使用随机名称，后续启动可按前缀安全清理。
-        }
-    }
 
     private sealed class PackageMetadata
     {
