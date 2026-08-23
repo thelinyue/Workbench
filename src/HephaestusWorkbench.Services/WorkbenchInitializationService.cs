@@ -78,9 +78,7 @@ public sealed class WorkbenchInitializationService
             progress?.Report("正在初始化数据库…");
             await new DatabaseInitializer(factory).InitializeAsync(cancellationToken);
 
-            var configuredMonitorPaths = monitorPaths?.ToArray();
-            if (configuredMonitorPaths is null || configuredMonitorPaths.Length == 0)
-                configuredMonitorPaths = new[] { Path.Combine(targetRoot, "Inbox") };
+            var configuredMonitorPaths = NormalizeMonitorPaths(monitorPaths, targetRoot);
 
             var configuration = new WorkbenchConfigurationService(paths);
             progress?.Report("正在写入工作区配置…");
@@ -108,6 +106,20 @@ public sealed class WorkbenchInitializationService
             if (stagingCreated) TryDeleteCurrentStaging(stagingRoot);
             throw new InvalidOperationException($"工作台初始化失败：{ex.Message}", ex);
         }
+    }
+
+    private static string[] NormalizeMonitorPaths(IEnumerable<string>? monitorPaths, string targetRoot)
+    {
+        var normalized = monitorPaths?
+            .Where(path => !string.IsNullOrWhiteSpace(path))
+            .Select(path => Path.GetFullPath(path.Trim()))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray()
+            ?? Array.Empty<string>();
+
+        return normalized.Length == 0
+            ? new[] { Path.Combine(targetRoot, "Inbox") }
+            : normalized;
     }
 
     private static string GetStagingPrefix(string targetRoot)
@@ -190,11 +202,12 @@ public sealed class WorkbenchInitializationService
     {
         try
         {
-            if (Directory.Exists(stagingRoot)) Directory.Delete(stagingRoot, recursive: true);
+            // 回调或外部进程可能已替换该路径；删除前必须重新验证宿主标记并拒绝 reparse。
+            if (IsConfirmedHostStaging(stagingRoot)) Directory.Delete(stagingRoot, recursive: true);
         }
         catch
         {
-            // 清理失败不能掩盖初始化或取消的原始错误；带宿主标记的目录会在下次调用时再次清理。
+            // 清理失败不能掩盖初始化或取消的原始错误；仍可信的宿主 staging 会在下次调用时再次清理。
         }
     }
 

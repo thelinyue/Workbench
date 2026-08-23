@@ -146,6 +146,139 @@ public sealed class WorkbenchConfigurationTests
     }
 
     [Fact]
+    public async Task InitializationService_FailureDoesNotDeleteStagingReplacedByUnmarkedDirectory()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "HephaestusWorkbenchTests", Guid.NewGuid().ToString("N"));
+        var data = Path.Combine(root, "Data");
+        Directory.CreateDirectory(data);
+        string? replacement = null;
+        var progress = new InlineProgress(message =>
+        {
+            if (message != "正在写入工作区配置…") return;
+
+            replacement = FindStagingDirectory(root, data);
+            Directory.Delete(replacement, recursive: true);
+            Directory.CreateDirectory(replacement);
+            File.WriteAllText(Path.Combine(replacement, "keep.txt"), "user");
+            throw new IOException("受控的 staging 替换故障");
+        });
+
+        try
+        {
+            await Assert.ThrowsAnyAsync<Exception>(
+                () => new WorkbenchInitializationService().InitializeAsync(data, progress: progress));
+
+            Assert.NotNull(replacement);
+            Assert.Equal("user", await File.ReadAllTextAsync(Path.Combine(replacement!, "keep.txt")));
+            Assert.Empty(Directory.EnumerateFileSystemEntries(data));
+        }
+        finally
+        {
+            if (Directory.Exists(root)) Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task InitializationService_FailureDoesNotDeleteStagingReplacedByReparsePointWhenSupported()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "HephaestusWorkbenchTests", Guid.NewGuid().ToString("N"));
+        var data = Path.Combine(root, "Data");
+        var replacementTarget = Path.Combine(root, "ReplacementTarget");
+        Directory.CreateDirectory(data);
+        Directory.CreateDirectory(replacementTarget);
+        await File.WriteAllTextAsync(
+            Path.Combine(replacementTarget, ".hephaestus-workbench-initialization"),
+            "HephaestusWorkbench.WorkspaceInitialization.v2");
+        await File.WriteAllTextAsync(Path.Combine(replacementTarget, "keep.txt"), "user");
+        string? replacement = null;
+        var reparseSupported = false;
+        var progress = new InlineProgress(message =>
+        {
+            if (message != "正在写入工作区配置…") return;
+
+            replacement = FindStagingDirectory(root, data);
+            Directory.Delete(replacement, recursive: true);
+            try
+            {
+                Directory.CreateSymbolicLink(replacement, replacementTarget);
+                reparseSupported = true;
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or PlatformNotSupportedException or NotSupportedException)
+            {
+                Directory.CreateDirectory(replacement);
+            }
+            throw new IOException("受控的 reparse staging 替换故障");
+        });
+
+        try
+        {
+            await Assert.ThrowsAnyAsync<Exception>(
+                () => new WorkbenchInitializationService().InitializeAsync(data, progress: progress));
+
+            if (!reparseSupported) return;
+            Assert.NotNull(replacement);
+            Assert.True(Directory.Exists(replacement));
+            Assert.True((File.GetAttributes(replacement!) & FileAttributes.ReparsePoint) != 0);
+            Assert.Equal("user", await File.ReadAllTextAsync(Path.Combine(replacementTarget, "keep.txt")));
+        }
+        finally
+        {
+            if (Directory.Exists(root)) Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task InitializationService_AllWhitespaceMonitorPathsUseTargetInbox()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "HephaestusWorkbenchTests", Guid.NewGuid().ToString("N"));
+        var data = Path.Combine(root, "Data");
+
+        try
+        {
+            await new WorkbenchInitializationService().InitializeAsync(data, new[] { " ", "\t", "\r\n" });
+
+            var paths = new DataPaths(data);
+            using var workspace = JsonDocument.Parse(await File.ReadAllTextAsync(paths.WorkspaceConfigFile));
+            var monitorPath = Assert.Single(workspace.RootElement.GetProperty("monitorPaths").EnumerateArray()).GetString();
+            Assert.Equal(Path.GetFullPath(Path.Combine(data, "Inbox")), monitorPath);
+            Assert.DoesNotContain(".hephaestus-init-", monitorPath, StringComparison.OrdinalIgnoreCase);
+        }
+        finally
+        {
+            if (Directory.Exists(root)) Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task InitializationService_TargetWrittenDuringInitializationIsRejectedAndPreserved()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "HephaestusWorkbenchTests", Guid.NewGuid().ToString("N"));
+        var data = Path.Combine(root, "Data");
+        Directory.CreateDirectory(data);
+        var marker = Path.Combine(data, "external.marker");
+        var progress = new InlineProgress(message =>
+        {
+            if (message == "正在写入工作区配置…") File.WriteAllText(marker, "external");
+        });
+
+        try
+        {
+            var error = await Assert.ThrowsAsync<InvalidOperationException>(
+                () => new WorkbenchInitializationService().InitializeAsync(data, progress: progress));
+
+            Assert.Contains("目标目录出现了新文件", error.Message, StringComparison.Ordinal);
+            Assert.Equal("external", await File.ReadAllTextAsync(marker));
+            Assert.Equal(new[] { marker }, Directory.EnumerateFiles(data, "*", SearchOption.AllDirectories));
+            Assert.Empty(Directory.EnumerateDirectories(data));
+            Assert.Equal(new[] { data }, Directory.EnumerateDirectories(root));
+        }
+        finally
+        {
+            if (Directory.Exists(root)) Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task InitializationService_CancellationAfterDatabaseLeavesTargetEmptyAndCanRetry()
     {
         var root = Path.Combine(Path.GetTempPath(), "HephaestusWorkbenchTests", Guid.NewGuid().ToString("N"));
@@ -237,6 +370,13 @@ public sealed class WorkbenchConfigurationTests
         {
             if (Directory.Exists(root)) Directory.Delete(root, recursive: true);
         }
+    }
+
+    private static string FindStagingDirectory(string root, string dataRoot)
+    {
+        var prefix = $".{Path.GetFileName(Path.TrimEndingDirectorySeparator(dataRoot))}.hephaestus-init-";
+        return Directory.EnumerateDirectories(root)
+            .Single(path => Path.GetFileName(path).StartsWith(prefix, StringComparison.Ordinal));
     }
 
     private sealed class InlineProgress(Action<string> report) : IProgress<string>
