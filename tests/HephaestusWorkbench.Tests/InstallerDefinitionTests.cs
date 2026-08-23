@@ -3,6 +3,20 @@ namespace HephaestusWorkbench.Tests;
 public sealed class InstallerDefinitionTests
 {
     [Fact]
+    public void ReleaseDefaults_TargetFormalV2Version()
+    {
+        var props = ReadRepositoryFile("Directory.Build.props");
+        var buildScript = ReadRepositoryFile("installer", "build-installer.ps1");
+        var innoSetup = ReadRepositoryFile("installer", "HephaestusWorkbench.iss");
+        var workflow = ReadRepositoryFile(".github", "workflows", "release.yml");
+
+        Assert.Contains("<Version>2.0.0</Version>", props);
+        Assert.Contains("[string]$Version = '2.0.0'", buildScript);
+        Assert.Contains("#define MyAppVersion \"2.0.0\"", innoSetup);
+        Assert.Contains("default: \"2.0.0\"", workflow);
+    }
+
+    [Fact]
     public void InnoSetup_UsesStandardOfflineWizard()
     {
         var script = ReadRepositoryFile("installer", "HephaestusWorkbench.iss");
