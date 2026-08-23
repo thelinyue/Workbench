@@ -78,15 +78,15 @@ internal sealed class WorkbenchHost : IDisposable
         LifecycleRepository = new SqliteAnalysisLifecycleRepository(_factory);
         Configuration = new WorkbenchConfigurationService(Paths);
         PluginCatalog = new PluginCatalog(Paths, Logger);
+        ExtensionRegistry = new ExtensionRegistry(Paths.ExtensionsDirectory, new ExtensionHealthChecker());
+        AnalysisProcessHost = new AnalysisProcessHost(Logger);
         Rules = new RuleSetService(Paths, Logger);
         RuleVerifier = new Ed25519RulePackageVerifier(Rules);
         RuleDistribution = new RuleDistributionService(Rules, RuleVerifier, Logger, plugins: PluginCatalog);
 
         _seedDirectory = Path.Combine(AppContext.BaseDirectory, "PluginSeed");
         TaskCenter = new TaskCenter(TasksRepository);
-        var legacyRunner = new LegacyLogAnalyzerRunner(Logger);
-        var standardRunner = new StandardExePluginRunner(Logger);
-        Analysis = new CaseAnalysisService(Paths, CasesRepository, TasksRepository, ReportsRepository, PluginCatalog, legacyRunner, standardRunner, TaskCenter, Logger, LifecycleRepository, Configuration, Rules);
+        Analysis = new CaseAnalysisService(Paths, CasesRepository, TasksRepository, ReportsRepository, ExtensionRegistry, AnalysisProcessHost, TaskCenter, Logger, LifecycleRepository);
         PluginMarketplace = new PluginMarketplaceService(Paths, PluginCatalog, Configuration, TaskCenter, Logger);
         Reports = new ReportService(ReportsRepository, Analysis);
         Inbox = new LogInboxService(new LogFileParser(), new ArchiveValidator(), Configuration, Logger, Paths.InboxDirectory);
@@ -105,6 +105,8 @@ internal sealed class WorkbenchHost : IDisposable
     public IRulePackageVerifier RuleVerifier { get; }
     public IRuleDistributionService RuleDistribution { get; }
     public PluginCatalog PluginCatalog { get; }
+    public ExtensionRegistry ExtensionRegistry { get; }
+    public AnalysisProcessHost AnalysisProcessHost { get; }
     public PluginMarketplaceService PluginMarketplace { get; }
     public TaskCenter TaskCenter { get; }
     public CaseAnalysisService Analysis { get; }

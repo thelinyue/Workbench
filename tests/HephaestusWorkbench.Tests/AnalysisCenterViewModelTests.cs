@@ -240,7 +240,7 @@ public sealed class AnalysisCenterViewModelTests
     [Fact]
     public async Task MonitoredRowSingleAnalysis_DoesNotOpenBrowserAutomatically()
     {
-        await using var environment = await TestEnvironment.CreateAsync(new SuccessfulRunner());
+        await using var environment = await TestEnvironment.CreateAsync();
         var source = Path.Combine(environment.Paths.InboxDirectory, "diag_DEVICE01_2608111530.tgz");
         await WriteValidArchiveAsync(source);
         await environment.Inbox.StartAsync();
@@ -264,7 +264,7 @@ public sealed class AnalysisCenterViewModelTests
     public async Task QuickSingleAnalysis_WhenOpenSucceedsWithWarning_ShowsChineseWarning()
     {
         const string warning = "报告已打开，但无法记录最后打开时间。";
-        await using var environment = await TestEnvironment.CreateAsync(new SuccessfulRunner());
+        await using var environment = await TestEnvironment.CreateAsync();
         var source = Path.Combine(environment.Paths.InboxDirectory, "diag_DEVICE01_2608111530.tgz");
         await WriteValidArchiveAsync(source);
         await environment.Inbox.StartAsync();
@@ -280,7 +280,7 @@ public sealed class AnalysisCenterViewModelTests
     [Fact]
     public async Task QuickSingleAnalysis_OpensNewReportInDefaultBrowser()
     {
-        await using var environment = await TestEnvironment.CreateAsync(new SuccessfulRunner());
+        await using var environment = await TestEnvironment.CreateAsync();
         var source = Path.Combine(environment.Paths.InboxDirectory, "diag_DEVICE01_2608111530.tgz");
         await WriteValidArchiveAsync(source);
         await environment.Inbox.StartAsync();
@@ -315,7 +315,7 @@ public sealed class AnalysisCenterViewModelTests
 
         var latest = (await environment.Reports.ListAsync(new ReportQuery())).OrderByDescending(x => x.CreateTime).First();
         Assert.NotEqual("report-old", latest.Id);
-        Assert.Equal("<html>new-report</html>", await File.ReadAllTextAsync(latest.ReportFile));
+        Assert.Equal("<html>fixture</html>", await File.ReadAllTextAsync(latest.ReportFile));
         Assert.Equal(latest.ReportFile, Assert.Single(environment.ReportLauncher.OpenedPaths));
     }
 
@@ -416,7 +416,7 @@ public sealed class AnalysisCenterViewModelTests
         public WorkbenchLogger Logger { get; }
         public RecordingReportProcessLauncher ReportLauncher { get; }
 
-        public static async Task<TestEnvironment> CreateAsync(IPluginRunner? runner = null)
+        public static async Task<TestEnvironment> CreateAsync()
         {
             var root = Path.Combine(Path.GetTempPath(), "HephaestusWorkbenchTests", Guid.NewGuid().ToString("N"));
             var paths = new DataPaths(root);
@@ -426,8 +426,8 @@ public sealed class AnalysisCenterViewModelTests
             var tasks = new SqliteTaskRepository(factory);
             var reports = new SqliteReportRepository(factory);
             var logger = new WorkbenchLogger(root);
-            runner ??= new FailedRunner();
-            var analysis = new CaseAnalysisService(paths, cases, tasks, reports, new TestPluginCatalog(), runner, runner, new TaskCenter(tasks), logger, new SqliteAnalysisLifecycleRepository(factory));
+            var registry = await AnalysisExtensionTestSupport.CreateRegistryAsync(paths, AnalysisExtensionTestSupport.Process("test-plugin"));
+            var analysis = new CaseAnalysisService(paths, cases, tasks, reports, registry, new AnalysisProcessHost(logger), new TaskCenter(tasks), logger, new SqliteAnalysisLifecycleRepository(factory));
             var configuration = new WorkbenchConfigurationService(paths);
             var inbox = new LogInboxService(new LogFileParser(), new ArchiveValidator(), configuration, logger, paths.InboxDirectory);
             return new TestEnvironment(root, paths, cases, tasks, reports, inbox, analysis, logger, new RecordingReportProcessLauncher());
@@ -449,41 +449,6 @@ public sealed class AnalysisCenterViewModelTests
             return ValueTask.CompletedTask;
         }
     }
-
-    private sealed class TestPluginCatalog : IPluginCatalog
-    {
-        private static readonly PluginManifest Manifest = new()
-        {
-            Id = "test-plugin",
-            Name = "测试插件",
-            Version = "1.0.0",
-            Type = PluginType.Exe,
-            Entry = "test.exe"
-        };
-
-        public Task<IReadOnlyList<PluginManifest>> ScanAsync(CancellationToken cancellationToken = default)
-            => Task.FromResult<IReadOnlyList<PluginManifest>>(new[] { Manifest });
-
-        public Task<PluginManifest?> GetAsync(string pluginId, CancellationToken cancellationToken = default)
-            => Task.FromResult<PluginManifest?>(string.Equals(pluginId, Manifest.Id, StringComparison.OrdinalIgnoreCase) ? Manifest : null);
-    }
-
-    private sealed class FailedRunner : IPluginRunner
-    {
-        public Task<PluginExecutionResult> RunAsync(PluginManifest manifest, PluginExecutionContext context, CancellationToken cancellationToken = default)
-            => Task.FromResult(new PluginExecutionResult(1, null, "测试结束"));
-    }
-
-    private sealed class SuccessfulRunner : IPluginRunner
-    {
-        public Task<PluginExecutionResult> RunAsync(PluginManifest manifest, PluginExecutionContext context, CancellationToken cancellationToken = default)
-        {
-            Directory.CreateDirectory(context.OutputPath);
-            File.WriteAllText(Path.Combine(context.OutputPath, "index.html"), "<html>new-report</html>");
-            return Task.FromResult(new PluginExecutionResult(0, context.OutputPath, null));
-        }
-    }
-
 
     private sealed class FixedReportOpenService(ReportOpenResult result) : IReportOpenService
     {

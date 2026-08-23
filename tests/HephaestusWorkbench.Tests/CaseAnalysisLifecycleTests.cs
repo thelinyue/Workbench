@@ -223,7 +223,8 @@ public sealed class CaseAnalysisLifecycleTests
         var tasks = new SqliteTaskRepository(factory);
         var reports = new SqliteReportRepository(factory);
         var logger = new WorkbenchLogger(root);
-        var analysis = new CaseAnalysisService(paths, cases, tasks, reports, new PluginCatalog(paths, logger), new LegacyLogAnalyzerRunner(logger), new StandardExePluginRunner(logger), new TaskCenter(tasks), logger, new SqliteAnalysisLifecycleRepository(factory));
+        var registry = await AnalysisExtensionTestSupport.CreateRegistryAsync(paths);
+        var analysis = new CaseAnalysisService(paths, cases, tasks, reports, registry, new AnalysisProcessHost(logger), new TaskCenter(tasks), logger, new SqliteAnalysisLifecycleRepository(factory));
         return new TestEnvironment(root, paths, cases, tasks, reports, analysis);
     }
 
