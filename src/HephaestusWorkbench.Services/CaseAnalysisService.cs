@@ -79,7 +79,7 @@ public sealed class CaseAnalysisService
         }
         if (plugin is null)
         {
-            _logger.Error("没有可用的日志分析插件。");
+            _logger.Error("没有可用的系统诊断插件。");
             return null;
         }
 

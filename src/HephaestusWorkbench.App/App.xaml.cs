@@ -209,7 +209,7 @@ internal sealed class WorkbenchHost : IDisposable
         AppSettings = await Configuration.EnsureAppSettingsAsync(SettingsStore);
         await Configuration.EnsurePluginConfigAsync();
 
-        Logger.Info("开始登记内置日志分析插件。");
+        Logger.Info("开始登记内置系统诊断插件。");
         await new PluginProvisioningService(Paths, _seedDirectory, Logger).ProvisionAsync();
         var bundled = (await PluginCatalog.ScanAsync()).FirstOrDefault(x => string.Equals(x.Id, "log-analyzer", StringComparison.OrdinalIgnoreCase));
         if (bundled is not null)
@@ -223,7 +223,7 @@ internal sealed class WorkbenchHost : IDisposable
             });
         }
         await PluginMarketplace.SynchronizePluginInfoAsync();
-        Logger.Info("内置日志分析插件登记完成。");
+        Logger.Info("内置系统诊断插件登记完成。");
 
         Logger.Info("开始启动日志收件箱监控。");
         await Inbox.StartAsync();

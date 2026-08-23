@@ -128,15 +128,15 @@ public sealed class LegacyLogAnalyzerRunner : IPluginRunner
                 BuildLegacyArguments(context),
                 cancellationToken);
             if (result.ExitCode != 0)
-                return new PluginExecutionResult(result.ExitCode, null, string.IsNullOrWhiteSpace(result.StandardError) ? "日志分析插件执行失败。" : result.StandardError.Trim());
+                return new PluginExecutionResult(result.ExitCode, null, string.IsNullOrWhiteSpace(result.StandardError) ? "系统诊断插件执行失败。" : result.StandardError.Trim());
 
             var discovery = await PluginReportManifestReader.DiscoverAsync(context.OutputPath, cancellationToken);
             if (discovery.ErrorMessage is not null)
                 return new PluginExecutionResult(result.ExitCode, null, discovery.ErrorMessage);
             if (!discovery.ManifestExists && !discovery.LegacyReportExists)
-                return new PluginExecutionResult(result.ExitCode, null, "日志分析完成，但未找到指定输出目录中的 reports.json 或 report.html。");
+                return new PluginExecutionResult(result.ExitCode, null, "系统诊断完成，但未找到指定输出目录中的 reports.json 或 report.html。");
 
-            _logger.Info($"日志分析插件完成：{context.CaseId}");
+            _logger.Info($"系统诊断插件完成：{context.CaseId}");
             return discovery.ManifestExists
                 ? new PluginExecutionResult(0, context.OutputPath, null, Reports: discovery.Reports)
                 : new PluginExecutionResult(0, context.OutputPath, null);
@@ -147,8 +147,8 @@ public sealed class LegacyLogAnalyzerRunner : IPluginRunner
         }
         catch (Exception ex)
         {
-            _logger.Error($"现有日志分析插件执行失败：{manifest.Name}", ex);
-            return new PluginExecutionResult(-1, null, $"日志分析插件执行失败：{ex.Message}");
+            _logger.Error($"现有系统诊断插件执行失败：{manifest.Name}", ex);
+            return new PluginExecutionResult(-1, null, $"系统诊断插件执行失败：{ex.Message}");
         }
     }
 

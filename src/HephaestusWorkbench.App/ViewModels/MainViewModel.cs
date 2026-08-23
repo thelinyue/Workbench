@@ -144,7 +144,7 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
     {
         try
         {
-            GlobalWarningText = (await _plugins.ScanAsync()).Count == 0 ? "没有可用的日志分析插件" : string.Empty;
+            GlobalWarningText = (await _plugins.ScanAsync()).Count == 0 ? "没有可用的系统诊断插件" : string.Empty;
         }
         catch (Exception ex) { GlobalWarningText = $"读取插件状态失败：{ex.Message}"; }
     }

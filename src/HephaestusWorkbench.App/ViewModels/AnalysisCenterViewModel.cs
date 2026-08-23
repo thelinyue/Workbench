@@ -62,6 +62,7 @@ public sealed class AnalysisCenterViewModel : ViewModelBase, IDisposable
 
         RefreshCommand = new DelegateCommand(() => { _operationMessage = null; _ = LoadAsync(); }, () => !IsBulkOperationActive);
         OpenRowReportCommand = new DelegateCommand(parameter => _ = OpenRowReportAsync(parameter as AnalysisLogGroupViewModel), parameter => parameter is AnalysisLogGroupViewModel { CanOpenReport: true });
+        OpenReportCommand = new DelegateCommand(parameter => _ = OpenReportAsync(parameter as ReportSummary), parameter => parameter is ReportSummary);
         AnalyzeAllPendingCommand = new DelegateCommand(() => _ = AnalyzeAllPendingAsync(), () => !IsBulkOperationActive && BulkEligibleCount > 0);
         DeleteInvalidCommand = new DelegateCommand(() => _ = DeleteInvalidAsync(), () => !IsBulkOperationActive && InvalidDeleteCount > 0);
         AnalyzeSingleCommand = new DelegateCommand(parameter => _ = AnalyzeSingleAsync(parameter as AnalysisLogGroupViewModel), CanAnalyzeSingle);
@@ -80,6 +81,7 @@ public sealed class AnalysisCenterViewModel : ViewModelBase, IDisposable
     public ObservableCollection<AnalysisLogGroupViewModel> Items { get; } = new();
     public ICommand RefreshCommand { get; }
     public ICommand OpenRowReportCommand { get; }
+    public ICommand OpenReportCommand { get; }
     public ICommand AnalyzeAllPendingCommand { get; }
     public ICommand DeleteInvalidCommand { get; }
     public ICommand AnalyzeSingleCommand { get; }
@@ -276,12 +278,33 @@ public sealed class AnalysisCenterViewModel : ViewModelBase, IDisposable
 
     private async Task OpenRowReportAsync(AnalysisLogGroupViewModel? item)
     {
-        if (item?.LatestAvailableReport is { IsAvailable: true } report)
+        var report = item?.CurrentAttempt?.Report;
+        if (report is null)
         {
-            await Reports.OpenReportAsync(report);
+            Message = "最新分析批次暂无报告。";
             return;
         }
-        Message = "该日志暂无可用报告。";
+        if (!report.IsAvailable)
+        {
+            Message = "最新分析批次的默认报告文件不存在，报告不可用。";
+            return;
+        }
+        await Reports.OpenReportAsync(report);
+    }
+
+    /// <summary>
+    /// 打开用户从最新分析批次报告列表中明确选择的报告。列表不会回退到历史批次，
+    /// 因而报告文件缺失时直接给出可理解的提示，避免工程师误把旧结果当作最新结果。
+    /// </summary>
+    private async Task OpenReportAsync(ReportSummary? report)
+    {
+        if (report is null) return;
+        if (!report.IsAvailable)
+        {
+            Message = $"所选报告“{report.Title}”的文件不存在，报告不可用。";
+            return;
+        }
+        await Reports.OpenReportAsync(report);
     }
 
     private bool CanAnalyzeSingle(object? parameter)
@@ -433,7 +456,7 @@ public sealed class AnalysisCenterViewModel : ViewModelBase, IDisposable
     private async Task DeleteLifecycleAsync(AnalysisLogGroupViewModel? item)
     {
         if (item is null || item.HasActiveTask) return;
-        var reportCount = item.Attempts.Count(x => x.Report is not null);
+        var reportCount = item.Attempts.Sum(x => x.Reports.Count);
         var extractPath = item.Attempts.FirstOrDefault()?.Case.ExtractPath ?? "无";
         var message = $"确认删除这份日志的全部数据吗？\n\n原始日志：{item.SourcePath}\n解压目录：{extractPath}\n案例：{item.Attempts.Count} 个\n报告：{reportCount} 个\n\n此操作不可恢复。";
         if (!_confirmDeleteLifecycle(message)) return;
@@ -678,7 +701,8 @@ public sealed class AnalysisLogGroupViewModel : ViewModelBase
         InboxItem = inboxItem;
         Attempts = new ObservableCollection<AnalysisAttemptViewModel>(attempts.OrderByDescending(x => x.ActivityTime));
         CurrentAttempt = Attempts.FirstOrDefault(x => x.IsActive) ?? Attempts.FirstOrDefault();
-        LatestAvailableReport = Attempts.Select(x => x.Report).FirstOrDefault(x => x?.IsAvailable == true);
+        // 主入口只对应最新分析批次；即使历史报告仍存在，也不能在最新报告缺失时静默回退。
+        LatestAvailableReport = CurrentAttempt?.Report is { IsAvailable: true } report ? report : null;
         var latestCase = CurrentAttempt?.Case;
         FileName = inboxItem?.FileName ?? latestCase?.OriginalName ?? Path.GetFileName(sourcePath);
         DeviceId = inboxItem?.DeviceId ?? latestCase?.DeviceId ?? "无法识别";
@@ -750,7 +774,7 @@ public sealed class AnalysisLogGroupViewModel : ViewModelBase
     public object? StatusValue { get; }
     public bool CanExecutePrimary { get; }
     public string PrimaryActionText { get; }
-    public bool CanOpenReport => LatestAvailableReport is not null;
+    public bool CanOpenReport => CurrentAttempt?.Report is not null;
     public bool CanOpenExtractDirectory => CurrentAttempt is not null;
     public bool CanAnalyzeSingle => SourceExists && !HasActiveTask && StageKey != "invalid";
     public bool IsBulkEligible => SourceExists && StageKey == "pending";

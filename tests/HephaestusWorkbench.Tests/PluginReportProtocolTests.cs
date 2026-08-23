@@ -56,6 +56,95 @@ public sealed class PluginReportProtocolTests
     }
 
     [Fact]
+    public async Task DiscoverAsync_NormalNestedReportPathRemainsValid()
+    {
+        var root = CreateRoot();
+        try
+        {
+            var nested = Path.Combine(root, "static", "reports");
+            Directory.CreateDirectory(nested);
+            await File.WriteAllTextAsync(Path.Combine(nested, "report.html"), "<html></html>");
+            await File.WriteAllTextAsync(Path.Combine(root, "reports.json"), """
+                { "schemaVersion": 1, "reports": [
+                  { "id": "nested", "title": "嵌套报告", "kind": "test", "file": "static/reports/report.html", "isDefault": true }
+                ] }
+                """);
+
+            var discovery = await PluginReportManifestReader.DiscoverAsync(root);
+
+            Assert.Null(discovery.ErrorMessage);
+            Assert.Equal("static/reports/report.html", Assert.Single(discovery.Reports).File);
+        }
+        finally
+        {
+            DeleteRoot(root);
+        }
+    }
+
+    [Fact]
+    public async Task DiscoverAsync_ReportEntryThroughDirectoryLinkIsRejected()
+    {
+        var root = CreateRoot();
+        var outside = CreateRoot();
+        var link = Path.Combine(root, "linked");
+        try
+        {
+            await File.WriteAllTextAsync(Path.Combine(outside, "outside.html"), "<html></html>");
+            using (var process = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(
+                "cmd.exe", $"/d /c mklink /J \"{link}\" \"{outside}\"")
+            {
+                CreateNoWindow = true,
+                UseShellExecute = false,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true
+            }))
+            {
+                Assert.NotNull(process);
+                await process.WaitForExitAsync();
+                Assert.True(process.ExitCode == 0, await process.StandardError.ReadToEndAsync());
+            }
+            await File.WriteAllTextAsync(Path.Combine(root, "reports.json"), """
+                { "schemaVersion": 1, "reports": [
+                  { "id": "outside", "title": "越界报告", "kind": "test", "file": "linked/outside.html", "isDefault": true }
+                ] }
+                """);
+
+            var discovery = await PluginReportManifestReader.DiscoverAsync(root);
+
+            Assert.NotNull(discovery.ErrorMessage);
+            Assert.Contains("报告清单无效", discovery.ErrorMessage);
+            Assert.Contains("链接", discovery.ErrorMessage);
+            Assert.Empty(discovery.Reports);
+        }
+        finally
+        {
+            if (Directory.Exists(link)) Directory.Delete(link);
+            DeleteRoot(root);
+            DeleteRoot(outside);
+        }
+    }
+
+    [Fact]
+    public async Task DiscoverAsync_NullReportItemReturnsClearProtocolError()
+    {
+        var root = CreateRoot();
+        try
+        {
+            await File.WriteAllTextAsync(Path.Combine(root, "reports.json"),
+                "{ \"schemaVersion\": 1, \"reports\": [null] }");
+
+            var discovery = await PluginReportManifestReader.DiscoverAsync(root);
+
+            Assert.Equal("报告清单无效：报告条目不能为空。", discovery.ErrorMessage);
+            Assert.Empty(discovery.Reports);
+        }
+        finally
+        {
+            DeleteRoot(root);
+        }
+    }
+
+    [Fact]
     public async Task DiscoverAsync_WithoutManifestKeepsLegacyReportHtmlFallback()
     {
         var root = CreateRoot();
@@ -73,6 +162,44 @@ public sealed class PluginReportProtocolTests
         finally
         {
             DeleteRoot(root);
+        }
+    }
+
+    [Fact]
+    public async Task DiscoverAsync_LegacyReportThroughOutputDirectoryLinkIsRejected()
+    {
+        var parent = CreateRoot();
+        var outside = CreateRoot();
+        var linkedOutput = Path.Combine(parent, "linked-output");
+        try
+        {
+            await File.WriteAllTextAsync(Path.Combine(outside, "report.html"), "<html></html>");
+            using (var process = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(
+                "cmd.exe", $"/d /c mklink /J \"{linkedOutput}\" \"{outside}\"")
+            {
+                CreateNoWindow = true,
+                UseShellExecute = false,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true
+            }))
+            {
+                Assert.NotNull(process);
+                await process.WaitForExitAsync();
+                Assert.True(process.ExitCode == 0, await process.StandardError.ReadToEndAsync());
+            }
+
+            var discovery = await PluginReportManifestReader.DiscoverAsync(linkedOutput);
+
+            Assert.False(discovery.ManifestExists);
+            Assert.False(discovery.LegacyReportExists);
+            Assert.Equal("旧版报告入口无效：report.html 路径包含链接或特殊目录。", discovery.ErrorMessage);
+            Assert.Empty(discovery.Reports);
+        }
+        finally
+        {
+            if (Directory.Exists(linkedOutput)) Directory.Delete(linkedOutput);
+            DeleteRoot(parent);
+            DeleteRoot(outside);
         }
     }
 

@@ -1,6 +1,6 @@
 {
   "id": "log-analyzer",
-  "name": "日志分析",
+  "name": "系统诊断插件",
   "version": "1.0.1",
   "type": "Exe",
   "entry": "log_analyzer.exe",

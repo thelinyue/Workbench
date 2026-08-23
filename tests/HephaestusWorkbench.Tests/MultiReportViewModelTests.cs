@@ -26,6 +26,26 @@ public sealed class MultiReportViewModelTests
     }
 
     [Fact]
+    public void PluginExecutionResult_PreservesLegacyFourParameterBinaryContract()
+    {
+        var resultType = typeof(HephaestusWorkbench.PluginSDK.PluginExecutionResult);
+        var legacyConstructor = resultType.GetConstructor(new[]
+        {
+            typeof(int), typeof(string), typeof(string), typeof(bool)
+        });
+        var legacyDeconstruct = resultType.GetMethod(
+            "Deconstruct",
+            new[]
+            {
+                typeof(int).MakeByRefType(), typeof(string).MakeByRefType(),
+                typeof(string).MakeByRefType(), typeof(bool).MakeByRefType()
+            });
+
+        Assert.NotNull(legacyConstructor);
+        Assert.NotNull(legacyDeconstruct);
+    }
+
+    [Fact]
     public void ReportTabTitle_ContainsCaseAndReportNames()
     {
         var tab = new ReportTabViewModel(Summary("storage", "存储健康诊断报告", true));

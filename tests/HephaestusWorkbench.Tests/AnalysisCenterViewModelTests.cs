@@ -187,6 +187,115 @@ public sealed class AnalysisCenterViewModelTests
     }
 
     [Fact]
+    public async Task OpenReportCommand_OpensNonDefaultReportFromLatestAttempt()
+    {
+        await using var environment = await TestEnvironment.CreateAsync();
+        var source = Path.Combine(environment.Root, "diag_DEVICE01_2608111530.tgz");
+        var reportCase = CreateCase("case-report-list", source, Path.Combine(environment.Root, "diag_DEVICE01_2608111530"), CaseStatus.Completed, DateTime.Now);
+        await environment.Cases.InsertAsync(reportCase);
+        var reportPath = environment.Paths.GetReportDirectory(reportCase.ExtractPath);
+        Directory.CreateDirectory(reportPath);
+        await File.WriteAllTextAsync(Path.Combine(reportPath, "storage.html"), "<html>storage</html>");
+        await File.WriteAllTextAsync(Path.Combine(reportPath, "log.html"), "<html>log</html>");
+        var reportTime = DateTime.Now;
+        await environment.Reports.InsertAsync(new Report
+        {
+            Id = "report-storage-list", CaseId = reportCase.Id, Path = reportPath, ReportKey = "storage", Title = "存储健康诊断报告",
+            Kind = "storage-health", EntryFile = "storage.html", IsDefault = true, PluginId = "test-plugin", CreateTime = reportTime
+        });
+        await environment.Reports.InsertAsync(new Report
+        {
+            Id = "report-log-list", CaseId = reportCase.Id, Path = reportPath, ReportKey = "log", Title = "综合日志分析报告",
+            Kind = "log-analysis", EntryFile = "log.html", IsDefault = false, PluginId = "test-plugin", CreateTime = reportTime
+        });
+
+        using var center = environment.CreateAnalysisCenter();
+        await center.InitializeAsync();
+        var report = Assert.Single(center.Items).CurrentAttempt!.Reports.Single(x => !x.IsDefault);
+
+        var commandProperty = center.GetType().GetProperty("OpenReportCommand");
+        var command = Assert.IsAssignableFrom<System.Windows.Input.ICommand>(commandProperty?.GetValue(center));
+        command.Execute(report);
+        await WaitUntilAsync(() => Task.FromResult(center.Reports.OpenTabs.Count == 1));
+
+        Assert.Equal("report-log-list", Assert.Single(center.Reports.OpenTabs).Report.Id);
+    }
+
+    [Fact]
+    public async Task OpenRowReportCommand_WhenLatestDefaultReportIsMissing_DoesNotOpenOlderReportAndShowsMessage()
+    {
+        await using var environment = await TestEnvironment.CreateAsync();
+        var source = Path.Combine(environment.Root, "diag_DEVICE01_2608111530.tgz");
+        var oldCase = CreateCase("case-old-available", source, Path.Combine(environment.Root, "old"), CaseStatus.Completed, DateTime.Now.AddMinutes(-2));
+        var latestCase = CreateCase("case-latest-missing", source, Path.Combine(environment.Root, "latest"), CaseStatus.Completed, DateTime.Now.AddMinutes(-1));
+        await environment.Cases.InsertAsync(oldCase);
+        await environment.Cases.InsertAsync(latestCase);
+        var oldPath = environment.Paths.GetReportDirectory(oldCase.ExtractPath);
+        var latestPath = environment.Paths.GetReportDirectory(latestCase.ExtractPath);
+        Directory.CreateDirectory(oldPath);
+        Directory.CreateDirectory(latestPath);
+        await File.WriteAllTextAsync(Path.Combine(oldPath, "report.html"), "<html>old</html>");
+        await environment.Reports.InsertAsync(new Report
+        {
+            Id = "report-old-available", CaseId = oldCase.Id, Path = oldPath, PluginId = "test-plugin", CreateTime = oldCase.UpdateTime
+        });
+        await environment.Reports.InsertAsync(new Report
+        {
+            Id = "report-latest-missing", CaseId = latestCase.Id, Path = latestPath, PluginId = "test-plugin", CreateTime = latestCase.UpdateTime
+        });
+
+        using var center = environment.CreateAnalysisCenter();
+        await center.InitializeAsync();
+        var row = Assert.Single(center.Items);
+
+        Assert.True(center.OpenRowReportCommand.CanExecute(row));
+        center.OpenRowReportCommand.Execute(row);
+        await WaitUntilAsync(() => Task.FromResult(center.Message.Contains("最新分析批次", StringComparison.Ordinal)));
+
+        Assert.Empty(center.Reports.OpenTabs);
+        Assert.Contains("报告文件不存在", center.Message);
+    }
+
+    [Fact]
+    public async Task DeleteLifecycleCommand_ConfirmationCountsEveryReportAcrossAttempts()
+    {
+        await using var environment = await TestEnvironment.CreateAsync();
+        var source = Path.Combine(environment.Root, "diag_DEVICE01_2608111530.tgz");
+        var firstCase = CreateCase("case-delete-first", source, Path.Combine(environment.Root, "first"), CaseStatus.Completed, DateTime.Now.AddMinutes(-2));
+        var secondCase = CreateCase("case-delete-second", source, Path.Combine(environment.Root, "second"), CaseStatus.Completed, DateTime.Now.AddMinutes(-1));
+        await environment.Cases.InsertAsync(firstCase);
+        await environment.Cases.InsertAsync(secondCase);
+        foreach (var analysisCase in new[] { firstCase, secondCase })
+        {
+            var reportPath = environment.Paths.GetReportDirectory(analysisCase.ExtractPath);
+            Directory.CreateDirectory(reportPath);
+            for (var index = 0; index < 2; index++)
+            {
+                var entry = $"report-{index}.html";
+                await File.WriteAllTextAsync(Path.Combine(reportPath, entry), "<html></html>");
+                await environment.Reports.InsertAsync(new Report
+                {
+                    Id = $"{analysisCase.Id}-report-{index}", CaseId = analysisCase.Id, Path = reportPath,
+                    ReportKey = $"report-{index}", Title = $"报告 {index}", Kind = "test", EntryFile = entry,
+                    IsDefault = index == 0, PluginId = "test-plugin", CreateTime = analysisCase.UpdateTime
+                });
+            }
+        }
+        string? confirmation = null;
+        using var center = environment.CreateAnalysisCenter(message =>
+        {
+            confirmation = message;
+            return false;
+        });
+        await center.InitializeAsync();
+
+        center.DeleteLifecycleCommand.Execute(Assert.Single(center.Items));
+
+        Assert.NotNull(confirmation);
+        Assert.Contains("报告：4 个", confirmation);
+    }
+
+    [Fact]
     public async Task AnalyzeSingleCommand_ReanalyzesAndOpensNewReport()
     {
         await using var environment = await TestEnvironment.CreateAsync(new SuccessfulRunner());

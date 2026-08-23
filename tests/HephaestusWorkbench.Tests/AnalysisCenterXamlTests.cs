@@ -49,6 +49,22 @@ public sealed class AnalysisCenterXamlTests
     }
 
     [Fact]
+    public void LatestAttemptReports_AreVisibleAndClickableFromEachAnalysisRow()
+    {
+        var document = LoadAnalysisCenterXaml();
+        XNamespace presentation = "http://schemas.microsoft.com/winfx/2006/xaml/presentation";
+        var reportLists = document.Descendants(presentation + "ItemsControl")
+            .Where(element => GetAttributeValue(element, "ItemsSource") == "{Binding CurrentAttempt.Reports}")
+            .ToArray();
+
+        var reportList = Assert.Single(reportLists);
+        Assert.Contains(reportList.Descendants(presentation + "Button"), button =>
+            GetAttributeValue(button, "Content") == "{Binding Title}"
+            && GetAttributeValue(button, "Command") == "{Binding DataContext.OpenReportCommand, ElementName=Root}"
+            && GetAttributeValue(button, "CommandParameter") == "{Binding}");
+    }
+
+    [Fact]
     public void MoreMenus_KeepFluentFontOnIconOnly()
     {
         var document = LoadAnalysisCenterXaml();

@@ -7,6 +7,21 @@ namespace HephaestusWorkbench.Tests;
 public sealed class PluginManifestTests
 {
     [Fact]
+    public void BundledSystemDiagnosisPlugin_UsesNewDisplayNameAndKeepsLegacyId()
+    {
+        var path = Path.Combine(AppContext.BaseDirectory, "PluginSeed", "manifest.json");
+        var manifest = JsonSerializer.Deserialize<PluginManifest>(File.ReadAllText(path), new JsonSerializerOptions
+        {
+            PropertyNameCaseInsensitive = true,
+            Converters = { new JsonStringEnumConverter() }
+        })!;
+
+        Assert.Equal("系统诊断插件", manifest.Name);
+        Assert.Equal("log-analyzer", manifest.Id);
+        Assert.Equal("log_analyzer.exe", manifest.Entry);
+    }
+
+    [Fact]
     public void LegacyManifest_ResolvesEntryRelativeToPluginDirectory()
     {
         var manifest = JsonSerializer.Deserialize<PluginManifest>("""

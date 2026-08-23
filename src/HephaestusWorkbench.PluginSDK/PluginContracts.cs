@@ -62,7 +62,26 @@ public sealed record PluginExecutionResult(
     string? ReportPath,
     string? ErrorMessage,
     bool Cancelled = false,
-    IReadOnlyList<PluginReportArtifact>? Reports = null);
+    IReadOnlyList<PluginReportArtifact>? Reports = null)
+{
+    /// <summary>
+    /// 保留 v1 多报告协议之前的四参数构造签名，确保已编译插件无需重新编译即可加载。
+    /// 新代码需要返回多份报告时使用包含 Reports 的五参数主构造函数。
+    /// </summary>
+    public PluginExecutionResult(int exitCode, string? reportPath, string? errorMessage, bool cancelled)
+        : this(exitCode, reportPath, errorMessage, cancelled, null)
+    {
+    }
+
+    /// <summary>保留旧版四元素解构签名；Reports 通过属性读取，避免破坏既有调用方。</summary>
+    public void Deconstruct(out int exitCode, out string? reportPath, out string? errorMessage, out bool cancelled)
+    {
+        exitCode = ExitCode;
+        reportPath = ReportPath;
+        errorMessage = ErrorMessage;
+        cancelled = Cancelled;
+    }
+}
 
 /// <summary>供未来 DLL 插件实现的统一入口。</summary>
 public interface IAnalysisPlugin

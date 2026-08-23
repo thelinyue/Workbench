@@ -25,7 +25,7 @@ public sealed class PluginProvisioningService
         var sourceManifest = Path.Combine(_seedDirectory, "manifest.json");
         if (!File.Exists(sourceExe) || !File.Exists(sourceManifest))
         {
-            _logger.Error($"未找到内置日志分析插件：{_seedDirectory}");
+            _logger.Error($"未找到内置系统诊断插件：{_seedDirectory}");
             return Task.CompletedTask;
         }
 
@@ -41,7 +41,7 @@ public sealed class PluginProvisioningService
             File.Copy(sourceExe, destinationExe, overwrite: true);
             File.Copy(sourceManifest, destinationManifest, overwrite: true);
         }
-        _logger.Info(shouldUpdateExecutable ? "现有日志分析插件已更新到用户插件目录。" : "现有日志分析插件已登记到用户插件目录。");
+        _logger.Info(shouldUpdateExecutable ? "现有系统诊断插件已更新到用户插件目录。" : "现有系统诊断插件已登记到用户插件目录。");
         return Task.CompletedTask;
     }
 
