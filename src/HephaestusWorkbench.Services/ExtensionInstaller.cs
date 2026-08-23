@@ -1,4 +1,3 @@
-using System.Collections.Concurrent;
 using System.IO.Compression;
 using System.Security.Cryptography;
 using System.Text;
@@ -22,6 +21,19 @@ public sealed class ExtensionInstallResult
 public interface IExtensionStagingCleaner
 {
     void Delete(string stagingDirectory);
+}
+
+/// <summary>将已完成验证的暂存目录原子移动为正式版本目录。</summary>
+public interface IExtensionVersionDirectoryMover
+{
+    void Move(string stagingDirectory, string versionDirectory);
+}
+
+/// <summary>正式版本目录移动器；保持窄边界，默认仅执行同盘 <see cref="Directory.Move(string, string)"/>。</summary>
+public sealed class ExtensionVersionDirectoryMover : IExtensionVersionDirectoryMover
+{
+    public void Move(string stagingDirectory, string versionDirectory)
+        => Directory.Move(stagingDirectory, versionDirectory);
 }
 
 /// <summary>正式文件系统暂存目录清理器。任何清理失败都会上抛给安装事务，不会静默遗留目录。</summary>
@@ -85,18 +97,19 @@ public sealed class ExtensionInstaller
         "COM¹", "COM²", "COM³", "LPT¹", "LPT²", "LPT³"
     };
 
-    private static readonly ConcurrentDictionary<string, SemaphoreSlim> InstallGates = new(StringComparer.OrdinalIgnoreCase);
-
     private readonly string _extensionsRoot;
     private readonly IExtensionPackageVerifier _packageVerifier;
     private readonly ExtensionRegistry _registry;
     private readonly IExtensionStagingCleaner _stagingCleaner;
+    private readonly IExtensionVersionDirectoryMover _versionDirectoryMover;
+    private readonly SemaphoreSlim _installGate = new(1, 1);
 
     public ExtensionInstaller(
         string extensionsRoot,
         IExtensionPackageVerifier packageVerifier,
         ExtensionRegistry registry,
-        IExtensionStagingCleaner? stagingCleaner = null)
+        IExtensionStagingCleaner? stagingCleaner = null,
+        IExtensionVersionDirectoryMover? versionDirectoryMover = null)
     {
         if (string.IsNullOrWhiteSpace(extensionsRoot))
             throw new ArgumentException("扩展目录根路径不能为空。", nameof(extensionsRoot));
@@ -105,6 +118,7 @@ public sealed class ExtensionInstaller
         _packageVerifier = packageVerifier ?? throw new ArgumentNullException(nameof(packageVerifier));
         _registry = registry ?? throw new ArgumentNullException(nameof(registry));
         _stagingCleaner = stagingCleaner ?? new ExtensionStagingCleaner();
+        _versionDirectoryMover = versionDirectoryMover ?? new ExtensionVersionDirectoryMover();
     }
 
     /// <summary>
@@ -139,14 +153,35 @@ public sealed class ExtensionInstaller
 
         var extensionDirectory = GetExtensionDirectory(verified.Manifest.Id);
         var versionDirectory = GetVersionDirectory(extensionDirectory, verified.Manifest.Version);
-        var installGate = InstallGates.GetOrAdd(versionDirectory, static _ => new SemaphoreSlim(1, 1));
-        await installGate.WaitAsync(cancellationToken);
+        await _installGate.WaitAsync(cancellationToken);
         string? stagingDirectory = null;
         try
         {
             EnsureExtensionsRootIsSafe();
             Directory.CreateDirectory(_extensionsRoot);
             EnsureExtensionsRootIsSafe();
+
+            EnsureExtensionDirectoryIsSafe(extensionDirectory);
+            if (PathExists(versionDirectory))
+            {
+                EnsureVersionDirectoryIsSafe(extensionDirectory, versionDirectory);
+                await EnsureExistingVersionMatchesAsync(
+                    versionDirectory,
+                    verified.Manifest,
+                    localPackageSha256,
+                    cancellationToken);
+                var existingManifest = await ActivateWithContentionRetryAsync(
+                    verified.Manifest.Id,
+                    verified.Manifest.Version,
+                    localPackageSha256,
+                    cancellationToken);
+                return new ExtensionInstallResult
+                {
+                    Manifest = existingManifest,
+                    VersionDirectory = versionDirectory,
+                    AlreadyInstalled = true
+                };
+            }
 
             stagingDirectory = Path.Combine(_extensionsRoot, $".install-{Guid.NewGuid():N}");
             EnsureDirectChild(_extensionsRoot, stagingDirectory, "扩展安装暂存目录");
@@ -161,8 +196,16 @@ public sealed class ExtensionInstaller
             EnsureExtensionDirectoryIsSafe(extensionDirectory, createIfMissing: true);
             EnsureVersionDirectoryIsSafe(extensionDirectory, versionDirectory);
             var alreadyInstalled = false;
-            if (PathExists(versionDirectory))
+            try
             {
+                _versionDirectoryMover.Move(stagingDirectory, versionDirectory);
+                stagingDirectory = null;
+            }
+            catch (IOException) when (PathExists(versionDirectory))
+            {
+                // 另一个宿主进程可能抢先完成同版本落盘；不能覆盖，必须重新验证 package.json 与 manifest 后才可幂等继续。
+                EnsureExtensionDirectoryIsSafe(extensionDirectory);
+                EnsureVersionDirectoryIsSafe(extensionDirectory, versionDirectory);
                 await EnsureExistingVersionMatchesAsync(
                     versionDirectory,
                     verified.Manifest,
@@ -170,28 +213,8 @@ public sealed class ExtensionInstaller
                     cancellationToken);
                 alreadyInstalled = true;
             }
-            else
-            {
-                try
-                {
-                    Directory.Move(stagingDirectory, versionDirectory);
-                    stagingDirectory = null;
-                }
-                catch (IOException) when (PathExists(versionDirectory))
-                {
-                    // 另一个宿主进程可能抢先完成同版本落盘；不能覆盖，必须重新验证现有版本后才可幂等继续。
-                    EnsureExtensionDirectoryIsSafe(extensionDirectory);
-                    EnsureVersionDirectoryIsSafe(extensionDirectory, versionDirectory);
-                    await EnsureExistingVersionMatchesAsync(
-                        versionDirectory,
-                        verified.Manifest,
-                        localPackageSha256,
-                        cancellationToken);
-                    alreadyInstalled = true;
-                }
-            }
 
-            var manifest = await _registry.ActivateAsync(
+            var manifest = await ActivateWithContentionRetryAsync(
                 verified.Manifest.Id,
                 verified.Manifest.Version,
                 localPackageSha256,
@@ -236,10 +259,37 @@ public sealed class ExtensionInstaller
             }
             finally
             {
-                installGate.Release();
+                _installGate.Release();
             }
         }
     }
+
+    /// <summary>
+    /// 不同宿主进程可能在同版本目录竞态恢复后短暂同时读取 current.json；仅对文件占用类 IOException（包括 Registry 的事务包装）做有限重试。
+    /// </summary>
+    private async Task<ExtensionManifest> ActivateWithContentionRetryAsync(
+        string id,
+        string version,
+        string packageSha256,
+        CancellationToken cancellationToken)
+    {
+        const int maximumAttempts = 3;
+        for (var attempt = 1; ; attempt++)
+        {
+            try
+            {
+                return await _registry.ActivateAsync(id, version, packageSha256, cancellationToken);
+            }
+            catch (Exception exception) when (attempt < maximumAttempts && IsActivationFileContention(exception))
+            {
+                await Task.Delay(TimeSpan.FromMilliseconds(25), cancellationToken);
+            }
+        }
+    }
+    private static bool IsActivationFileContention(Exception exception)
+        => exception is IOException ||
+           exception is InvalidOperationException { InnerException: IOException };
+
     private async Task ExtractPackageAsync(
         byte[] packageBytes,
         string stagingDirectory,

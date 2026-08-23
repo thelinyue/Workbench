@@ -1,9 +1,11 @@
+using System.Diagnostics;
 using System.IO.Compression;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using HephaestusWorkbench.PluginSDK;
 using HephaestusWorkbench.Services;
+using Xunit.Sdk;
 
 namespace HephaestusWorkbench.Tests;
 
@@ -264,18 +266,21 @@ public sealed class ExtensionInstallerTests
     }
 
     [Fact]
-    public async Task InstallAsync_SameVersionAndSameSha_IsIdempotent()
+    public async Task InstallAsync_SameVersionAndSameSha_ActivatesWithoutCreatingStaging()
     {
         using var environment = new InstallerTestEnvironment();
         var request = environment.CreateRequest(BuildPackage(
             ("manifest.json", BuildManifest("sample", "2.0.0")),
             ("bin/tool.exe", "payload")));
         var first = await environment.Installer.InstallAsync(request);
+        var cleaner = new ThrowingStagingCleaner(new IOException("幂等快速路径不应调用暂存清理器。"));
+        var installer = environment.CreateAdditionalInstaller(stagingCleaner: cleaner);
 
-        var second = await environment.Installer.InstallAsync(request);
+        var second = await installer.InstallAsync(request);
 
         Assert.True(second.AlreadyInstalled);
         Assert.Equal(first.VersionDirectory, second.VersionDirectory);
+        Assert.Null(cleaner.LastPath);
         Assert.Equal("payload", await File.ReadAllTextAsync(Path.Combine(second.VersionDirectory, "bin", "tool.exe")));
         Assert.Empty(environment.StagingDirectories());
     }
@@ -302,6 +307,26 @@ public sealed class ExtensionInstallerTests
         Assert.Single(results, result => !result.AlreadyInstalled);
         Assert.Single(results, result => result.AlreadyInstalled);
         Assert.True(File.Exists(Path.Combine(environment.VersionDirectory("sample", "2.0.0"), "package.json")));
+        Assert.Empty(environment.StagingDirectories());
+    }
+
+    [Fact]
+    public async Task InstallAsync_WhenMoveLosesCrossProcessRace_RevalidatesTargetAndReturnsAlreadyInstalled()
+    {
+        var mover = new CompetingProcessVersionDirectoryMover();
+        using var environment = new InstallerTestEnvironment(versionDirectoryMover: mover);
+        var request = environment.CreateRequest(BuildPackage(
+            ("manifest.json", BuildManifest("sample", "2.0.0")),
+            ("bin/tool.exe", "payload")));
+
+        var result = await environment.Installer.InstallAsync(request);
+
+        Assert.True(result.AlreadyInstalled);
+        Assert.Equal(1, mover.CallCount);
+        Assert.Equal("payload", await File.ReadAllTextAsync(Path.Combine(result.VersionDirectory, "bin", "tool.exe")));
+        var current = ExtensionCurrentParser.Parse(await File.ReadAllTextAsync(environment.CurrentPath("sample")));
+        Assert.Equal(ExtensionActivationState.Healthy, current.State);
+        Assert.Equal(Sha256(request.PackageBytes), current.PackageSha256);
         Assert.Empty(environment.StagingDirectories());
     }
 
@@ -370,21 +395,23 @@ public sealed class ExtensionInstallerTests
     }
 
     [Fact]
-    public async Task InstallAsync_WhenSuccessfulIdempotentCleanupFails_ReturnsChineseFailure()
+    public async Task InstallAsync_WhenMoveRaceRecoverySucceedsButCleanupFails_ReturnsChineseFailure()
     {
-        using var environment = new InstallerTestEnvironment();
+        var cleaner = new ThrowingStagingCleaner(new IOException("测试暂存目录被占用。"));
+        var mover = new CompetingProcessVersionDirectoryMover();
+        using var environment = new InstallerTestEnvironment(
+            stagingCleaner: cleaner,
+            versionDirectoryMover: mover);
         var request = environment.CreateRequest(BuildPackage(
             ("manifest.json", BuildManifest("sample", "2.0.0")),
             ("bin/tool.exe", "payload")));
-        await environment.Installer.InstallAsync(request);
-        var cleaner = new ThrowingStagingCleaner(new IOException("测试暂存目录被占用。"));
-        var installer = environment.CreateAdditionalInstaller(cleaner);
 
-        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => installer.InstallAsync(request));
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => environment.Installer.InstallAsync(request));
 
         Assert.Contains("安装已完成", exception.Message, StringComparison.Ordinal);
         Assert.Contains("清理暂存目录失败", exception.Message, StringComparison.Ordinal);
         Assert.IsType<IOException>(exception.InnerException);
+        Assert.Equal(1, mover.CallCount);
         Assert.NotNull(cleaner.LastPath);
         Assert.True(Directory.Exists(cleaner.LastPath));
     }
@@ -405,6 +432,41 @@ public sealed class ExtensionInstallerTests
         var aggregate = Assert.IsType<AggregateException>(exception.InnerException);
         Assert.Contains(aggregate.InnerExceptions, item => item is InvalidDataException && item.Message.Contains("路径穿越", StringComparison.Ordinal));
         Assert.Contains(aggregate.InnerExceptions, item => item is IOException && item.Message.Contains("被占用", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void ExtensionStagingCleaner_Delete_DoesNotFollowDirectoryJunction()
+    {
+        if (!OperatingSystem.IsWindows())
+            throw SkipException.ForSkip("该安全测试需要 Windows junction。当前平台不支持，已明确记录限制。");
+
+        var root = Path.Combine(Path.GetTempPath(), $"hephaestus-staging-cleaner-tests-{Guid.NewGuid():N}");
+        var staging = Path.Combine(root, "staging");
+        var outside = Path.Combine(root, "outside");
+        var link = Path.Combine(staging, "outside-link");
+        var sentinel = Path.Combine(outside, "sentinel.txt");
+        Directory.CreateDirectory(staging);
+        Directory.CreateDirectory(outside);
+        File.WriteAllText(sentinel, "must-survive");
+
+        try
+        {
+            if (!TryCreateJunction(link, outside, out var error))
+                throw SkipException.ForSkip($"当前 Windows 环境不允许创建 junction，无法执行不跟随链接测试：{error}");
+
+            new ExtensionStagingCleaner().Delete(staging);
+
+            Assert.False(Directory.Exists(staging));
+            Assert.True(Directory.Exists(outside));
+            Assert.Equal("must-survive", File.ReadAllText(sentinel));
+        }
+        finally
+        {
+            if (Directory.Exists(link)) Directory.Delete(link);
+            if (Directory.Exists(staging)) Directory.Delete(staging, recursive: true);
+            if (Directory.Exists(outside)) Directory.Delete(outside, recursive: true);
+            if (Directory.Exists(root)) Directory.Delete(root, recursive: true);
+        }
     }
 
     [Fact]
@@ -503,14 +565,15 @@ public sealed class ExtensionInstallerTests
             string? verifierError = null,
             string? failingHealthVersion = null,
             Action<ExtensionPackageVerificationRequest>? onVerify = null,
-            IExtensionStagingCleaner? stagingCleaner = null)
+            IExtensionStagingCleaner? stagingCleaner = null,
+            IExtensionVersionDirectoryMover? versionDirectoryMover = null)
         {
             Root = Path.Combine(Path.GetTempPath(), $"hephaestus-installer-tests-{Guid.NewGuid():N}");
             ExtensionsRoot = Path.Combine(Root, "Extensions");
             Directory.CreateDirectory(ExtensionsRoot);
             Verifier = new StubPackageVerifier(verifierError, onVerify);
             Registry = new ExtensionRegistry(ExtensionsRoot, new StubHealthChecker(failingHealthVersion));
-            Installer = new ExtensionInstaller(ExtensionsRoot, Verifier, Registry, stagingCleaner);
+            Installer = new ExtensionInstaller(ExtensionsRoot, Verifier, Registry, stagingCleaner, versionDirectoryMover);
         }
 
         public string Root { get; }
@@ -519,8 +582,10 @@ public sealed class ExtensionInstallerTests
         public ExtensionRegistry Registry { get; }
         public ExtensionInstaller Installer { get; }
 
-        public ExtensionInstaller CreateAdditionalInstaller(IExtensionStagingCleaner? stagingCleaner = null)
-            => new(ExtensionsRoot, Verifier, Registry, stagingCleaner);
+        public ExtensionInstaller CreateAdditionalInstaller(
+            IExtensionStagingCleaner? stagingCleaner = null,
+            IExtensionVersionDirectoryMover? versionDirectoryMover = null)
+            => new(ExtensionsRoot, Verifier, Registry, stagingCleaner, versionDirectoryMover);
 
         public ExtensionPackageVerificationRequest CreateRequest(byte[] packageBytes)
         {
@@ -673,6 +738,54 @@ public sealed class ExtensionInstallerTests
             LastPath = stagingDirectory;
             throw exception;
         }
+    }
+
+    private sealed class CompetingProcessVersionDirectoryMover : IExtensionVersionDirectoryMover
+    {
+        public int CallCount { get; private set; }
+
+        public void Move(string stagingDirectory, string versionDirectory)
+        {
+            CallCount++;
+            CopyDirectory(stagingDirectory, versionDirectory);
+            throw new IOException("测试模拟另一个进程已抢先落盘目标版本。");
+        }
+
+        private static void CopyDirectory(string source, string destination)
+        {
+            Directory.CreateDirectory(destination);
+            foreach (var directory in Directory.EnumerateDirectories(source, "*", SearchOption.AllDirectories))
+                Directory.CreateDirectory(Path.Combine(destination, Path.GetRelativePath(source, directory)));
+            foreach (var file in Directory.EnumerateFiles(source, "*", SearchOption.AllDirectories))
+            {
+                var target = Path.Combine(destination, Path.GetRelativePath(source, file));
+                Directory.CreateDirectory(Path.GetDirectoryName(target)!);
+                File.Copy(file, target);
+            }
+        }
+    }
+
+    private static bool TryCreateJunction(string linkDirectory, string targetDirectory, out string error)
+    {
+        using var process = Process.Start(new ProcessStartInfo
+        {
+            FileName = "cmd.exe",
+            Arguments = $"/d /c mklink /J \"{linkDirectory}\" \"{targetDirectory}\"",
+            UseShellExecute = false,
+            CreateNoWindow = true,
+            RedirectStandardError = true,
+            RedirectStandardOutput = true
+        });
+        if (process is null)
+        {
+            error = "无法启动 cmd.exe。";
+            return false;
+        }
+
+        process.WaitForExit();
+        error = process.StandardError.ReadToEnd() + process.StandardOutput.ReadToEnd();
+        return process.ExitCode == 0 && Directory.Exists(linkDirectory) &&
+               File.GetAttributes(linkDirectory).HasFlag(FileAttributes.ReparsePoint);
     }
 
     private sealed class StubHealthChecker(string? failingVersion) : IExtensionHealthChecker
