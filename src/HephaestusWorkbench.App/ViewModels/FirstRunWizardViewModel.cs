@@ -61,11 +61,9 @@ public sealed class FirstRunWizardViewModel : ViewModelBase
                     SelectedMonitorPath = MonitorPaths[0];
                 OnPropertyChanged(nameof(MonitorPaths));
             }
-            OnPropertyChanged(nameof(ExtensionDirectory));
         }
     }
 
-    public string ExtensionDirectory => Path.Combine(DataPath, "Extensions");
     public string NewMonitorPath
     {
         get => _newMonitorPath;
@@ -99,14 +97,14 @@ public sealed class FirstRunWizardViewModel : ViewModelBase
         get => _currentStep;
         set
         {
-            if (!SetProperty(ref _currentStep, Math.Clamp(value, 0, 4))) return;
+            if (!SetProperty(ref _currentStep, Math.Clamp(value, 0, 3))) return;
             OnPropertyChanged(nameof(StepText));
             OnPropertyChanged(nameof(NextButtonText));
             (BackCommand as DelegateCommand)?.RaiseCanExecuteChanged();
         }
     }
-    public string StepText => $"步骤 {CurrentStep + 1} / 5";
-    public string NextButtonText => CurrentStep == 0 ? "开始" : CurrentStep == 4 && _initializationCompleted ? "完成" : CurrentStep == 4 ? "开始初始化" : "下一步";
+    public string StepText => $"步骤 {CurrentStep + 1} / 4";
+    public string NextButtonText => CurrentStep == 0 ? "开始" : CurrentStep == 3 && _initializationCompleted ? "完成" : CurrentStep == 3 ? "开始初始化" : "下一步";
     public bool IsBusy { get => _isBusy; private set { if (SetProperty(ref _isBusy, value)) { (BackCommand as DelegateCommand)?.RaiseCanExecuteChanged(); (NextCommand as DelegateCommand)?.RaiseCanExecuteChanged(); } } }
 
     public ICommand BackCommand { get; }
@@ -194,7 +192,7 @@ public sealed class FirstRunWizardViewModel : ViewModelBase
             ErrorMessage = "至少需要一个日志监控目录。";
             return;
         }
-        if (CurrentStep < 4)
+        if (CurrentStep < 3)
         {
             CurrentStep++;
             return;

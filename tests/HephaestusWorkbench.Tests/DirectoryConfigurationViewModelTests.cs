@@ -52,6 +52,22 @@ public sealed class DirectoryConfigurationViewModelTests
     }
 
     [Fact]
+    public void FirstRunWizard_ClampsNavigationToFourVisibleSteps()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "HephaestusWorkbenchTests", Guid.NewGuid().ToString("N"));
+        var viewModel = new FirstRunWizardViewModel(
+            root,
+            (_, _, _) => Task.CompletedTask,
+            () => { },
+            () => { });
+
+        viewModel.CurrentStep = 4;
+
+        Assert.Equal(3, viewModel.CurrentStep);
+        Assert.Equal("步骤 4 / 4", viewModel.StepText);
+    }
+
+    [Fact]
     public async Task SettingsDirectoryCommands_UseTheSameValidationAndSelectionBehavior()
     {
         var root = Path.Combine(Path.GetTempPath(), "HephaestusWorkbenchTests", Guid.NewGuid().ToString("N"));

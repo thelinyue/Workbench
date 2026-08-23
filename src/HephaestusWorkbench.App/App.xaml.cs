@@ -3,6 +3,8 @@ using System.Windows;
 using HephaestusWorkbench.App.ViewModels;
 using HephaestusWorkbench.Core.Models;
 using HephaestusWorkbench.Core.Repositories;
+using HephaestusWorkbench.PluginSDK;
+using HephaestusWorkbench.App.Views;
 using HephaestusWorkbench.Data;
 using HephaestusWorkbench.Services;
 
@@ -63,7 +65,6 @@ public partial class App : System.Windows.Application
 internal sealed class WorkbenchHost : IDisposable
 {
     private readonly SqliteConnectionFactory _factory;
-    private readonly string _seedDirectory;
 
     private WorkbenchHost(string dataRoot)
     {
@@ -77,20 +78,26 @@ internal sealed class WorkbenchHost : IDisposable
         ReportsRepository = new SqliteReportRepository(_factory);
         LifecycleRepository = new SqliteAnalysisLifecycleRepository(_factory);
         Configuration = new WorkbenchConfigurationService(Paths);
-        PluginCatalog = new PluginCatalog(Paths, Logger);
+        ExtensionSettings = new ExtensionSettingsStore(Paths);
         ExtensionRegistry = new ExtensionRegistry(Paths.ExtensionsDirectory, new ExtensionHealthChecker());
+        ExtensionTrustStore = new ExtensionTrustStore();
+        ExtensionPackageVerifier = new ExtensionPackageVerifier(ExtensionTrustStore);
+        ExtensionInstaller = new ExtensionInstaller(Paths.ExtensionsDirectory, ExtensionPackageVerifier, ExtensionRegistry);
+        ExtensionCatalogClient = new ExtensionCatalogClient(Paths, Logger);
+        ExtensionCenter = new ExtensionCenterService(
+            ExtensionCatalogClient,
+            ExtensionInstaller,
+            ExtensionRegistry,
+            ExtensionSettings,
+            Logger,
+            AppVersionInfo.DisplayVersion.TrimStart('v'));
         AnalysisProcessHost = new AnalysisProcessHost(Logger);
         Rules = new RuleSetService(Paths, Logger);
-        RuleVerifier = new Ed25519RulePackageVerifier(Rules);
-        RuleDistribution = new RuleDistributionService(Rules, RuleVerifier, Logger, plugins: PluginCatalog);
 
-        _seedDirectory = Path.Combine(AppContext.BaseDirectory, "PluginSeed");
         TaskCenter = new TaskCenter(TasksRepository);
-        Analysis = new CaseAnalysisService(Paths, CasesRepository, TasksRepository, ReportsRepository, ExtensionRegistry, AnalysisProcessHost, TaskCenter, Logger, Rules, LifecycleRepository);
-        PluginMarketplace = new PluginMarketplaceService(Paths, PluginCatalog, Configuration, TaskCenter, Logger);
+        Analysis = new CaseAnalysisService(Paths, CasesRepository, TasksRepository, ReportsRepository, ExtensionRegistry, ExtensionSettings, AnalysisProcessHost, TaskCenter, Logger, Rules, LifecycleRepository);
         Reports = new ReportService(ReportsRepository, Analysis);
         Inbox = new LogInboxService(new LogFileParser(), new ArchiveValidator(), Configuration, Logger, Paths.InboxDirectory);
-        Storage = new StorageService(Paths, CasesRepository, Logger);
         Settings = new SettingsService(Configuration, Paths.InboxDirectory);
     }
 
@@ -101,18 +108,19 @@ internal sealed class WorkbenchHost : IDisposable
     public IReportRepository ReportsRepository { get; }
     public IAnalysisLifecycleRepository LifecycleRepository { get; }
     public WorkbenchConfigurationService Configuration { get; }
-    public RuleSetService Rules { get; }
-    public IRulePackageVerifier RuleVerifier { get; }
-    public IRuleDistributionService RuleDistribution { get; }
-    public PluginCatalog PluginCatalog { get; }
+    public ExtensionSettingsStore ExtensionSettings { get; }
     public ExtensionRegistry ExtensionRegistry { get; }
+    public IExtensionTrustStore ExtensionTrustStore { get; }
+    public IExtensionPackageVerifier ExtensionPackageVerifier { get; }
+    public ExtensionInstaller ExtensionInstaller { get; }
+    public ExtensionCatalogClient ExtensionCatalogClient { get; }
+    public IExtensionCenterService ExtensionCenter { get; }
     public AnalysisProcessHost AnalysisProcessHost { get; }
-    public PluginMarketplaceService PluginMarketplace { get; }
+    public RuleSetService Rules { get; }
     public TaskCenter TaskCenter { get; }
     public CaseAnalysisService Analysis { get; }
     public ReportService Reports { get; }
     public LogInboxService Inbox { get; }
-    public StorageService Storage { get; }
     public SettingsService Settings { get; }
     public AppSettingsConfig AppSettings { get; private set; } = new();
     public MainViewModel MainViewModel { get; private set; } = null!;
@@ -140,14 +148,13 @@ internal sealed class WorkbenchHost : IDisposable
         var dataRoot = inspection.DataRoot;
         if (inspection.Status == WorkspaceVersionStatus.Empty)
         {
-            var seedDirectory = Path.Combine(AppContext.BaseDirectory, "PluginSeed");
             var wizardDataRoot = dataRoot;
             var wizard = new FirstRunWizard(
                 dataRoot,
                 (root, monitorPaths, progress) =>
                 {
                     wizardDataRoot = root;
-                    return new WorkbenchInitializationService(seedDirectory).InitializeAsync(root, monitorPaths, progress);
+                    return new WorkbenchInitializationService().InitializeAsync(root, monitorPaths, progress);
                 });
             if (wizard.ShowDialog() != true) return null;
             dataRoot = wizardDataRoot;
@@ -180,22 +187,7 @@ internal sealed class WorkbenchHost : IDisposable
 
         await Configuration.EnsureWorkspaceAsync();
         AppSettings = await Configuration.EnsureAppSettingsAsync();
-        await Configuration.EnsurePluginConfigAsync();
-
-        Logger.Info("开始登记内置日志分析插件。");
-        await new PluginProvisioningService(Paths, _seedDirectory, Logger).ProvisionAsync();
-        var bundled = (await PluginCatalog.ScanAsync()).FirstOrDefault(x => string.Equals(x.Id, "log-analyzer", StringComparison.OrdinalIgnoreCase));
-        if (bundled is not null)
-        {
-            await Configuration.UpsertPluginAsync(new HephaestusWorkbench.Core.Models.PluginConfigEntry
-            {
-                Id = bundled.Id,
-                Version = bundled.Version,
-                Enabled = true,
-                Source = HephaestusWorkbench.Core.Models.PluginInstallSource.Bundled
-            });
-        }
-        Logger.Info("内置日志分析插件登记完成。");
+        await ExtensionSettings.EnsureAsync();
 
         Logger.Info("开始启动日志收件箱监控。");
         await Inbox.StartAsync();
@@ -203,9 +195,52 @@ internal sealed class WorkbenchHost : IDisposable
             ? $"日志收件箱监控已启动：{string.Join("、", Inbox.WatchDirectories)}"
             : "未配置日志收件目录，日志收件箱暂不扫描。");
 
-        MainViewModel = new MainViewModel(Analysis, Inbox, Storage, Settings, PluginCatalog, PluginMarketplace, Reports, Logger, ThemeManager.ApplyTheme, Rules, RuleDistribution);
+        MainViewModel = new MainViewModel(
+            Analysis,
+            Inbox,
+            Settings,
+            Reports,
+            Logger,
+            ThemeManager.ApplyTheme,
+            ExtensionCenter,
+            OpenWorkspaceExtension);
         await MainViewModel.InitializeAsync();
         Logger.Info("工作台初始化完成。");
+    }
+
+    /// <summary>
+    /// Workspace 扩展只能进入宿主固定窗口。窗口持有实际打开版本的租约，关闭前该版本不能被清理。
+    /// 扩展中心快照可能已经过期，因此以 Registry 当前 healthy 版本为准，并再次核对发布者与类别身份。
+    /// </summary>
+    private void OpenWorkspaceExtension(ExtensionManifest manifest)
+    {
+        var lease = ExtensionRegistry.LeaseCurrentVersion(manifest.Id);
+        try
+        {
+            if (!string.Equals(lease.Manifest.PublisherId, manifest.PublisherId, StringComparison.Ordinal) ||
+                lease.Manifest.Kind != manifest.Kind)
+            {
+                throw new InvalidOperationException($"扩展 {manifest.Id} 的当前版本身份已变化，请刷新扩展中心后重试。");
+            }
+
+            var window = new WorkspaceHostWindow(lease.Manifest, Paths.CacheDirectory, Logger)
+            {
+                Owner = System.Windows.Application.Current.MainWindow
+            };
+            EventHandler? releaseLease = null;
+            releaseLease = (_, _) =>
+            {
+                window.Closed -= releaseLease;
+                lease.Dispose();
+            };
+            window.Closed += releaseLease;
+            window.Show();
+        }
+        catch
+        {
+            lease.Dispose();
+            throw;
+        }
     }
 
     public void Dispose()

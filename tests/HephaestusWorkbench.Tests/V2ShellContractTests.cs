@@ -35,6 +35,43 @@ public sealed class V2ShellContractTests
 
         Assert.DoesNotContain("DashboardViewModel", text);
         Assert.Contains("SshTerminalViewModel", text);
+        Assert.Contains("ExtensionCenterViewModel", text);
+        Assert.DoesNotContain("MarketplacePluginsViewModel", text);
+    }
+
+    [Fact]
+    public void ProductionComposition_UsesOnlyV2ExtensionStack()
+    {
+        var app = File.ReadAllText(Path.Combine(FindAppDirectory(), "App.xaml.cs"));
+        var main = File.ReadAllText(Path.Combine(FindAppDirectory(), "ViewModels", "MainViewModel.cs"));
+
+        Assert.Contains("ExtensionCenterService", app);
+        Assert.Contains("ExtensionSettingsStore", app);
+        Assert.Contains("ExtensionInstaller", app);
+        Assert.Contains("ExtensionCatalogClient", app);
+        Assert.DoesNotContain("EnsurePluginConfigAsync", app);
+        Assert.DoesNotContain("PluginProvisioningService", app);
+        Assert.DoesNotContain("PluginMarketplaceService", app);
+        Assert.DoesNotContain("PluginCatalog", app);
+        Assert.DoesNotContain("RuleDistributionService", app);
+        Assert.DoesNotContain("StorageService", app);
+        Assert.Contains("ExtensionCenterViewModel", main);
+        Assert.DoesNotContain("MarketplacePluginsViewModel", main);
+        Assert.DoesNotContain("DefaultPluginId", main);
+    }
+
+    [Fact]
+    public void ProductionComposition_OwnsExtensionRefreshAndWorkspaceVersionLease()
+    {
+        var app = File.ReadAllText(Path.Combine(FindAppDirectory(), "App.xaml.cs"));
+        var main = File.ReadAllText(Path.Combine(FindAppDirectory(), "ViewModels", "MainViewModel.cs"));
+
+        Assert.Contains("LeaseCurrentVersion", app);
+        Assert.Contains("window.Closed", app);
+        Assert.Contains("lease.Dispose", app);
+        Assert.Contains("CancellationTokenSource", main);
+        Assert.Contains(".Cancel()", main);
+        Assert.Contains("logger.MessageWritten -= OnLogMessage", main);
     }
 
     [Fact]

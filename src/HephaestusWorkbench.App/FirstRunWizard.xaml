@@ -25,13 +25,13 @@
             <Grid>
                 <StackPanel Visibility="{Binding CurrentStep, Converter={StaticResource StepVisibilityConverter}, ConverterParameter=0}">
                     <TextBlock Text="准备开始" Style="{StaticResource SectionTitleStyle}" />
-                    <TextBlock Text="向导将帮助你选择分析数据目录、日志监控目录，并创建数据库、配置文件和内置分析插件。" TextWrapping="Wrap" />
+                    <TextBlock Text="向导将帮助你选择分析数据目录和日志监控目录，并创建全新的 v2 数据库与配置文件。" TextWrapping="Wrap" />
                     <TextBlock Text="现有数据目录和案例不会被覆盖；初始化过程可以安全重试。" Style="{StaticResource MutedTextStyle}" TextWrapping="Wrap" Margin="0,14,0,0" />
                 </StackPanel>
 
                 <StackPanel Visibility="{Binding CurrentStep, Converter={StaticResource StepVisibilityConverter}, ConverterParameter=1}">
                     <TextBlock Text="数据目录" Style="{StaticResource SectionTitleStyle}" />
-                    <TextBlock Text="数据库、案例、报告、插件和日志将保存到此目录。请不要选择程序安装目录。" Style="{StaticResource MutedTextStyle}" TextWrapping="Wrap" Margin="0,0,0,10" />
+                    <TextBlock Text="数据库、案例、报告、扩展和日志将保存到此目录。请不要选择程序安装目录。" Style="{StaticResource MutedTextStyle}" TextWrapping="Wrap" Margin="0,0,0,10" />
                     <DockPanel>
                         <Button DockPanel.Dock="Right" Content="浏览" Command="{Binding BrowseDataPathCommand}" />
                         <TextBox Text="{Binding DataPath, UpdateSourceTrigger=PropertyChanged}" />
@@ -69,12 +69,6 @@
                 </StackPanel>
 
                 <StackPanel Visibility="{Binding CurrentStep, Converter={StaticResource StepVisibilityConverter}, ConverterParameter=3}">
-                    <TextBlock Text="插件目录" Style="{StaticResource SectionTitleStyle}" />
-                    <TextBlock Text="内置日志分析插件会登记到以下目录；规则编辑器可在应用中心安装和更新。" Style="{StaticResource MutedTextStyle}" TextWrapping="Wrap" Margin="0,0,0,10" />
-                    <TextBlock Text="{Binding ExtensionDirectory}" TextWrapping="Wrap" />
-                </StackPanel>
-
-                <StackPanel Visibility="{Binding CurrentStep, Converter={StaticResource StepVisibilityConverter}, ConverterParameter=4}">
                     <TextBlock Text="初始化工作台" Style="{StaticResource SectionTitleStyle}" />
                     <TextBlock Text="{Binding ProgressMessage}" TextWrapping="Wrap" />
                     <ProgressBar IsIndeterminate="{Binding IsBusy}" Height="8" Margin="0,18,0,0" />

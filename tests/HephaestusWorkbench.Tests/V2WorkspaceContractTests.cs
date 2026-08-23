@@ -21,7 +21,7 @@ public sealed class V2WorkspaceContractTests
 
             await configuration.EnsureWorkspaceAsync();
             await configuration.EnsureAppSettingsAsync();
-            await configuration.EnsurePluginConfigAsync();
+            await new ExtensionSettingsStore(paths).EnsureAsync();
 
             Assert.Equal("extensions.json", Path.GetFileName(paths.ExtensionsConfigFile));
             Assert.False(File.Exists(Path.Combine(paths.ConfigDirectory, "plugins.json")));

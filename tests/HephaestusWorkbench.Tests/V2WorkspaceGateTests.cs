@@ -89,7 +89,7 @@ public sealed class V2WorkspaceGateTests
             await new DatabaseInitializer(new SqliteConnectionFactory(paths)).InitializeAsync();
             await configuration.EnsureWorkspaceAsync();
             await configuration.EnsureAppSettingsAsync();
-            await configuration.EnsurePluginConfigAsync();
+            await new ExtensionSettingsStore(paths).EnsureAsync();
 
             Assert.Equal(WorkspaceVersionStatus.Ready, (await gate.InspectAsync(root)).Status);
         }
@@ -120,6 +120,11 @@ public sealed class V2WorkspaceGateTests
         Assert.DoesNotContain("打开扩展目录", xaml);
         Assert.DoesNotContain("Directory.CreateDirectory", codeBehind);
         Assert.DoesNotContain("OpenExtensionDirectory", codeBehind);
+        Assert.DoesNotContain("插件目录", xaml);
+        Assert.DoesNotContain("内置分析插件", xaml);
+        Assert.DoesNotContain("插件和日志", xaml);
+        Assert.DoesNotContain("ExtensionDirectory", File.ReadAllText(Path.Combine(
+            FindRepositoryRoot(), "src", "HephaestusWorkbench.App", "ViewModels", "FirstRunWizardViewModel.cs")));
     }
 
     [Fact]
@@ -133,6 +138,15 @@ public sealed class V2WorkspaceGateTests
         Assert.DoesNotContain(".corrupt-", source);
         Assert.DoesNotContain("File.Delete(Paths.DatabaseFile)", source);
     }
+    private static string FindRepositoryRoot()
+    {
+        var directory = new DirectoryInfo(AppContext.BaseDirectory);
+        while (directory is not null && !File.Exists(Path.Combine(directory.FullName, "HephaestusWorkbench.sln")))
+            directory = directory.Parent;
+        Assert.NotNull(directory);
+        return directory!.FullName;
+    }
+
     private static string CreateRoot()
     {
         var root = Path.Combine(Path.GetTempPath(), "HephaestusWorkbenchTests", Guid.NewGuid().ToString("N"));
