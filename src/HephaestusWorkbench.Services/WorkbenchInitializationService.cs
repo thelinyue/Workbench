@@ -1,3 +1,4 @@
+using System.Security.Cryptography;
 using HephaestusWorkbench.Data;
 
 namespace HephaestusWorkbench.Services;
@@ -10,7 +11,7 @@ namespace HephaestusWorkbench.Services;
 public sealed class WorkbenchInitializationService
 {
     private const string StagingMarkerFileName = ".hephaestus-workbench-initialization";
-    private const string StagingMarkerContent = "HephaestusWorkbench.WorkspaceInitialization.v2";
+    private const string StagingMarkerPrefix = "HephaestusWorkbench.WorkspaceInitialization.v2:";
 
     public async Task InitializeAsync(
         string dataRoot,
@@ -45,26 +46,23 @@ public sealed class WorkbenchInitializationService
         }
 
         var stagingPrefix = GetStagingPrefix(targetRoot);
-        CleanupStaleStaging(targetParent, stagingPrefix);
 
         if (inspection.Status == WorkspaceVersionStatus.Ready)
         {
-            TryDeleteCommittedMarker(targetRoot);
             progress?.Report("初始化完成。");
             return;
         }
 
         var stagingRoot = Path.Combine(targetParent, stagingPrefix + Guid.NewGuid().ToString("N"));
+        var stagingMarkerContent = StagingMarkerPrefix + Convert.ToHexString(RandomNumberGenerator.GetBytes(32));
         WorkbenchLogger? logger = null;
-        var stagingCreated = false;
 
         try
         {
             Directory.CreateDirectory(stagingRoot);
-            stagingCreated = true;
             await File.WriteAllTextAsync(
                 Path.Combine(stagingRoot, StagingMarkerFileName),
-                StagingMarkerContent,
+                stagingMarkerContent,
                 cancellationToken);
 
             var paths = new DataPaths(targetRoot, stagingRoot);
@@ -89,22 +87,21 @@ public sealed class WorkbenchInitializationService
             cancellationToken.ThrowIfCancellationRequested();
             logger.Info("工作台临时目录初始化完成，正在提交到目标目录。");
             CommitStaging(stagingRoot, targetRoot);
-            stagingCreated = false;
-            TryDeleteCommittedMarker(targetRoot);
+            TryDeleteCommittedMarker(targetRoot, stagingMarkerContent);
 
             progress?.Report("初始化完成。");
         }
         catch (OperationCanceledException ex)
         {
             TryLogError(logger, "工作台初始化已取消", ex);
-            if (stagingCreated) TryDeleteCurrentStaging(stagingRoot);
-            throw new OperationCanceledException("工作台初始化已取消。", ex, cancellationToken);
+            // 失败 staging 可能已被外部进程替换；为避免任何路径竞态导致误删用户数据，统一保留并由用户手工确认。
+            throw new OperationCanceledException($"工作台初始化已取消。临时目录已保留，请手工确认后清理：{stagingRoot}", ex, cancellationToken);
         }
         catch (Exception ex)
         {
             TryLogError(logger, "工作台初始化失败", ex);
-            if (stagingCreated) TryDeleteCurrentStaging(stagingRoot);
-            throw new InvalidOperationException($"工作台初始化失败：{ex.Message}", ex);
+            // 不对失败 staging 执行递归删除：路径身份校验与按路径删除之间无法建立原子边界。
+            throw new InvalidOperationException($"工作台初始化失败：{ex.Message}。临时目录已保留，请手工确认后清理：{stagingRoot}", ex);
         }
     }
 
@@ -126,39 +123,6 @@ public sealed class WorkbenchInitializationService
     {
         var targetName = Path.GetFileName(Path.TrimEndingDirectorySeparator(targetRoot));
         return $".{targetName}.hephaestus-init-";
-    }
-
-    /// <summary>
-    /// 只清理带有精确宿主标记且不是重解析点的遗留 staging；同名前缀但来源不明的目录保持原样。
-    /// </summary>
-    private static void CleanupStaleStaging(string targetParent, string stagingPrefix)
-    {
-        try
-        {
-            foreach (var stagingRoot in Directory.EnumerateDirectories(targetParent, stagingPrefix + "*"))
-            {
-                if (IsConfirmedHostStaging(stagingRoot)) Directory.Delete(stagingRoot, recursive: true);
-            }
-        }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-        {
-            throw new InvalidOperationException($"无法检查或清理工作台初始化临时目录：{ex.Message}", ex);
-        }
-    }
-
-    private static bool IsConfirmedHostStaging(string stagingRoot)
-    {
-        try
-        {
-            if ((File.GetAttributes(stagingRoot) & FileAttributes.ReparsePoint) != 0) return false;
-            var marker = Path.Combine(stagingRoot, StagingMarkerFileName);
-            return File.Exists(marker)
-                && string.Equals(File.ReadAllText(marker), StagingMarkerContent, StringComparison.Ordinal);
-        }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-        {
-            return false;
-        }
     }
 
     /// <summary>
@@ -198,26 +162,13 @@ public sealed class WorkbenchInitializationService
         }
     }
 
-    private static void TryDeleteCurrentStaging(string stagingRoot)
-    {
-        try
-        {
-            // 回调或外部进程可能已替换该路径；删除前必须重新验证宿主标记并拒绝 reparse。
-            if (IsConfirmedHostStaging(stagingRoot)) Directory.Delete(stagingRoot, recursive: true);
-        }
-        catch
-        {
-            // 清理失败不能掩盖初始化或取消的原始错误；仍可信的宿主 staging 会在下次调用时再次清理。
-        }
-    }
-
-    private static void TryDeleteCommittedMarker(string targetRoot)
+    private static void TryDeleteCommittedMarker(string targetRoot, string expectedMarkerContent)
     {
         try
         {
             var marker = Path.Combine(targetRoot, StagingMarkerFileName);
             if (File.Exists(marker)
-                && string.Equals(File.ReadAllText(marker), StagingMarkerContent, StringComparison.Ordinal))
+                && string.Equals(File.ReadAllText(marker), expectedMarkerContent, StringComparison.Ordinal))
             {
                 File.Delete(marker);
             }

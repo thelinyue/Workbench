@@ -24,6 +24,7 @@ public sealed class CaseAnalysisService
     private readonly WorkbenchLogger _logger;
     private readonly RuleSetService _rules;
     private readonly IAnalysisLifecycleRepository _lifecycle;
+    private readonly ExtensionHostCompatibility _hostCompatibility;
     public event EventHandler? StateChanged;
 
     public sealed record CleanupResult(int Deleted, int Skipped, int Failed);
@@ -39,7 +40,8 @@ public sealed class CaseAnalysisService
         TaskCenter taskCenter,
         WorkbenchLogger logger,
         RuleSetService rules,
-        IAnalysisLifecycleRepository lifecycle)
+        IAnalysisLifecycleRepository lifecycle,
+        string hostVersion)
     {
         _paths = paths;
         _cases = cases;
@@ -52,6 +54,7 @@ public sealed class CaseAnalysisService
         _logger = logger;
         _rules = rules ?? throw new ArgumentNullException(nameof(rules));
         _lifecycle = lifecycle ?? throw new ArgumentNullException(nameof(lifecycle));
+        _hostCompatibility = new ExtensionHostCompatibility(hostVersion);
     }
 
     public async Task<AnalysisTask?> StartAsync(LogInboxItem item, CancellationToken cancellationToken = default)
@@ -154,9 +157,13 @@ public sealed class CaseAnalysisService
         }
     }
 
-    /// <summary>只有严格 v2 的 analysis/process 引擎能进入自动分析链路，Workspace 页面不会被误执行。</summary>
-    private static bool IsAnalysisEngine(ExtensionManifest extension, string requiredCapability)
-        => extension.Kind == ExtensionKind.Analysis
+    /// <summary>
+    /// 只有当前 v2 宿主兼容的 analysis/process 引擎能进入自动分析链路；
+    /// 该判定同时用于初次选版和租约复核，避免不兼容版本在 current 切换后被执行。
+    /// </summary>
+    private bool IsAnalysisEngine(ExtensionManifest extension, string requiredCapability)
+        => _hostCompatibility.IsCompatible(extension.MinHostVersion)
+           && extension.Kind == ExtensionKind.Analysis
            && extension.Runtime.Kind == ExtensionRuntimeKind.Process
            && string.Equals(extension.Runtime.Protocol, AnalysisProcessProtocol.Version, StringComparison.Ordinal)
            && extension.SupportsCapability(requiredCapability);

@@ -201,8 +201,12 @@ public sealed class ExtensionCenterViewModel : ViewModelBase
         UpdatesTab => "扩展更新由受信任 Catalog 提供并在安装前完成验签。",
         _ => "请调整搜索关键词或扩展类型筛选。"
     };
+    /// <summary>
+    /// 全局分析能力必须服从扩展中心的已安装版本兼容性结论，不能仅凭启用状态和 capability 消除告警。
+    /// </summary>
     public bool HasEnabledAnalysisEngine => _allItems.Any(item =>
-        item.Enabled && item.Source.InstalledManifest is { Kind: ExtensionKind.Analysis } manifest &&
+        item.Enabled && item.Source.IsInstalledVersionCompatible == true &&
+        item.Source.InstalledManifest is { Kind: ExtensionKind.Analysis } manifest &&
         manifest.Capabilities.Contains("analysis.engine", StringComparer.Ordinal));
 
     public Task InitializeAsync(CancellationToken cancellationToken = default)

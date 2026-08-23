@@ -66,6 +66,40 @@ public sealed class CaseAnalysisExtensionRuntimeTests
     }
 
     [Fact]
+    public async Task StartAsync_WhenEnabledAnalysisEngineRequiresNewerHost_DoesNotCreateOrQueueLifecycle()
+    {
+        await using var environment = await TestEnvironment.CreateAsync(
+            AnalysisExtensionTestSupport.Process(minHostVersion: "3.0.0"));
+        var log = Path.Combine(environment.Root, "future-host.tgz");
+        await File.WriteAllTextAsync(log, "success");
+
+        var task = await environment.Analysis.StartAsync(ValidItem(log));
+        if (task is not null)
+            await environment.TaskCenter.WaitForCompletionAsync(task.Id);
+
+        Assert.Null(task);
+        Assert.Empty(await environment.Cases.ListAsync());
+        Assert.Empty(await environment.Tasks.ListAsync());
+        Assert.False(environment.TaskCenter.IsPluginActive(AnalysisExtensionTestSupport.ExtensionId));
+    }
+
+    [Fact]
+    public async Task StartAsync_WhenInjectedHostVersionIsOlderThanExtensionRequirement_DoesNotCreateLifecycle()
+    {
+        await using var environment = await TestEnvironment.CreateAsync(
+            "1.0.0",
+            AnalysisExtensionTestSupport.Process(minHostVersion: "1.1.0"));
+        var log = Path.Combine(environment.Root, "injected-host-version.tgz");
+        await File.WriteAllTextAsync(log, "success");
+
+        var task = await environment.Analysis.StartAsync(ValidItem(log));
+
+        Assert.Null(task);
+        Assert.Empty(await environment.Cases.ListAsync());
+        Assert.Empty(await environment.Tasks.ListAsync());
+    }
+
+    [Fact]
     public async Task StartAsync_WhenMultipleAnalysisEnginesExist_RejectsAmbiguousSelection()
     {
         await using var environment = await TestEnvironment.CreateAsync(
@@ -446,9 +480,20 @@ public sealed class CaseAnalysisExtensionRuntimeTests
         public CaseAnalysisService Analysis { get; }
 
         public static Task<TestEnvironment> CreateAsync(params AnalysisExtensionDefinition[] extensions)
-            => CreateAsync(null, extensions);
+            => CreateAsync("2.0.0", null, extensions);
 
-        public static async Task<TestEnvironment> CreateAsync(
+        public static Task<TestEnvironment> CreateAsync(
+            string hostVersion,
+            params AnalysisExtensionDefinition[] extensions)
+            => CreateAsync(hostVersion, null, extensions);
+
+        public static Task<TestEnvironment> CreateAsync(
+            Func<DataPaths, ExtensionRegistry, IAnalysisLifecycleRepository, IAnalysisLifecycleRepository>? decorateLifecycle,
+            params AnalysisExtensionDefinition[] extensions)
+            => CreateAsync("2.0.0", decorateLifecycle, extensions);
+
+        private static async Task<TestEnvironment> CreateAsync(
+            string hostVersion,
             Func<DataPaths, ExtensionRegistry, IAnalysisLifecycleRepository, IAnalysisLifecycleRepository>? decorateLifecycle,
             params AnalysisExtensionDefinition[] extensions)
         {
@@ -478,7 +523,8 @@ public sealed class CaseAnalysisExtensionRuntimeTests
                 taskCenter,
                 logger,
                 new RuleSetService(paths, logger),
-                lifecycle);
+                lifecycle,
+                hostVersion);
             return new TestEnvironment(root, cases, tasks, reports, taskCenter, analysis)
             {
                 Paths = paths,

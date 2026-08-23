@@ -49,6 +49,7 @@ public sealed class V2ShellContractTests
         Assert.Contains("ExtensionSettingsStore", app);
         Assert.Contains("ExtensionInstaller", app);
         Assert.Contains("ExtensionCatalogClient", app);
+        Assert.Contains("new TaskCenter(TasksRepository, Logger)", app);
         Assert.DoesNotContain("EnsurePluginConfigAsync", app);
         Assert.DoesNotContain("PluginProvisioningService", app);
         Assert.DoesNotContain("PluginMarketplaceService", app);
@@ -67,8 +68,8 @@ public sealed class V2ShellContractTests
         var main = File.ReadAllText(Path.Combine(FindAppDirectory(), "ViewModels", "MainViewModel.cs"));
 
         Assert.Contains("LeaseCurrentVersion", app);
-        Assert.Contains("window.Closed", app);
-        Assert.Contains("lease.Dispose", app);
+        Assert.Contains("new WorkspaceHostWindow(lease.Manifest, Paths.CacheDirectory, Logger, lease)", app);
+        Assert.DoesNotContain("window.Closed", app);
         Assert.Contains("CancellationTokenSource", main);
         Assert.Contains(".Cancel()", main);
         Assert.Contains("logger.MessageWritten -= OnLogMessage", main);
@@ -88,12 +89,37 @@ public sealed class V2ShellContractTests
     }
 
     [Fact]
-    public void BundledAnalysisManifest_DoesNotDeclareLegacyReportEntry()
+    public void LegacyPluginUiFiles_AreRemoved()
     {
-        var manifest = File.ReadAllText(Path.Combine(FindAppDirectory(), "PluginSeed", "manifest.json"));
+        var appDirectory = FindAppDirectory();
+        var legacyFiles = new[]
+        {
+            Path.Combine("ViewModels", "MarketplacePluginsViewModel.cs"),
+            Path.Combine("ViewModels", "PluginsViewModel.cs"),
+            Path.Combine("Views", "MarketplacePluginsPage.xaml"),
+            Path.Combine("Views", "MarketplacePluginsPage.xaml.cs"),
+            Path.Combine("Views", "PluginsPage.xaml"),
+            Path.Combine("Views", "PluginsPage.xaml.cs"),
+            Path.Combine("Views", "WebToolWindow.xaml"),
+            Path.Combine("Views", "WebToolWindow.xaml.cs")
+        };
 
-        Assert.DoesNotContain("report.html", manifest, StringComparison.OrdinalIgnoreCase);
-        Assert.DoesNotContain("reportPath", manifest, StringComparison.OrdinalIgnoreCase);
+        // v2 Shell 只允许固定扩展中心和受控 Workspace Host，旧插件页面不得继续留在 App 中等待误用。
+        Assert.All(legacyFiles, relativePath => Assert.False(
+            File.Exists(Path.Combine(appDirectory, relativePath)),
+            $"旧插件界面文件仍然存在：{relativePath}"));
+    }
+
+    [Fact]
+    public void LegacyPluginSeedAssets_AreRemoved()
+    {
+        var appDirectory = FindAppDirectory();
+        var project = File.ReadAllText(Path.Combine(appDirectory, "HephaestusWorkbench.App.csproj"));
+
+        // BundledExtensions 尚未在本阶段实现；此处只锁定旧 PluginSeed 不得被复制或发布。
+        Assert.False(Directory.Exists(Path.Combine(appDirectory, "PluginSeed")));
+        Assert.DoesNotContain("PluginSeed", project, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("PluginBinaryPath", project, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]

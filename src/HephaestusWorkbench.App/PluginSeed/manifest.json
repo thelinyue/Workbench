@@ -1,9 +1,0 @@
-{
-  "id": "log-analyzer",
-  "name": "日志分析",
-  "version": "1.0.1",
-  "type": "Exe",
-  "entry": "log_analyzer.exe",
-  "runner": "legacy-log-analyzer",
-  "capabilities": ["analysis"]
-}

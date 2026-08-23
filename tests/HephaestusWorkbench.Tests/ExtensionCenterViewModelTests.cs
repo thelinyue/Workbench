@@ -62,6 +62,45 @@ public sealed class ExtensionCenterViewModelTests
     }
 
     [Fact]
+    public async Task HasEnabledAnalysisEngine_WhenInstalledAnalysisRequiresNewerHost_ReturnsFalse()
+    {
+        var manifest = Manifest(
+            "future-analyzer",
+            "未来日志分析",
+            "3.0.0",
+            ExtensionKind.Analysis,
+            minHostVersion: "3.0.0");
+        var snapshot = new ExtensionCenterSnapshot
+        {
+            IsCatalogFromCache = false,
+            Warning = null,
+            Extensions =
+            [
+                Entry(
+                    manifest.Id,
+                    manifest.Name,
+                    manifest.Kind,
+                    manifest,
+                    availableRelease: null,
+                    isCatalogListed: false,
+                    hasCompatibleRelease: false,
+                    isInstalledVersionCompatible: false,
+                    enabled: true)
+            ]
+        };
+        var viewModel = new ExtensionCenterViewModel(
+            new FakeExtensionCenterService(snapshot),
+            _ => { },
+            new WorkbenchLogger(CreateRoot()));
+
+        await viewModel.InitializeAsync();
+        viewModel.SelectInstalledTabCommand.Execute(null);
+
+        Assert.Equal("已安装版本不兼容", Assert.Single(viewModel.VisibleItems).StatusText);
+        Assert.False(viewModel.HasEnabledAnalysisEngine);
+    }
+
+    [Fact]
     public void IdentityConflict_BlocksInstallAndUsesExplicitStatus()
     {
         var item = new ExtensionCenterItemViewModel(Entry(
@@ -304,7 +343,12 @@ public sealed class ExtensionCenterViewModelTests
             HasUpdate = hasUpdate
         };
 
-    private static ExtensionManifest Manifest(string id, string name, string version, ExtensionKind kind)
+    private static ExtensionManifest Manifest(
+        string id,
+        string name,
+        string version,
+        ExtensionKind kind,
+        string minHostVersion = "2.0.0")
         => new()
         {
             SchemaVersion = 2,
@@ -314,7 +358,7 @@ public sealed class ExtensionCenterViewModelTests
             Kind = kind,
             PublisherId = "thelinyue",
             HostApiVersion = "1.0",
-            MinHostVersion = "2.0.0",
+            MinHostVersion = minHostVersion,
             Runtime = new ExtensionRuntime
             {
                 Kind = kind == ExtensionKind.Workspace ? ExtensionRuntimeKind.Web : ExtensionRuntimeKind.Process,

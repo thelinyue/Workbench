@@ -101,7 +101,7 @@ public sealed class ExtensionCenterService : IExtensionCenterService
     private readonly ExtensionRegistry _registry;
     private readonly ExtensionSettingsStore _settings;
     private readonly WorkbenchLogger _logger;
-    private readonly SemanticVersion _hostVersion;
+    private readonly ExtensionHostCompatibility _hostCompatibility;
 
     public ExtensionCenterService(
         ExtensionCatalogClient catalogClient,
@@ -116,8 +116,7 @@ public sealed class ExtensionCenterService : IExtensionCenterService
         _registry = registry ?? throw new ArgumentNullException(nameof(registry));
         _settings = settings ?? throw new ArgumentNullException(nameof(settings));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
-        if (!SemanticVersion.TryParse(hostVersion, out _hostVersion))
-            throw new ArgumentException("宿主版本必须是有效的语义化版本。", nameof(hostVersion));
+        _hostCompatibility = new ExtensionHostCompatibility(hostVersion);
     }
 
     public async Task<ExtensionCenterSnapshot> LoadAsync(CancellationToken cancellationToken = default)
@@ -266,7 +265,7 @@ public sealed class ExtensionCenterService : IExtensionCenterService
         => _settings.SetEnabledAsync(extensionId, enabled, cancellationToken);
 
     private bool IsHostCompatible(string minHostVersion)
-        => SemanticVersion.Parse(minHostVersion).CompareTo(_hostVersion) <= 0;
+        => _hostCompatibility.IsCompatible(minHostVersion);
 
     private static bool HasSameIdentity(ExtensionManifest manifest, ExtensionCatalogItem catalogItem)
         => string.Equals(manifest.PublisherId, catalogItem.PublisherId, StringComparison.Ordinal) &&
@@ -298,92 +297,4 @@ public sealed class ExtensionCenterService : IExtensionCenterService
         return IsHostCompatible(release.MinHostVersion);
     }
 
-    /// <summary>
-    /// 仅实现扩展中心需要的 SemVer 2.0.0 顺序：构建元数据不参与排序，正式版高于预发布版，
-    /// 数字预发布标识低于非数字标识。使用字符串长度比较数字，避免版本段溢出整数范围。
-    /// </summary>
-    private sealed class SemanticVersion : IComparable<SemanticVersion>
-    {
-        private readonly string[] _core;
-        private readonly string[] _prerelease;
-
-        private SemanticVersion(string[] core, string[] prerelease)
-        {
-            _core = core;
-            _prerelease = prerelease;
-        }
-
-        public bool IsPrerelease => _prerelease.Length > 0;
-
-        public static SemanticVersion Parse(string value)
-            => TryParse(value, out var version)
-                ? version
-                : throw new InvalidDataException($"扩展版本不是有效的语义化版本：{value}");
-
-        public static bool TryParse(string? value, out SemanticVersion version)
-        {
-            version = null!;
-            if (string.IsNullOrWhiteSpace(value)) return false;
-
-            var buildParts = value.Split('+');
-            if (buildParts.Length > 2 || buildParts.Any(string.IsNullOrEmpty)) return false;
-            var versionParts = buildParts[0].Split('-', 2);
-            var core = versionParts[0].Split('.');
-            if (core.Length != 3 || core.Any(part => !IsNumeric(part, rejectLeadingZero: true))) return false;
-
-            var prerelease = versionParts.Length == 1 ? [] : versionParts[1].Split('.');
-            if (prerelease.Any(identifier => !IsIdentifier(identifier))) return false;
-            if (buildParts.Length == 2 && buildParts[1].Split('.').Any(identifier => !IsIdentifier(identifier, false)))
-                return false;
-
-            version = new SemanticVersion(core, prerelease);
-            return true;
-        }
-
-        public int CompareTo(SemanticVersion? other)
-        {
-            if (other is null) return 1;
-            for (var index = 0; index < _core.Length; index++)
-            {
-                var comparison = CompareNumeric(_core[index], other._core[index]);
-                if (comparison != 0) return comparison;
-            }
-
-            if (_prerelease.Length == 0 || other._prerelease.Length == 0)
-                return _prerelease.Length == other._prerelease.Length ? 0 : _prerelease.Length == 0 ? 1 : -1;
-
-            for (var index = 0; index < Math.Min(_prerelease.Length, other._prerelease.Length); index++)
-            {
-                var left = _prerelease[index];
-                var right = other._prerelease[index];
-                var leftNumeric = left.All(char.IsAsciiDigit);
-                var rightNumeric = right.All(char.IsAsciiDigit);
-                int comparison;
-                if (leftNumeric && rightNumeric)
-                    comparison = CompareNumeric(left, right);
-                else if (leftNumeric != rightNumeric)
-                    comparison = leftNumeric ? -1 : 1;
-                else
-                    comparison = string.CompareOrdinal(left, right);
-                if (comparison != 0) return comparison;
-            }
-
-            return _prerelease.Length.CompareTo(other._prerelease.Length);
-        }
-
-        private static int CompareNumeric(string left, string right)
-        {
-            var lengthComparison = left.Length.CompareTo(right.Length);
-            return lengthComparison != 0 ? lengthComparison : string.CompareOrdinal(left, right);
-        }
-
-        private static bool IsIdentifier(string value, bool rejectNumericLeadingZero = true)
-            => value.Length > 0 &&
-               value.All(character => char.IsAsciiLetterOrDigit(character) || character == '-') &&
-               (!rejectNumericLeadingZero || !value.All(char.IsAsciiDigit) || value.Length == 1 || value[0] != '0');
-
-        private static bool IsNumeric(string value, bool rejectLeadingZero)
-            => value.Length > 0 && value.All(char.IsAsciiDigit) &&
-               (!rejectLeadingZero || value.Length == 1 || value[0] != '0');
-    }
 }

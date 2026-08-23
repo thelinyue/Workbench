@@ -68,6 +68,23 @@ public sealed class ExtensionCenterServiceTests
         Assert.True(entry.HasUpdate);
     }
 
+    [Fact]
+    public async Task Compatibility_WhenMinHostUsesLargeNumericIdentifier_RuntimeMatchesExtensionCenter()
+    {
+        const string minHostVersion = "1.999999999999999999999.0";
+        using var environment = new TestEnvironment(null);
+        await environment.AddInstalledAsync(
+            "log-analyzer",
+            "2.0.0",
+            ExtensionKind.Analysis,
+            minHostVersion: minHostVersion);
+
+        var entry = Assert.Single((await environment.Service.LoadAsync()).Extensions);
+
+        Assert.True(entry.IsInstalledVersionCompatible);
+        Assert.True(new ExtensionHostCompatibility("2.0.0").IsCompatible(minHostVersion));
+    }
+
     [Theory]
     [InlineData("other-publisher", ExtensionKind.Analysis)]
     [InlineData("thelinyue", ExtensionKind.Workspace)]

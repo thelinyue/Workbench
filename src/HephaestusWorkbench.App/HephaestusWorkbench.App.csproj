@@ -18,8 +18,6 @@
     <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.2903.40" />
   </ItemGroup>
   <ItemGroup>
-    <None Include="PluginSeed\manifest.json" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
-    <None Include="$(PluginBinaryPath)" Condition="'$(PluginBinaryPath)' != '' and Exists('$(PluginBinaryPath)')" Link="PluginSeed\log_analyzer.exe" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
     <None Include="..\..\docs\plugin-development.md" Link="Documentation\plugin-development.md" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
     <Resource Include="Assets\AppIcon\app-icon.ico" />
   </ItemGroup>

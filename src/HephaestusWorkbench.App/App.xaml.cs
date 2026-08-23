@@ -84,18 +84,19 @@ internal sealed class WorkbenchHost : IDisposable
         ExtensionPackageVerifier = new ExtensionPackageVerifier(ExtensionTrustStore);
         ExtensionInstaller = new ExtensionInstaller(Paths.ExtensionsDirectory, ExtensionPackageVerifier, ExtensionRegistry);
         ExtensionCatalogClient = new ExtensionCatalogClient(Paths, Logger);
+        var hostVersion = AppVersionInfo.DisplayVersion.TrimStart('v');
         ExtensionCenter = new ExtensionCenterService(
             ExtensionCatalogClient,
             ExtensionInstaller,
             ExtensionRegistry,
             ExtensionSettings,
             Logger,
-            AppVersionInfo.DisplayVersion.TrimStart('v'));
+            hostVersion);
         AnalysisProcessHost = new AnalysisProcessHost(Logger);
         Rules = new RuleSetService(Paths, Logger);
 
-        TaskCenter = new TaskCenter(TasksRepository);
-        Analysis = new CaseAnalysisService(Paths, CasesRepository, TasksRepository, ReportsRepository, ExtensionRegistry, ExtensionSettings, AnalysisProcessHost, TaskCenter, Logger, Rules, LifecycleRepository);
+        TaskCenter = new TaskCenter(TasksRepository, Logger);
+        Analysis = new CaseAnalysisService(Paths, CasesRepository, TasksRepository, ReportsRepository, ExtensionRegistry, ExtensionSettings, AnalysisProcessHost, TaskCenter, Logger, Rules, LifecycleRepository, hostVersion);
         Reports = new ReportService(ReportsRepository, Analysis);
         Inbox = new LogInboxService(new LogFileParser(), new ArchiveValidator(), Configuration, Logger, Paths.InboxDirectory);
         Settings = new SettingsService(Configuration, Paths.InboxDirectory);
@@ -223,17 +224,10 @@ internal sealed class WorkbenchHost : IDisposable
                 throw new InvalidOperationException($"扩展 {manifest.Id} 的当前版本身份已变化，请刷新扩展中心后重试。");
             }
 
-            var window = new WorkspaceHostWindow(lease.Manifest, Paths.CacheDirectory, Logger)
+            var window = new WorkspaceHostWindow(lease.Manifest, Paths.CacheDirectory, Logger, lease)
             {
                 Owner = System.Windows.Application.Current.MainWindow
             };
-            EventHandler? releaseLease = null;
-            releaseLease = (_, _) =>
-            {
-                window.Closed -= releaseLease;
-                lease.Dispose();
-            };
-            window.Closed += releaseLease;
             window.Show();
         }
         catch

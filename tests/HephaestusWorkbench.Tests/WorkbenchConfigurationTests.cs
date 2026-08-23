@@ -107,7 +107,7 @@ public sealed class WorkbenchConfigurationTests
     }
 
     [Fact]
-    public async Task InitializationService_DatabaseStageFailureLeavesPrecreatedTargetEmptyAndRetrySucceeds()
+    public async Task InitializationService_DatabaseStageFailureLeavesTargetEmptyAndPreservesStagingForManualCleanup()
     {
         var root = Path.Combine(Path.GetTempPath(), "HephaestusWorkbenchTests", Guid.NewGuid().ToString("N"));
         var data = Path.Combine(root, "Data");
@@ -132,7 +132,8 @@ public sealed class WorkbenchConfigurationTests
             Assert.True(databaseWasCreated);
             Assert.True(Directory.Exists(data));
             Assert.Empty(Directory.EnumerateFileSystemEntries(data));
-            Assert.Equal(new[] { data }, Directory.EnumerateDirectories(root));
+            var retainedStaging = AssertSingleRetainedStaging(root, data);
+            Assert.True(File.Exists(Path.Combine(retainedStaging, ".hephaestus-workbench-initialization")));
             Assert.Equal(WorkspaceVersionStatus.Empty, (await new WorkspaceVersionGate().InspectAsync(data)).Status);
 
             await new WorkbenchInitializationService().InitializeAsync(data);
@@ -169,6 +170,44 @@ public sealed class WorkbenchConfigurationTests
                 () => new WorkbenchInitializationService().InitializeAsync(data, progress: progress));
 
             Assert.NotNull(replacement);
+            Assert.Equal("user", await File.ReadAllTextAsync(Path.Combine(replacement!, "keep.txt")));
+            Assert.Empty(Directory.EnumerateFileSystemEntries(data));
+        }
+        finally
+        {
+            if (Directory.Exists(root)) Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task InitializationService_FailureDoesNotDeleteStagingReplacedByDirectoryWithCopiedMarker()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "HephaestusWorkbenchTests", Guid.NewGuid().ToString("N"));
+        var data = Path.Combine(root, "Data");
+        Directory.CreateDirectory(data);
+        string? replacement = null;
+        var progress = new InlineProgress(message =>
+        {
+            if (message != "正在写入工作区配置…") return;
+
+            replacement = FindStagingDirectory(root, data);
+            var markerPath = Path.Combine(replacement, ".hephaestus-workbench-initialization");
+            var copiedMarker = File.ReadAllText(markerPath);
+            Directory.Delete(replacement, recursive: true);
+            Directory.CreateDirectory(replacement);
+            File.WriteAllText(Path.Combine(replacement, ".hephaestus-workbench-initialization"), copiedMarker);
+            File.WriteAllText(Path.Combine(replacement, "keep.txt"), "user");
+            throw new IOException("受控的复制 marker staging 替换故障");
+        });
+
+        try
+        {
+            var error = await Assert.ThrowsAsync<InvalidOperationException>(
+                () => new WorkbenchInitializationService().InitializeAsync(data, progress: progress));
+
+            Assert.Equal("受控的复制 marker staging 替换故障", error.InnerException?.Message);
+            Assert.NotNull(replacement);
+            Assert.True(Directory.Exists(replacement));
             Assert.Equal("user", await File.ReadAllTextAsync(Path.Combine(replacement!, "keep.txt")));
             Assert.Empty(Directory.EnumerateFileSystemEntries(data));
         }
@@ -270,7 +309,7 @@ public sealed class WorkbenchConfigurationTests
             Assert.Equal("external", await File.ReadAllTextAsync(marker));
             Assert.Equal(new[] { marker }, Directory.EnumerateFiles(data, "*", SearchOption.AllDirectories));
             Assert.Empty(Directory.EnumerateDirectories(data));
-            Assert.Equal(new[] { data }, Directory.EnumerateDirectories(root));
+            AssertSingleRetainedStaging(root, data);
         }
         finally
         {
@@ -279,7 +318,7 @@ public sealed class WorkbenchConfigurationTests
     }
 
     [Fact]
-    public async Task InitializationService_CancellationAfterDatabaseLeavesTargetEmptyAndCanRetry()
+    public async Task InitializationService_CancellationAfterDatabaseLeavesTargetEmptyAndPreservesStaging()
     {
         var root = Path.Combine(Path.GetTempPath(), "HephaestusWorkbenchTests", Guid.NewGuid().ToString("N"));
         var data = Path.Combine(root, "Data");
@@ -299,7 +338,7 @@ public sealed class WorkbenchConfigurationTests
                     cancellationToken: cancellation.Token));
 
             Assert.Empty(Directory.EnumerateFileSystemEntries(data));
-            Assert.Equal(new[] { data }, Directory.EnumerateDirectories(root));
+            AssertSingleRetainedStaging(root, data);
             await new WorkbenchInitializationService().InitializeAsync(data);
             Assert.Equal(WorkspaceVersionStatus.Ready, (await new WorkspaceVersionGate().InspectAsync(data)).Status);
         }
@@ -310,7 +349,7 @@ public sealed class WorkbenchConfigurationTests
     }
 
     [Fact]
-    public async Task InitializationService_CleansOnlyConfirmedStaleHostStaging()
+    public async Task InitializationService_PreservesStaleStagingWithoutCurrentOwnershipProof()
     {
         var root = Path.Combine(Path.GetTempPath(), "HephaestusWorkbenchTests", Guid.NewGuid().ToString("N"));
         var data = Path.Combine(root, "Data");
@@ -328,7 +367,7 @@ public sealed class WorkbenchConfigurationTests
         {
             await new WorkbenchInitializationService().InitializeAsync(data);
 
-            Assert.False(Directory.Exists(stale));
+            Assert.Equal("host", await File.ReadAllTextAsync(Path.Combine(stale, "partial.tmp")));
             Assert.True(File.Exists(Path.Combine(unowned, "keep.txt")));
             Assert.Equal(WorkspaceVersionStatus.Ready, (await new WorkspaceVersionGate().InspectAsync(data)).Status);
         }
@@ -377,6 +416,15 @@ public sealed class WorkbenchConfigurationTests
         var prefix = $".{Path.GetFileName(Path.TrimEndingDirectorySeparator(dataRoot))}.hephaestus-init-";
         return Directory.EnumerateDirectories(root)
             .Single(path => Path.GetFileName(path).StartsWith(prefix, StringComparison.Ordinal));
+    }
+
+    private static string AssertSingleRetainedStaging(string root, string dataRoot)
+    {
+        var staging = Assert.Single(
+            Directory.EnumerateDirectories(root),
+            path => !string.Equals(path, dataRoot, StringComparison.OrdinalIgnoreCase));
+        Assert.Contains(".hephaestus-init-", Path.GetFileName(staging), StringComparison.OrdinalIgnoreCase);
+        return staging;
     }
 
     private sealed class InlineProgress(Action<string> report) : IProgress<string>

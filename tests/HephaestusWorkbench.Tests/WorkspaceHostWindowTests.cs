@@ -8,6 +8,20 @@ namespace HephaestusWorkbench.Tests;
 public sealed class WorkspaceHostWindowTests
 {
     [Fact]
+    public void CompleteClose_ReleasesVersionLeaseWhenBrowserCleanupFails()
+    {
+        var lease = new RecordingDisposable();
+
+        var exception = Assert.Throws<InvalidOperationException>(() =>
+            WorkspaceHostWindow.CompleteClose(
+                () => throw new InvalidOperationException("受控的浏览器清理故障"),
+                lease));
+
+        Assert.Equal("受控的浏览器清理故障", exception.Message);
+        Assert.True(lease.IsDisposed);
+    }
+
+    [Fact]
     public void ResolveEntryPath_AcceptsOnlyExistingWorkspaceWebEntry()
     {
         using var environment = new WorkspaceManifestEnvironment();
@@ -305,5 +319,12 @@ public sealed class WorkspaceHostWindowTests
         {
             if (Directory.Exists(RootPath)) Directory.Delete(RootPath, recursive: true);
         }
+    }
+
+    private sealed class RecordingDisposable : IDisposable
+    {
+        public bool IsDisposed { get; private set; }
+
+        public void Dispose() => IsDisposed = true;
     }
 }

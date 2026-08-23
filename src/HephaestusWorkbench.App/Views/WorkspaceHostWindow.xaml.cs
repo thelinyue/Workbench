@@ -24,6 +24,7 @@ public partial class WorkspaceHostWindow : Window
     private readonly ExtensionManifest _manifest;
     private readonly string _cacheDirectory;
     private readonly WorkbenchLogger _logger;
+    private readonly IDisposable _versionLease;
     private CoreWebView2Environment? _environment;
     private bool _initialized;
     private bool _eventsAttached;
@@ -31,13 +32,15 @@ public partial class WorkspaceHostWindow : Window
     public WorkspaceHostWindow(
         ExtensionManifest manifest,
         string cacheDirectory,
-        WorkbenchLogger logger)
+        WorkbenchLogger logger,
+        IDisposable versionLease)
     {
         _manifest = manifest ?? throw new ArgumentNullException(nameof(manifest));
         _cacheDirectory = string.IsNullOrWhiteSpace(cacheDirectory)
             ? throw new ArgumentException("Workspace Host 缓存目录不能为空。", nameof(cacheDirectory))
             : cacheDirectory;
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+        _versionLease = versionLease ?? throw new ArgumentNullException(nameof(versionLease));
 
         InitializeComponent();
         // 禁止把宿主文件拖入不受信任页面，避免页面借浏览器默认行为读取本地文件。
@@ -319,29 +322,52 @@ public partial class WorkspaceHostWindow : Window
 
     private void OnClosed(object? sender, EventArgs e)
     {
-        Loaded -= OnLoaded;
-        Closed -= OnClosed;
-
-        var core = Browser.CoreWebView2;
-        if (core is not null && _eventsAttached)
+        // 版本租约由窗口本身持有，不能依赖外部 Closed 处理器的注册顺序。
+        // 即使 WebView2 解绑或释放抛出异常，finally 边界也必须归还租约。
+        CompleteClose(() =>
         {
-            core.NavigationStarting -= OnNavigationStarting;
-            core.FrameNavigationStarting -= OnFrameNavigationStarting;
-            core.LaunchingExternalUriScheme -= OnLaunchingExternalUriScheme;
-            core.DownloadStarting -= OnDownloadStarting;
-            core.WebResourceRequested -= OnWebResourceRequested;
-            core.NewWindowRequested -= OnNewWindowRequested;
-            core.PermissionRequested -= OnPermissionRequested;
-            core.WebMessageReceived -= OnWebMessageReceived;
-            core.RemoveWebResourceRequestedFilter(
-                ResourceFilter,
-                CoreWebView2WebResourceContext.All,
-                CoreWebView2WebResourceRequestSourceKinds.All);
-            core.ClearVirtualHostNameToFolderMapping(VirtualHostName);
-            _eventsAttached = false;
-        }
+            Loaded -= OnLoaded;
+            Closed -= OnClosed;
 
-        Browser.Dispose();
+            try
+            {
+                var core = Browser.CoreWebView2;
+                if (core is not null && _eventsAttached)
+                {
+                    core.NavigationStarting -= OnNavigationStarting;
+                    core.FrameNavigationStarting -= OnFrameNavigationStarting;
+                    core.LaunchingExternalUriScheme -= OnLaunchingExternalUriScheme;
+                    core.DownloadStarting -= OnDownloadStarting;
+                    core.WebResourceRequested -= OnWebResourceRequested;
+                    core.NewWindowRequested -= OnNewWindowRequested;
+                    core.PermissionRequested -= OnPermissionRequested;
+                    core.WebMessageReceived -= OnWebMessageReceived;
+                    core.RemoveWebResourceRequestedFilter(
+                        ResourceFilter,
+                        CoreWebView2WebResourceContext.All,
+                        CoreWebView2WebResourceRequestSourceKinds.All);
+                    core.ClearVirtualHostNameToFolderMapping(VirtualHostName);
+                    _eventsAttached = false;
+                }
+            }
+            finally
+            {
+                Browser.Dispose();
+            }
+        }, _versionLease);
+    }
+
+    /// <summary>确保窗口内部清理失败时，扩展版本租约仍会被释放。</summary>
+    internal static void CompleteClose(Action browserCleanup, IDisposable versionLease)
+    {
+        try
+        {
+            browserCleanup();
+        }
+        finally
+        {
+            versionLease.Dispose();
+        }
     }
 
     private static string DescribeError(Exception exception) => exception switch

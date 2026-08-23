@@ -427,7 +427,7 @@ public sealed class AnalysisCenterViewModelTests
             var reports = new SqliteReportRepository(factory);
             var logger = new WorkbenchLogger(root);
             var registry = await AnalysisExtensionTestSupport.CreateRegistryAsync(paths, AnalysisExtensionTestSupport.Process("test-plugin"));
-            var analysis = new CaseAnalysisService(paths, cases, tasks, reports, registry, new ExtensionSettingsStore(paths), new AnalysisProcessHost(logger), new TaskCenter(tasks), logger, new RuleSetService(paths, logger), new SqliteAnalysisLifecycleRepository(factory));
+            var analysis = new CaseAnalysisService(paths, cases, tasks, reports, registry, new ExtensionSettingsStore(paths), new AnalysisProcessHost(logger), new TaskCenter(tasks), logger, new RuleSetService(paths, logger), new SqliteAnalysisLifecycleRepository(factory), "2.0.0");
             var configuration = new WorkbenchConfigurationService(paths);
             var inbox = new LogInboxService(new LogFileParser(), new ArchiveValidator(), configuration, logger, paths.InboxDirectory);
             return new TestEnvironment(root, paths, cases, tasks, reports, inbox, analysis, logger, new RecordingReportProcessLauncher());

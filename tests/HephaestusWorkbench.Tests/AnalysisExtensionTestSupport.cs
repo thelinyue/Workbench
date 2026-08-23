@@ -31,12 +31,13 @@ internal static class AnalysisExtensionTestSupport
     public static AnalysisExtensionDefinition Process(
         string id = ExtensionId,
         string version = Version,
-        IReadOnlyList<string>? capabilities = null)
+        IReadOnlyList<string>? capabilities = null,
+        string minHostVersion = "2.0.0")
         => new(id, version, ExtensionKind.Analysis, ExtensionRuntimeKind.Process,
-            capabilities ?? ["analysis.engine", "analysis.scope.comprehensive"]);
+            capabilities ?? ["analysis.engine", "analysis.scope.comprehensive"], minHostVersion);
 
     public static AnalysisExtensionDefinition Workspace(string id = "workspace-tool")
-        => new(id, Version, ExtensionKind.Workspace, ExtensionRuntimeKind.Web, ["workspace.page"]);
+        => new(id, Version, ExtensionKind.Workspace, ExtensionRuntimeKind.Web, ["workspace.page"], "2.0.0");
 
     public static void WriteCurrent(DataPaths paths, string id, string version, string packageHash = PackageHash)
     {
@@ -81,7 +82,7 @@ internal static class AnalysisExtensionTestSupport
             kind = ToJson(definition.Kind),
             publisherId = "thelinyue",
             hostApiVersion = "1.0",
-            minHostVersion = "2.0.0",
+            minHostVersion = definition.MinHostVersion,
             runtime = new { kind = ToJson(definition.RuntimeKind), protocol, entry },
             capabilities = definition.Capabilities,
             permissions = Array.Empty<string>(),
@@ -147,4 +148,5 @@ internal sealed record AnalysisExtensionDefinition(
     string Version,
     ExtensionKind Kind,
     ExtensionRuntimeKind RuntimeKind,
-    IReadOnlyList<string> Capabilities);
+    IReadOnlyList<string> Capabilities,
+    string MinHostVersion);

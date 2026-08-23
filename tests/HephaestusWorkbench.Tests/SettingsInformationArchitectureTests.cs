@@ -35,17 +35,8 @@ public sealed class SettingsInformationArchitectureTests
     }
 
     [Fact]
-    public void ContextPages_ExposeTheirOwnAdvancedSettingsSaveActions()
+    public void AnalysisPage_DoesNotOwnStorageCleanupSettings()
     {
-        var marketplace = LoadXaml("MarketplacePluginsPage.xaml");
-        var marketplaceBindings = marketplace.Descendants()
-            .Attributes()
-            .Select(attribute => attribute.Value)
-            .ToArray();
-        Assert.Contains(marketplaceBindings, value => value.Contains("GitHubDownloadMirrorTemplate", StringComparison.Ordinal));
-        Assert.Contains(marketplaceBindings, value => value.Contains("SaveDownloadSettingsCommand", StringComparison.Ordinal));
-        Assert.Contains(marketplace.Descendants(), element => (string?)element.Attribute("Header") == "下载设置");
-
         var analysis = LoadXaml("AnalysisCenterPage.xaml");
         var analysisBindings = analysis.Descendants()
             .Attributes()

@@ -45,18 +45,16 @@ public sealed class InstallerDefinitionTests
     }
 
     [Fact]
-    public void MainApplication_BundlesOnlyLogAnalyzer()
+    public void MainApplication_DoesNotPublishLegacyPluginSeed()
     {
         var project = ReadRepositoryFile("src", "HephaestusWorkbench.App", "HephaestusWorkbench.App.csproj");
-        var workflow = ReadRepositoryFile(".github", "workflows", "release.yml");
+        var pluginSeedDirectory = Path.Combine(
+            FindRepositoryRoot(), "src", "HephaestusWorkbench.App", "PluginSeed");
 
-        Assert.Contains("PluginSeed\\manifest.json", project);
-        Assert.DoesNotContain("PluginSeed\\RuleEditor", project, StringComparison.OrdinalIgnoreCase);
-        Assert.DoesNotContain("RuleEditorBinaryPath", project, StringComparison.OrdinalIgnoreCase);
-        Assert.DoesNotContain("RuleEditorBinaryPath", workflow, StringComparison.OrdinalIgnoreCase);
-        Assert.DoesNotContain("rule_editor.exe", workflow, StringComparison.OrdinalIgnoreCase);
-        Assert.False(File.Exists(Path.Combine(
-            FindRepositoryRoot(), "src", "HephaestusWorkbench.App", "PluginSeed", "RuleEditor", "manifest.json")));
+        // 正式 v2 后续只能通过统一扩展安装事务携带离线扩展，本阶段禁止旧 PluginSeed 混入发布目录。
+        Assert.DoesNotContain("PluginSeed", project, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("PluginBinaryPath", project, StringComparison.OrdinalIgnoreCase);
+        Assert.False(Directory.Exists(pluginSeedDirectory));
     }
 
     [Fact]
