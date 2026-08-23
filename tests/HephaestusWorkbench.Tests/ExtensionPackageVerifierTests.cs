@@ -280,6 +280,32 @@ public sealed class ExtensionPackageVerifierTests
         Assert.Contains("1 MB", error.Message, StringComparison.Ordinal);
     }
 
+    [Fact]
+    public async Task VerifyAsync_RejectsReleaseThatIsNotListedByCatalogItem()
+    {
+        using var fixture = new VerificationFixture();
+        var valid = fixture.CreateRequest();
+        var detached = new ExtensionPackageVerificationRequest
+        {
+            PackageBytes = valid.PackageBytes,
+            CatalogItem = new ExtensionCatalogItem
+            {
+                Id = valid.CatalogItem.Id,
+                Name = valid.CatalogItem.Name,
+                Description = valid.CatalogItem.Description,
+                PublisherId = valid.CatalogItem.PublisherId,
+                Kind = valid.CatalogItem.Kind,
+                Releases = []
+            },
+            Release = valid.Release
+        };
+
+        var error = await Assert.ThrowsAsync<InvalidDataException>(() => fixture.CreateVerifier().VerifyAsync(detached));
+
+        Assert.Contains("Catalog", error.Message, StringComparison.Ordinal);
+        Assert.Contains("release", error.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
     private static ExtensionPackageVerificationRequest ReplaceRelease(
         ExtensionPackageVerificationRequest request,
         byte[]? packageBytes = null,
@@ -287,24 +313,35 @@ public sealed class ExtensionPackageVerifierTests
         string? sha256 = null,
         string? keyId = null,
         string? signature = null)
-        => new()
+    {
+        var release = new ExtensionRelease
         {
-            PackageBytes = packageBytes ?? request.PackageBytes,
-            CatalogItem = request.CatalogItem,
-            Release = new ExtensionRelease
+            Version = request.Release.Version,
+            MinHostVersion = request.Release.MinHostVersion,
+            Url = request.Release.Url,
+            Size = size ?? request.Release.Size,
+            Sha256 = sha256 ?? request.Release.Sha256,
+            Signature = new ExtensionPackageSignature
             {
-                Version = request.Release.Version,
-                MinHostVersion = request.Release.MinHostVersion,
-                Url = request.Release.Url,
-                Size = size ?? request.Release.Size,
-                Sha256 = sha256 ?? request.Release.Sha256,
-                Signature = new ExtensionPackageSignature
-                {
-                    KeyId = keyId ?? request.Release.Signature.KeyId,
-                    Signature = signature ?? request.Release.Signature.Signature
-                }
+                KeyId = keyId ?? request.Release.Signature.KeyId,
+                Signature = signature ?? request.Release.Signature.Signature
             }
         };
+        return new ExtensionPackageVerificationRequest
+        {
+            PackageBytes = packageBytes ?? request.PackageBytes,
+            CatalogItem = new ExtensionCatalogItem
+            {
+                Id = request.CatalogItem.Id,
+                Name = request.CatalogItem.Name,
+                Description = request.CatalogItem.Description,
+                PublisherId = request.CatalogItem.PublisherId,
+                Kind = request.CatalogItem.Kind,
+                Releases = [release]
+            },
+            Release = release
+        };
+    }
 
     private static byte[] BuildPackage(
         string manifestJson,
@@ -410,6 +447,19 @@ public sealed class ExtensionPackageVerifierTests
             string? signature = null)
         {
             packageBytes ??= BuildPackage(manifestJson ?? BuildAnalysisManifest(), extraFileContent);
+            var release = new ExtensionRelease
+            {
+                Version = "2.0.0",
+                MinHostVersion = "2.0.0",
+                Url = "https://example.invalid/test-tool.zip",
+                Size = packageBytes.Length,
+                Sha256 = Sha256(packageBytes),
+                Signature = new ExtensionPackageSignature
+                {
+                    KeyId = keyId,
+                    Signature = signature ?? Convert.ToBase64String(SignatureAlgorithm.Ed25519.Sign(_key, packageBytes))
+                }
+            };
             return new ExtensionPackageVerificationRequest
             {
                 PackageBytes = packageBytes,
@@ -420,21 +470,9 @@ public sealed class ExtensionPackageVerifierTests
                     Description = "测试包",
                     PublisherId = publisherId,
                     Kind = kind,
-                    Releases = []
+                    Releases = [release]
                 },
-                Release = new ExtensionRelease
-                {
-                    Version = "2.0.0",
-                    MinHostVersion = "2.0.0",
-                    Url = "https://example.invalid/test-tool.zip",
-                    Size = packageBytes.Length,
-                    Sha256 = Sha256(packageBytes),
-                    Signature = new ExtensionPackageSignature
-                    {
-                        KeyId = keyId,
-                        Signature = signature ?? Convert.ToBase64String(SignatureAlgorithm.Ed25519.Sign(_key, packageBytes))
-                    }
-                }
+                Release = release
             };
         }
 

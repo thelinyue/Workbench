@@ -64,10 +64,15 @@ public sealed class ExtensionPackageVerifier : IExtensionPackageVerifier
         if (request.PackageBytes is null || request.CatalogItem is null || request.Release is null)
             throw new InvalidDataException("扩展包验签请求缺少 ZIP、Catalog 条目或发布信息。");
 
+        cancellationToken.ThrowIfCancellationRequested();
         // 请求中的 byte[] 可由调用方继续持有；必须在第一次校验前复制，消除检查与使用之间的竞态。
         var packageBytes = request.PackageBytes.ToArray();
-        var release = request.Release;
         var catalogItem = request.CatalogItem;
+        if (request.Release.Signature is null || string.IsNullOrWhiteSpace(request.Release.Signature.KeyId))
+            throw new InvalidDataException("扩展包缺少 Ed25519 签名或签名 keyId，不允许以未签名模式加载。");
+        var release = catalogItem.Releases?.FirstOrDefault(item => ReleaseMatches(item, request.Release));
+        if (release is null)
+            throw new InvalidDataException("扩展发布信息不属于当前 Catalog 条目的 releases，已拒绝验签。");
         cancellationToken.ThrowIfCancellationRequested();
 
         if (packageBytes.LongLength != release.Size)
@@ -99,6 +104,16 @@ public sealed class ExtensionPackageVerifier : IExtensionPackageVerifier
             PackageSha256 = packageSha256
         };
     }
+
+    private static bool ReleaseMatches(ExtensionRelease listed, ExtensionRelease requested)
+        => string.Equals(listed.Version, requested.Version, StringComparison.Ordinal) &&
+           string.Equals(listed.MinHostVersion, requested.MinHostVersion, StringComparison.Ordinal) &&
+           string.Equals(listed.Url, requested.Url, StringComparison.Ordinal) &&
+           listed.Size == requested.Size &&
+           string.Equals(listed.Sha256, requested.Sha256, StringComparison.OrdinalIgnoreCase) &&
+           listed.Signature is not null && requested.Signature is not null &&
+           string.Equals(listed.Signature.KeyId, requested.Signature.KeyId, StringComparison.Ordinal) &&
+           string.Equals(listed.Signature.Signature, requested.Signature.Signature, StringComparison.Ordinal);
 
     private static async Task<ExtensionManifest> ReadManifestAsync(
         byte[] packageBytes,
