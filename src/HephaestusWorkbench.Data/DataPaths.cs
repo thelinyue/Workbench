@@ -34,6 +34,7 @@ public sealed class DataPaths
         ExtensionsConfigFile = Path.Combine(ConfigDirectory, "extensions.json");
         WorkspaceConfigFile = Path.Combine(ConfigDirectory, "workspace.json");
         MarketplaceCatalogCacheFile = Path.Combine(CacheDirectory, "marketplace-catalog.json");
+        ExtensionCatalogCacheFile = Path.Combine(CacheDirectory, "extension-catalog.json");
     }
 
     public string Root { get; }
@@ -61,6 +62,7 @@ public sealed class DataPaths
     public string ExtensionsConfigFile { get; }
     public string WorkspaceConfigFile { get; }
     public string MarketplaceCatalogCacheFile { get; }
+    public string ExtensionCatalogCacheFile { get; }
 
     public string GetCaseDirectory(string caseId) => Path.Combine(CasesDirectory, caseId);
     public string GetCaseSourceDirectory(string caseId) => Path.Combine(GetCaseDirectory(caseId), "Source");
