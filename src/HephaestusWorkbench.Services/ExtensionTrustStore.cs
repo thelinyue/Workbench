@@ -5,7 +5,7 @@ namespace HephaestusWorkbench.Services;
 
 /// <summary>
 /// 描述一个发布者密钥能够签发的扩展类别和 Workspace 权限。
-/// 信任范围由宿主内置或宿主启动时注入，不能从在线 Catalog 构造。
+/// 信任范围只能由宿主配置，不能从在线 Catalog 构造。
 /// </summary>
 public sealed class ExtensionTrustScope
 {
@@ -42,31 +42,14 @@ public interface IExtensionTrustStore
 
 /// <summary>
 /// 以内存字典保存宿主信任锚，查找关系固定为 keyId → publisherId → allowedKinds/permissions。
-/// 默认构造函数只加载随宿主发布的官方公钥；可注入构造函数用于组合根或隔离测试。
+/// 正式公钥未配置时默认信任表为空，所有扩展包都会因未知 keyId 被拒绝。
 /// </summary>
 public sealed class ExtensionTrustStore : IExtensionTrustStore
 {
-    public const string OfficialKeyId = "official-2026";
-
-    // RFC 8032 测试向量公钥仅作为当前仓库的宿主内置信任锚；正式发布密钥轮换时应替换此值并更换 keyId。
-    private const string OfficialPublicKeyBase64 = "11qYAYKxCrfVS/7TyWQHOg7hcvPapiMlrwIaaPcHURo=";
     private readonly IReadOnlyDictionary<string, TrustedPublisherKey> _trustedKeys;
 
     public ExtensionTrustStore()
-        : this(
-        [
-            new TrustedPublisherKey
-            {
-                KeyId = OfficialKeyId,
-                PublisherId = "thelinyue",
-                PublicKeyBase64 = OfficialPublicKeyBase64,
-                Scope = new ExtensionTrustScope
-                {
-                    AllowedKinds = [ExtensionKind.Workspace, ExtensionKind.Analysis, ExtensionKind.Maintenance],
-                    Permissions = ["workspace.readText"]
-                }
-            }
-        ])
+        : this(Array.Empty<TrustedPublisherKey>())
     {
     }
 
@@ -127,8 +110,11 @@ public sealed class ExtensionTrustStore : IExtensionTrustStore
             PublicKeyBase64 = trustedKey.PublicKeyBase64,
             Scope = new ExtensionTrustScope
             {
-                AllowedKinds = trustedKey.Scope.AllowedKinds.ToArray(),
-                Permissions = trustedKey.Scope.Permissions.ToArray()
+                AllowedKinds = ReadOnlyCopy(trustedKey.Scope.AllowedKinds),
+                Permissions = ReadOnlyCopy(trustedKey.Scope.Permissions)
             }
         };
+
+    private static IReadOnlyList<T> ReadOnlyCopy<T>(IEnumerable<T> values)
+        => Array.AsReadOnly(values.ToArray());
 }
