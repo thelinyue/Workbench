@@ -7,14 +7,23 @@ namespace HephaestusWorkbench.Data;
 /// </summary>
 public sealed class DataPaths
 {
-    public DataPaths(string root)
+    public DataPaths(string root) : this(root, root)
+    {
+    }
+
+    /// <summary>
+    /// 初始化事务可把文件写入同盘临时目录，同时让配置中的数据根目录保持为最终目标。
+    /// 常规运行时 root 与 storageRoot 相同，不改变既有路径语义。
+    /// </summary>
+    public DataPaths(string root, string storageRoot)
     {
         Root = Path.GetFullPath(root);
-        DatabaseDirectory = Path.Combine(Root, "Database");
-        CasesDirectory = Path.Combine(Root, "Cases");
-        InboxDirectory = Path.Combine(Root, "Inbox");
-        ExtensionsDirectory = Path.Combine(Root, "Extensions");
-        RulesDirectory = Path.Combine(Root, "Rules");
+        StorageRoot = Path.GetFullPath(storageRoot);
+        DatabaseDirectory = Path.Combine(StorageRoot, "Database");
+        CasesDirectory = Path.Combine(StorageRoot, "Cases");
+        InboxDirectory = Path.Combine(StorageRoot, "Inbox");
+        ExtensionsDirectory = Path.Combine(StorageRoot, "Extensions");
+        RulesDirectory = Path.Combine(StorageRoot, "Rules");
         OfficialRulesDirectory = Path.Combine(RulesDirectory, "Official");
         OfficialRulesFile = Path.Combine(OfficialRulesDirectory, "main.json");
         LocalRulesDirectory = Path.Combine(RulesDirectory, "Local");
@@ -24,10 +33,10 @@ public sealed class DataPaths
         RulesHistoryDirectory = Path.Combine(RulesDirectory, "History");
         RulesStateDirectory = Path.Combine(RulesDirectory, "State");
         RulesStateFile = Path.Combine(RulesStateDirectory, "rules-state.json");
-        LogsDirectory = Path.Combine(Root, "Logs");
-        TempDirectory = Path.Combine(Root, "Temp");
-        CacheDirectory = Path.Combine(Root, "Cache");
-        ConfigDirectory = Path.Combine(Root, "Config");
+        LogsDirectory = Path.Combine(StorageRoot, "Logs");
+        TempDirectory = Path.Combine(StorageRoot, "Temp");
+        CacheDirectory = Path.Combine(StorageRoot, "Cache");
+        ConfigDirectory = Path.Combine(StorageRoot, "Config");
         DatabaseFile = Path.Combine(DatabaseDirectory, "workbench.db");
         AppSettingsFile = Path.Combine(ConfigDirectory, "appsettings.json");
         RulePublisherTokenFile = Path.Combine(ConfigDirectory, "rule-publisher.token");
@@ -38,6 +47,8 @@ public sealed class DataPaths
     }
 
     public string Root { get; }
+    /// <summary>文件实际写入位置；首次初始化期间可指向同盘 staging，提交后与 Root 一致。</summary>
+    public string StorageRoot { get; }
     public string DatabaseDirectory { get; }
     public string DatabaseFile { get; }
     public string CasesDirectory { get; }
