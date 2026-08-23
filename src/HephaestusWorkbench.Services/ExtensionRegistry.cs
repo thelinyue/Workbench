@@ -50,6 +50,7 @@ public sealed class ExtensionRegistry
             var active = new Dictionary<string, ExtensionManifest>(StringComparer.Ordinal);
             var issues = new List<string>();
 
+            EnsureExtensionsRootIsSafe();
             if (Directory.Exists(_extensionsRoot))
             {
                 foreach (var extensionDirectory in Directory
@@ -57,12 +58,13 @@ public sealed class ExtensionRegistry
                              .OrderBy(path => path, StringComparer.Ordinal))
                 {
                     cancellationToken.ThrowIfCancellationRequested();
-                    var currentPath = Path.Combine(extensionDirectory, "current.json");
-                    if (!File.Exists(currentPath))
-                        continue;
-
                     try
                     {
+                        EnsureExtensionDirectoryIsSafe(extensionDirectory);
+                        var currentPath = Path.Combine(extensionDirectory, "current.json");
+                        if (!File.Exists(currentPath))
+                            continue;
+
                         var current = await ReadCurrentAsync(currentPath, cancellationToken);
                         ValidateDirectoryIdentity(extensionDirectory, current);
 
@@ -132,6 +134,7 @@ public sealed class ExtensionRegistry
         try
         {
             var extensionDirectory = Path.Combine(_extensionsRoot, pending.Id);
+            EnsureExtensionDirectoryIsSafe(extensionDirectory);
             var currentPath = Path.Combine(extensionDirectory, "current.json");
             var backupPath = Path.Combine(extensionDirectory, "current.json.bak");
             var candidate = await ReadMatchingManifestAsync(extensionDirectory, pending, cancellationToken);
@@ -143,11 +146,16 @@ public sealed class ExtensionRegistry
                 var existing = await ReadCurrentAsync(currentPath, cancellationToken);
                 ValidateDirectoryIdentity(extensionDirectory, existing);
                 RejectDifferentHashForSameVersion(existing, pending);
-                if (existing.State != ExtensionActivationState.Healthy)
-                    throw new InvalidOperationException($"扩展 {pending.Id} 当前仍处于待验证状态，不能开始新的激活事务。");
-
-                rollbackManifest = await ReadMatchingManifestAsync(extensionDirectory, existing, cancellationToken);
-                rollback = existing;
+                if (existing.State == ExtensionActivationState.Healthy)
+                {
+                    rollbackManifest = await ReadMatchingManifestAsync(extensionDirectory, existing, cancellationToken);
+                    rollback = existing;
+                }
+                else if (!IsSamePackage(existing, pending))
+                {
+                    throw new InvalidOperationException(
+                        $"扩展 {pending.Id} 当前有另一个待验证版本，不能开始新的激活事务。");
+                }
             }
 
             if (File.Exists(backupPath))
@@ -195,8 +203,7 @@ public sealed class ExtensionRegistry
                     }
                     else
                     {
-                        if (File.Exists(currentPath))
-                            File.Delete(currentPath);
+                        // 没有旧健康版本时保留 pending 指针和完整版本目录，允许下一次启动或用户操作重试。
                         lock (_stateGate)
                             _active.Remove(pending.Id);
                     }
@@ -208,8 +215,14 @@ public sealed class ExtensionRegistry
                         new AggregateException(activationException, rollbackException));
                 }
 
+                if (activationException is OperationCanceledException)
+                    throw;
+
+                var recoveryMessage = rollback is null
+                    ? "没有可回滚版本，扩展保持未激活状态，已保留待验证版本以便重试"
+                    : "已恢复回滚版本";
                 throw new InvalidOperationException(
-                    $"扩展 {pending.Id} {pending.Version} 激活失败，已恢复回滚版本：{activationException.Message}",
+                    $"扩展 {pending.Id} {pending.Version} 激活失败，{recoveryMessage}：{activationException.Message}",
                     activationException);
             }
         }
@@ -246,6 +259,14 @@ public sealed class ExtensionRegistry
         }
 
         var extensionDirectory = Path.Combine(_extensionsRoot, id);
+        try
+        {
+            EnsureExtensionDirectoryIsSafe(extensionDirectory);
+        }
+        catch
+        {
+            return false;
+        }
         return !DocumentProtectsVersion(Path.Combine(extensionDirectory, "current.json"), id, version) &&
                !DocumentProtectsVersion(Path.Combine(extensionDirectory, "current.json.bak"), id, version);
     }
@@ -270,17 +291,18 @@ public sealed class ExtensionRegistry
             State = state
         };
 
-    private static async Task<ExtensionCurrentDocument> ReadCurrentAsync(
+    private async Task<ExtensionCurrentDocument> ReadCurrentAsync(
         string path,
         CancellationToken cancellationToken)
     {
+        EnsureExtensionDirectoryIsSafe(Path.GetDirectoryName(path)!);
         if (!File.Exists(path))
             throw new FileNotFoundException($"扩展版本文档不存在：{path}", path);
 
         return ExtensionCurrentParser.Parse(await File.ReadAllTextAsync(path, cancellationToken));
     }
 
-    private static async Task<ExtensionManifest> ReadMatchingManifestAsync(
+    private async Task<ExtensionManifest> ReadMatchingManifestAsync(
         string extensionDirectory,
         ExtensionCurrentDocument current,
         CancellationToken cancellationToken)
@@ -289,6 +311,7 @@ public sealed class ExtensionRegistry
             throw new InvalidOperationException($"扩展 {current.Id} 的激活状态无效。");
 
         var versionDirectory = Path.Combine(extensionDirectory, current.Version);
+        EnsureVersionDirectoryIsSafe(extensionDirectory, versionDirectory);
         var manifestPath = Path.Combine(versionDirectory, "manifest.json");
         if (!File.Exists(manifestPath))
             throw new FileNotFoundException($"扩展 {current.Id} {current.Version} 缺少 manifest.json。", manifestPath);
@@ -316,6 +339,45 @@ public sealed class ExtensionRegistry
         }
     }
 
+    private void EnsureExtensionsRootIsSafe()
+    {
+        RejectReparsePointIfExists(_extensionsRoot, "扩展根目录");
+    }
+
+    private void EnsureExtensionDirectoryIsSafe(string extensionDirectory)
+    {
+        EnsureExtensionsRootIsSafe();
+        var root = Path.GetFullPath(_extensionsRoot);
+        var directory = Path.GetFullPath(extensionDirectory);
+        if (!string.Equals(Path.GetDirectoryName(directory), root, StringComparison.OrdinalIgnoreCase))
+            throw new InvalidOperationException($"扩展目录必须是扩展根目录的直接子目录：{directory}");
+        RejectReparsePointIfExists(directory, "扩展目录");
+    }
+
+    private void EnsureVersionDirectoryIsSafe(string extensionDirectory, string versionDirectory)
+    {
+        EnsureExtensionDirectoryIsSafe(extensionDirectory);
+        var extension = Path.GetFullPath(extensionDirectory);
+        var version = Path.GetFullPath(versionDirectory);
+        if (!string.Equals(Path.GetDirectoryName(version), extension, StringComparison.OrdinalIgnoreCase))
+            throw new InvalidOperationException($"扩展版本目录必须位于扩展目录内：{version}");
+        RejectReparsePointIfExists(version, "扩展版本目录");
+    }
+
+    private static void RejectReparsePointIfExists(string path, string description)
+    {
+        if ((File.Exists(path) || Directory.Exists(path)) &&
+            File.GetAttributes(path).HasFlag(FileAttributes.ReparsePoint))
+        {
+            throw new InvalidOperationException($"{description}不能是重解析点：{path}");
+        }
+    }
+
+    private static bool IsSamePackage(ExtensionCurrentDocument left, ExtensionCurrentDocument right)
+        => string.Equals(left.Id, right.Id, StringComparison.Ordinal) &&
+           string.Equals(left.Version, right.Version, StringComparison.Ordinal) &&
+           string.Equals(left.PackageSha256, right.PackageSha256, StringComparison.OrdinalIgnoreCase);
+
     private static void RejectDifferentHashForSameVersion(
         ExtensionCurrentDocument existing,
         ExtensionCurrentDocument requested)
@@ -329,13 +391,14 @@ public sealed class ExtensionRegistry
         }
     }
 
-    private static async Task WriteCurrentAtomicAsync(
+    private async Task WriteCurrentAtomicAsync(
         string path,
         ExtensionCurrentDocument document,
         CancellationToken cancellationToken)
     {
         var directory = Path.GetDirectoryName(path)
             ?? throw new InvalidOperationException($"无法确定扩展版本文档目录：{path}");
+        EnsureExtensionDirectoryIsSafe(directory);
         Directory.CreateDirectory(directory);
         var temporaryPath = Path.Combine(directory, $".{Path.GetFileName(path)}.{Guid.NewGuid():N}.tmp");
 
@@ -346,6 +409,7 @@ public sealed class ExtensionRegistry
                 JsonSerializer.Serialize(document, CurrentSerializerOptions),
                 cancellationToken);
 
+            EnsureExtensionDirectoryIsSafe(directory);
             if (File.Exists(path))
                 File.Replace(temporaryPath, path, destinationBackupFileName: null, ignoreMetadataErrors: true);
             else

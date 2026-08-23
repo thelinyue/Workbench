@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Text.Json;
 using HephaestusWorkbench.PluginSDK;
 using HephaestusWorkbench.Services;
@@ -139,6 +140,128 @@ public sealed class ExtensionRegistryTests
         Assert.Equal(0, checker.CallCount);
         var current = ExtensionCurrentParser.Parse(await File.ReadAllTextAsync(layout.CurrentPath("sample")));
         Assert.Equal(ExtensionTestLayout.HashA, current.PackageSha256);
+    }
+
+    [Fact]
+    public async Task LoadAsync_RejectsExtensionDirectoryJunctionOutsideRoot()
+    {
+        using var layout = new ExtensionTestLayout();
+        var outsideRoot = Path.Combine(Path.GetTempPath(), "HephaestusWorkbenchTests", Guid.NewGuid().ToString("N"));
+        var outsideExtension = Path.Combine(outsideRoot, "sample");
+        var linkDirectory = Path.Combine(layout.ExtensionsRoot, "sample");
+        try
+        {
+            Directory.CreateDirectory(outsideExtension);
+            WriteManifestAt(outsideExtension, "sample", "1.0.0");
+            WriteCurrentAt(outsideExtension, "sample", "1.0.0", ExtensionTestLayout.HashA, ExtensionActivationState.Healthy);
+            CreateJunction(linkDirectory, outsideExtension);
+            var registry = new ExtensionRegistry(layout.ExtensionsRoot, new StubHealthChecker());
+
+            var active = await registry.LoadAsync();
+
+            Assert.Empty(active);
+            Assert.Contains(registry.Issues, issue => issue.Contains("重解析点", StringComparison.Ordinal));
+            Assert.True(File.Exists(Path.Combine(outsideExtension, "current.json")));
+        }
+        finally
+        {
+            if (Directory.Exists(linkDirectory)) Directory.Delete(linkDirectory);
+            if (Directory.Exists(outsideRoot)) Directory.Delete(outsideRoot, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task ActivateAsync_CanRetryMatchingPendingWithoutBackup()
+    {
+        using var layout = new ExtensionTestLayout();
+        layout.WriteManifest("sample", "2.0.0");
+        layout.WriteCurrent("sample", "2.0.0", ExtensionTestLayout.HashB, ExtensionActivationState.Pending);
+        var checker = new StubHealthChecker();
+        var registry = new ExtensionRegistry(layout.ExtensionsRoot, checker);
+        await registry.LoadAsync();
+
+        var activated = await registry.ActivateAsync("sample", "2.0.0", ExtensionTestLayout.HashB);
+
+        Assert.Equal("2.0.0", activated.Version);
+        Assert.Equal(1, checker.CallCount);
+        var current = ExtensionCurrentParser.Parse(await File.ReadAllTextAsync(layout.CurrentPath("sample")));
+        Assert.Equal(ExtensionActivationState.Healthy, current.State);
+        Assert.False(File.Exists(layout.BackupPath("sample")));
+    }
+
+    [Fact]
+    public async Task ActivateAsync_WhenHealthCheckIsCancelled_RestoresCurrentAndPreservesCancellation()
+    {
+        using var layout = new ExtensionTestLayout();
+        layout.WriteManifest("sample", "1.0.0");
+        layout.WriteManifest("sample", "2.0.0");
+        layout.WriteCurrent("sample", "1.0.0", ExtensionTestLayout.HashA, ExtensionActivationState.Healthy);
+        var checker = new StubHealthChecker((_, token) => Task.Delay(Timeout.InfiniteTimeSpan, token));
+        var registry = new ExtensionRegistry(layout.ExtensionsRoot, checker);
+        await registry.LoadAsync();
+        using var cancellation = new CancellationTokenSource();
+        cancellation.CancelAfter(TimeSpan.FromMilliseconds(100));
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
+            registry.ActivateAsync("sample", "2.0.0", ExtensionTestLayout.HashB, cancellation.Token));
+
+        var current = ExtensionCurrentParser.Parse(await File.ReadAllTextAsync(layout.CurrentPath("sample")));
+        Assert.Equal("1.0.0", current.Version);
+        Assert.Equal(ExtensionActivationState.Healthy, current.State);
+    }
+
+    private static void CreateJunction(string linkDirectory, string targetDirectory)
+    {
+        using var junction = Process.Start(new ProcessStartInfo
+        {
+            FileName = "cmd.exe",
+            Arguments = $"/d /c mklink /J \"{linkDirectory}\" \"{targetDirectory}\"",
+            UseShellExecute = false,
+            CreateNoWindow = true,
+            RedirectStandardError = true,
+            RedirectStandardOutput = true
+        }) ?? throw new InvalidOperationException("无法启动 junction 测试进程。");
+        junction.WaitForExit();
+        Assert.True(junction.ExitCode == 0, junction.StandardError.ReadToEnd() + junction.StandardOutput.ReadToEnd());
+    }
+
+    private static void WriteManifestAt(string extensionDirectory, string id, string version)
+    {
+        var directory = Path.Combine(extensionDirectory, version);
+        Directory.CreateDirectory(directory);
+        File.WriteAllText(Path.Combine(directory, "manifest.json"), $$"""
+            {
+              "schemaVersion": 2,
+              "id": "{{id}}",
+              "name": "测试扩展",
+              "version": "{{version}}",
+              "kind": "analysis",
+              "publisherId": "thelinyue",
+              "hostApiVersion": "1.0",
+              "minHostVersion": "2.0.0",
+              "runtime": { "kind": "content" },
+              "capabilities": ["analysis.rule-pack"],
+              "permissions": [],
+              "dependencies": []
+            }
+            """);
+    }
+
+    private static void WriteCurrentAt(
+        string extensionDirectory,
+        string id,
+        string version,
+        string hash,
+        ExtensionActivationState state)
+    {
+        File.WriteAllText(Path.Combine(extensionDirectory, "current.json"), JsonSerializer.Serialize(new ExtensionCurrentDocument
+        {
+            SchemaVersion = 2,
+            Id = id,
+            Version = version,
+            PackageSha256 = hash,
+            State = state
+        }));
     }
 
     private sealed class StubHealthChecker : IExtensionHealthChecker
