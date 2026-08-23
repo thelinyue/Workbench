@@ -286,6 +286,24 @@ public sealed class ExtensionInstallerTests
     }
 
     [Fact]
+    public async Task InstallAsync_ExistingVersionPayloadWasTampered_RejectsSignedPackageReuse()
+    {
+        using var environment = new InstallerTestEnvironment();
+        var request = environment.CreateRequest(BuildPackage(
+            ("manifest.json", BuildManifest("sample", "2.0.0")),
+            ("bin/tool.exe", "payload-A")));
+        var first = await environment.Installer.InstallAsync(request);
+        await File.WriteAllTextAsync(Path.Combine(first.VersionDirectory, "bin", "tool.exe"), "payload-B");
+
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            environment.Installer.InstallAsync(request));
+
+        Assert.Contains("已签名 ZIP", exception.Message, StringComparison.Ordinal);
+        Assert.Equal("payload-B", await File.ReadAllTextAsync(Path.Combine(first.VersionDirectory, "bin", "tool.exe")));
+        Assert.Empty(environment.StagingDirectories());
+    }
+
+    [Fact]
     public async Task InstallAsync_TwoInstallerInstancesInstallSamePackageConcurrently_IsIdempotent()
     {
         using var ready = new CountdownEvent(2);

@@ -20,7 +20,7 @@ public sealed record ExtensionDownloadProgress(long BytesReceived, long TotalByt
 public sealed class ExtensionCatalogClient
 {
     public const string CatalogUrl = "https://raw.githubusercontent.com/thelinyue/Hephaestus-Workbench-Plugins/main/catalog.json";
-    public const long MaximumPackageBytes = 200L * 1024 * 1024;
+    public const long MaximumPackageBytes = ExtensionPackageLimits.MaximumPackageBytes;
     private const int MaximumCatalogBytes = 2 * 1024 * 1024;
 
     private readonly DataPaths _paths;

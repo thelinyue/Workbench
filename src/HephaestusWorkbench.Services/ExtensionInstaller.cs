@@ -169,6 +169,7 @@ public sealed class ExtensionInstaller
                     versionDirectory,
                     verified.Manifest,
                     localPackageSha256,
+                    packageBytes,
                     cancellationToken);
                 var existingManifest = await ActivateWithContentionRetryAsync(
                     verified.Manifest.Id,
@@ -210,6 +211,7 @@ public sealed class ExtensionInstaller
                     versionDirectory,
                     verified.Manifest,
                     localPackageSha256,
+                    packageBytes,
                     cancellationToken);
                 alreadyInstalled = true;
             }
@@ -495,6 +497,7 @@ public sealed class ExtensionInstaller
         string versionDirectory,
         ExtensionManifest verifiedManifest,
         string packageSha256,
+        byte[] packageBytes,
         CancellationToken cancellationToken)
     {
         EnsureVersionDirectoryIsSafe(GetExtensionDirectory(verifiedManifest.Id), versionDirectory);
@@ -528,7 +531,123 @@ public sealed class ExtensionInstaller
 
         var manifest = await ReadAndValidateRootManifestAsync(versionDirectory, cancellationToken);
         EnsureManifestMatchesVerification(manifest, verifiedManifest);
+        try
+        {
+            await EnsureInstalledPayloadMatchesSignedPackageAsync(
+                packageBytes,
+                versionDirectory,
+                verifiedManifest,
+                cancellationToken);
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or FileNotFoundException or DirectoryNotFoundException)
+        {
+            throw new InvalidOperationException(
+                $"扩展版本 {verifiedManifest.Id} {verifiedManifest.Version} 的已安装 payload 无法与已签名 ZIP 核对：{exception.Message}",
+                exception);
+        }
     }
+
+    /// <summary>
+    /// 重新安装同一签名 ZIP 时逐文件核对静态落盘 payload，不能把可被修改的 package.json 当作完整性证明。
+    /// 比较过程拒绝额外文件和重解析点，但允许宿主在根目录增加固定的 package.json；
+    /// 此检查用于发现静态篡改，不宣称能阻止同权限进程在核对完成后的并发替换。
+    /// </summary>
+    private static async Task EnsureInstalledPayloadMatchesSignedPackageAsync(
+        byte[] packageBytes,
+        string versionDirectory,
+        ExtensionManifest verifiedManifest,
+        CancellationToken cancellationToken)
+    {
+        using var packageStream = new MemoryStream(packageBytes, writable: false);
+        using var archive = new ZipArchive(packageStream, ZipArchiveMode.Read, leaveOpen: false);
+        var archiveEntries = new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase);
+        var expectedFiles = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var entry in archive.Entries)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            RejectReparseEntry(entry);
+            var normalized = NormalizeEntryPath(entry.FullName, out var isDirectory);
+            if (string.Equals(normalized, PackageMetadataFileName, StringComparison.OrdinalIgnoreCase))
+                throw new InvalidDataException($"扩展 ZIP 不能包含宿主保留文件 {PackageMetadataFileName}。");
+            RejectDuplicateOrConflictingEntry(archiveEntries, normalized, isDirectory);
+            if (isDirectory) continue;
+
+            expectedFiles.Add(normalized);
+            var installedPath = Path.GetFullPath(Path.Combine(versionDirectory, normalized));
+            EnsureDescendant(versionDirectory, installedPath, "已安装扩展文件");
+            RejectInstalledPathReparsePoints(versionDirectory, normalized);
+            if (!File.Exists(installedPath))
+                throw PayloadMismatch(verifiedManifest, installedPath);
+
+            await using var expected = entry.Open();
+            await using var actual = new FileStream(
+                installedPath,
+                FileMode.Open,
+                FileAccess.Read,
+                FileShare.Read,
+                bufferSize: 81920,
+                useAsync: true);
+            if (actual.Length != entry.Length || !await StreamsEqualAsync(expected, actual, cancellationToken))
+                throw PayloadMismatch(verifiedManifest, installedPath);
+        }
+
+        foreach (var installedFile in EnumerateInstalledPayloadFiles(versionDirectory))
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var relative = Path.GetRelativePath(versionDirectory, installedFile);
+            if (string.Equals(relative, PackageMetadataFileName, StringComparison.OrdinalIgnoreCase))
+                continue;
+            if (!expectedFiles.Contains(relative))
+                throw PayloadMismatch(verifiedManifest, installedFile);
+        }
+    }
+
+    private static void RejectInstalledPathReparsePoints(string versionDirectory, string relativePath)
+    {
+        var current = versionDirectory;
+        foreach (var segment in relativePath.Split(Path.DirectorySeparatorChar))
+        {
+            current = Path.Combine(current, segment);
+            if (!PathExists(current)) return;
+            if (File.GetAttributes(current).HasFlag(FileAttributes.ReparsePoint))
+                throw new InvalidOperationException($"已安装扩展 payload 包含重解析点，无法与已签名 ZIP 核对：{current}");
+        }
+    }
+
+    private static IEnumerable<string> EnumerateInstalledPayloadFiles(string directory)
+    {
+        foreach (var entry in Directory.EnumerateFileSystemEntries(directory))
+        {
+            var attributes = File.GetAttributes(entry);
+            if (attributes.HasFlag(FileAttributes.ReparsePoint))
+                throw new InvalidOperationException($"已安装扩展 payload 包含重解析点，无法与已签名 ZIP 核对：{entry}");
+            if (attributes.HasFlag(FileAttributes.Directory))
+            {
+                foreach (var child in EnumerateInstalledPayloadFiles(entry))
+                    yield return child;
+            }
+            else
+            {
+                yield return entry;
+            }
+        }
+    }
+
+    private static async Task<bool> StreamsEqualAsync(
+        Stream expected,
+        Stream actual,
+        CancellationToken cancellationToken)
+    {
+        var expectedHash = await SHA256.HashDataAsync(expected, cancellationToken);
+        var actualHash = await SHA256.HashDataAsync(actual, cancellationToken);
+        return CryptographicOperations.FixedTimeEquals(expectedHash, actualHash);
+    }
+
+    private static InvalidOperationException PayloadMismatch(
+        ExtensionManifest manifest,
+        string path)
+        => new($"扩展版本 {manifest.Id} {manifest.Version} 的已安装 payload 与已签名 ZIP 不一致，已拒绝继续使用：{path}");
 
     private static async Task WritePackageMetadataAsync(
         string stagingDirectory,
