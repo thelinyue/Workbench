@@ -137,6 +137,85 @@ public sealed class CaseAnalysisExtensionRuntimeTests
     }
 
     [Fact]
+    public async Task TaskCenter_WhenQueuedAnalysisIsCancelled_ReleasesSelectedVersionLease()
+    {
+        await using var environment = await TestEnvironment.CreateAsync(
+            AnalysisExtensionTestSupport.Process(version: "2.1.0"),
+            AnalysisExtensionTestSupport.Process(version: "2.0.0"));
+        var slotsEntered = new[]
+        {
+            new TaskCompletionSource<object?>(TaskCreationOptions.RunContinuationsAsynchronously),
+            new TaskCompletionSource<object?>(TaskCreationOptions.RunContinuationsAsynchronously)
+        };
+        var releaseSlots = new TaskCompletionSource<object?>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var blockers = slotsEntered.Select((entered, index) =>
+            environment.TaskCenter.EnqueueAsync(
+                SlotBlocker($"slot-{index}"),
+                async token =>
+                {
+                    entered.SetResult(null);
+                    await releaseSlots.Task.WaitAsync(token);
+                })).ToArray();
+
+        try
+        {
+            await Task.WhenAll(slotsEntered.Select(entered => entered.Task));
+            var log = Path.Combine(environment.Root, "queued-cancel.tgz");
+            await File.WriteAllTextAsync(log, "success");
+            var task = await environment.Analysis.StartAsync(ValidItem(log));
+            Assert.NotNull(task);
+            var queuedCompletion = environment.TaskCenter.WaitForCompletionAsync(task.Id);
+
+            AnalysisExtensionTestSupport.WriteCurrent(
+                environment.Paths,
+                AnalysisExtensionTestSupport.ExtensionId,
+                "2.1.0");
+            await environment.Registry.LoadAsync();
+            Assert.False(environment.Registry.CanDeleteVersion(
+                AnalysisExtensionTestSupport.ExtensionId,
+                "2.0.0"));
+
+            Assert.True(await environment.Analysis.CancelAsync(task.Id));
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(() => queuedCompletion);
+
+            Assert.True(environment.Registry.CanDeleteVersion(
+                AnalysisExtensionTestSupport.ExtensionId,
+                "2.0.0"));
+        }
+        finally
+        {
+            releaseSlots.TrySetResult(null);
+            await Task.WhenAll(blockers);
+        }
+    }
+
+    [Fact]
+    public async Task StartAsync_WhenLifecycleCreateFails_ReleasesSelectedVersionLease()
+    {
+        await using var environment = await TestEnvironment.CreateAsync(
+            (_, _, inner) => new FailingCreateLifecycleRepository(inner),
+            AnalysisExtensionTestSupport.Process(version: "2.1.0"),
+            AnalysisExtensionTestSupport.Process(version: "2.0.0"));
+        var log = Path.Combine(environment.Root, "create-failure.tgz");
+        await File.WriteAllTextAsync(log, "success");
+
+        var error = await Assert.ThrowsAsync<InvalidOperationException>(
+            () => environment.Analysis.StartAsync(ValidItem(log)));
+        Assert.Contains("模拟生命周期创建失败", error.Message);
+        AnalysisExtensionTestSupport.WriteCurrent(
+            environment.Paths,
+            AnalysisExtensionTestSupport.ExtensionId,
+            "2.1.0");
+        await environment.Registry.LoadAsync();
+
+        Assert.True(environment.Registry.CanDeleteVersion(
+            AnalysisExtensionTestSupport.ExtensionId,
+            "2.0.0"));
+        Assert.Empty(await environment.Cases.ListAsync());
+        Assert.Empty(await environment.Tasks.ListAsync());
+    }
+
+    [Fact]
     public async Task StartAndWaitAsync_WhenActiveRulesExist_ForwardsHostManagedRulesPath()
     {
         await using var environment = await TestEnvironment.CreateAsync(
@@ -203,6 +282,14 @@ public sealed class CaseAnalysisExtensionRuntimeTests
         await WaitUntilAsync(() => environment.Registry.CanDeleteVersion(AnalysisExtensionTestSupport.ExtensionId, "2.0.0"));
     }
 
+    private static AnalysisTask SlotBlocker(string id) => new()
+    {
+        Id = id,
+        CaseId = id,
+        PluginId = "slot-blocker",
+        Status = AnalysisTaskStatus.Waiting
+    };
+
     private static LogInboxItem ValidItem(string path) => new()
     {
         FilePath = path,
@@ -223,6 +310,30 @@ public sealed class CaseAnalysisExtensionRuntimeTests
             await Task.Delay(25);
         }
         Assert.Fail("等待异步分析状态超时。");
+    }
+
+    /// <summary>生命周期初始事务失败，用于确认尚未移交给 TaskCenter 的租约由 StartAsync 归还。</summary>
+    private sealed class FailingCreateLifecycleRepository(IAnalysisLifecycleRepository inner)
+        : IAnalysisLifecycleRepository
+    {
+        public Task CreateAsync(AnalysisCase analysisCase, AnalysisTask task, CancellationToken cancellationToken = default)
+            => Task.FromException(new InvalidOperationException("模拟生命周期创建失败。"));
+
+        public Task MarkRunningAsync(AnalysisCase analysisCase, AnalysisTask task, CancellationToken cancellationToken = default)
+            => inner.MarkRunningAsync(analysisCase, task, cancellationToken);
+
+        public Task CompleteAsync(
+            AnalysisCase analysisCase,
+            AnalysisTask task,
+            Report? report,
+            CancellationToken cancellationToken = default)
+            => inner.CompleteAsync(analysisCase, task, report, cancellationToken);
+
+        public Task DeleteByCaseIdsAsync(IReadOnlyCollection<string> caseIds, CancellationToken cancellationToken = default)
+            => inner.DeleteByCaseIdsAsync(caseIds, cancellationToken);
+
+        public Task<int> RecoverInterruptedAsync(DateTime recoveredAt, CancellationToken cancellationToken = default)
+            => inner.RecoverInterruptedAsync(recoveredAt, cancellationToken);
     }
 
     /// <summary>
@@ -313,12 +424,14 @@ public sealed class CaseAnalysisExtensionRuntimeTests
             SqliteCaseRepository cases,
             SqliteTaskRepository tasks,
             SqliteReportRepository reports,
+            TaskCenter taskCenter,
             CaseAnalysisService analysis)
         {
             Root = root;
             Cases = cases;
             Tasks = tasks;
             Reports = reports;
+            TaskCenter = taskCenter;
             Analysis = analysis;
         }
 
@@ -329,6 +442,7 @@ public sealed class CaseAnalysisExtensionRuntimeTests
         public SqliteCaseRepository Cases { get; }
         public SqliteTaskRepository Tasks { get; }
         public SqliteReportRepository Reports { get; }
+        public TaskCenter TaskCenter { get; }
         public CaseAnalysisService Analysis { get; }
 
         public static Task<TestEnvironment> CreateAsync(params AnalysisExtensionDefinition[] extensions)
@@ -349,6 +463,7 @@ public sealed class CaseAnalysisExtensionRuntimeTests
             var logger = new WorkbenchLogger(root);
             var registry = await AnalysisExtensionTestSupport.CreateRegistryAsync(paths, extensions);
             var extensionSettings = new ExtensionSettingsStore(paths);
+            var taskCenter = new TaskCenter(tasks);
             IAnalysisLifecycleRepository lifecycle = new SqliteAnalysisLifecycleRepository(factory);
             if (decorateLifecycle is not null)
                 lifecycle = decorateLifecycle(paths, registry, lifecycle);
@@ -360,11 +475,11 @@ public sealed class CaseAnalysisExtensionRuntimeTests
                 registry,
                 extensionSettings,
                 new AnalysisProcessHost(logger),
-                new TaskCenter(tasks),
+                taskCenter,
                 logger,
                 new RuleSetService(paths, logger),
                 lifecycle);
-            return new TestEnvironment(root, cases, tasks, reports, analysis)
+            return new TestEnvironment(root, cases, tasks, reports, taskCenter, analysis)
             {
                 Paths = paths,
                 Registry = registry,

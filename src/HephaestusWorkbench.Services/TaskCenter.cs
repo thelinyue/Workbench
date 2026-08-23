@@ -16,7 +16,10 @@ public sealed class TaskCenter
     public TaskCenter(IAnalysisTaskRepository tasks) => _tasks = tasks;
     public event EventHandler? TaskChanged;
 
-    public Task EnqueueAsync(AnalysisTask task, Func<CancellationToken, Task> action)
+    public Task EnqueueAsync(
+        AnalysisTask task,
+        Func<CancellationToken, Task> action,
+        IDisposable? ownedResource = null)
     {
         var cancellation = new CancellationTokenSource();
         var completion = new TaskCompletionSource<object?>(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -29,25 +32,30 @@ public sealed class TaskCenter
         return Task.Run(async () =>
         {
             var acquired = false;
+            var cancelled = false;
+            Exception? failure = null;
             try
             {
                 await _slots.WaitAsync(cancellation.Token);
                 acquired = true;
                 await action(cancellation.Token);
-                completion.TrySetResult(null);
             }
             catch (OperationCanceledException)
             {
-                completion.TrySetCanceled();
+                cancelled = true;
             }
             catch (Exception ex)
             {
-                completion.TrySetException(ex);
+                failure = ex;
                 throw;
             }
             finally
             {
                 if (acquired) _slots.Release();
+
+                // ownedResource 的所有权在 EnqueueAsync 成功返回后属于队列外层。
+                // 即使任务在等待并发槽时取消、action 从未执行，也必须在这里统一归还。
+                ownedResource?.Dispose();
                 cancellation.Dispose();
                 lock (_sync)
                 {
@@ -55,6 +63,14 @@ public sealed class TaskCenter
                     _taskPlugins.Remove(task.Id);
                     _completions.Remove(task.Id);
                 }
+
+                // completion 在资源和队列状态清理后才收敛，调用方等待完成后即可观察最终状态。
+                if (failure is not null)
+                    completion.TrySetException(failure);
+                else if (cancelled)
+                    completion.TrySetCanceled();
+                else
+                    completion.TrySetResult(null);
                 TaskChanged?.Invoke(this, EventArgs.Empty);
             }
         });

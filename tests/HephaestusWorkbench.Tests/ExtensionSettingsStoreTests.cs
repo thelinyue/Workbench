@@ -73,6 +73,19 @@ public sealed class ExtensionSettingsStoreTests
     }
 
     [Fact]
+    public async Task SnapshotLease_DisposeTwice_ReleasesGateOnlyOnce()
+    {
+        using var environment = new TestEnvironment();
+        var lease = await environment.Store.AcquireSnapshotLeaseAsync();
+
+        lease.Dispose();
+        lease.Dispose();
+        await environment.Store.SetEnabledAsync("log-analyzer", false);
+
+        Assert.False(Assert.Single((await environment.Store.EnsureAsync()).Extensions).Enabled);
+    }
+
+    [Fact]
     public async Task EnsureAsync_RejectsUnknownOrLegacyFields()
     {
         using var environment = new TestEnvironment();

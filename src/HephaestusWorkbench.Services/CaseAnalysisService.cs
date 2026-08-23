@@ -138,9 +138,13 @@ public sealed class CaseAnalysisService
             await _lifecycle.CreateAsync(analysisCase, task, cancellationToken);
             StateChanged?.Invoke(this, EventArgs.Empty);
 
-            // 生命周期创建成功后把同一个具体版本租约移交后台；后台不得再次读取 current。
+            // 生命周期创建成功后把同一个具体版本租约移交给 TaskCenter 外层；后台不得再次读取 current。
+            // EnqueueAsync 成功返回后本方法清空本地所有权，避免与队列 finally 双重负责释放。
             var executionLease = selectedLease;
-            _ = _taskCenter.EnqueueAsync(task, token => RunAsync(analysisCase, task, executionLease, token));
+            _ = _taskCenter.EnqueueAsync(
+                task,
+                token => RunAsync(analysisCase, task, executionLease, token),
+                executionLease);
             selectedLease = null;
             return task;
         }
@@ -386,9 +390,5 @@ public sealed class CaseAnalysisService
             }
             _logger.Error($"分析任务异常终止：{task.Id}", ex);
             StateChanged?.Invoke(this, EventArgs.Empty);
-        }
-        finally
-        {
-            lease.Dispose();
         }
     }}
