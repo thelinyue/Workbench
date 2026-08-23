@@ -146,6 +146,15 @@ public sealed class ExtensionRegistry
                 var existing = await ReadCurrentAsync(currentPath, cancellationToken);
                 ValidateDirectoryIdentity(extensionDirectory, existing);
                 RejectDifferentHashForSameVersion(existing, pending);
+                if (existing.State == ExtensionActivationState.Healthy && IsSamePackage(existing, pending))
+                {
+                    // 幂等激活仍执行正式健康检查，但不能重写 current/backup，否则会用活动版本覆盖真正的回滚版本。
+                    await _healthChecker.CheckAsync(candidate, cancellationToken);
+                    lock (_stateGate)
+                        _active[pending.Id] = candidate;
+                    return candidate;
+                }
+
                 if (existing.State == ExtensionActivationState.Healthy)
                 {
                     rollbackManifest = await ReadMatchingManifestAsync(extensionDirectory, existing, cancellationToken);

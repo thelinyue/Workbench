@@ -331,6 +331,31 @@ public sealed class ExtensionInstallerTests
     }
 
     [Fact]
+    public async Task InstallAsync_WhenMoveRaceLandsDifferentPackage_RejectsWithoutActivatingOrOverwriting()
+    {
+        var competingSha = new string('c', 64);
+        var mover = new DifferentPackageCompetingProcessVersionDirectoryMover(competingSha);
+        using var environment = new InstallerTestEnvironment(versionDirectoryMover: mover);
+        var request = environment.CreateRequest(BuildPackage(
+            ("manifest.json", BuildManifest("sample", "2.0.0")),
+            ("bin/tool.exe", "requested-payload")));
+
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            environment.Installer.InstallAsync(request));
+
+        Assert.Contains("相同扩展版本", exception.Message, StringComparison.Ordinal);
+        Assert.Contains("SHA-256", exception.Message, StringComparison.Ordinal);
+        Assert.Equal(1, mover.CallCount);
+        Assert.False(File.Exists(environment.CurrentPath("sample")));
+        Assert.Equal(
+            "competing-payload",
+            await File.ReadAllTextAsync(Path.Combine(environment.VersionDirectory("sample", "2.0.0"), "bin", "other.exe")));
+        using var metadata = JsonDocument.Parse(await File.ReadAllTextAsync(environment.MetadataPath("sample", "2.0.0")));
+        Assert.Equal(competingSha, metadata.RootElement.GetProperty("sha256").GetString());
+        Assert.Empty(environment.StagingDirectories());
+    }
+
+    [Fact]
     public async Task InstallAsync_SameVersionWithDifferentSha_IsRejectedWithoutOverwritingExistingVersion()
     {
         using var environment = new InstallerTestEnvironment();
@@ -762,6 +787,26 @@ public sealed class ExtensionInstallerTests
                 Directory.CreateDirectory(Path.GetDirectoryName(target)!);
                 File.Copy(file, target);
             }
+        }
+    }
+
+    private sealed class DifferentPackageCompetingProcessVersionDirectoryMover(string packageSha256)
+        : IExtensionVersionDirectoryMover
+    {
+        public int CallCount { get; private set; }
+
+        public void Move(string stagingDirectory, string versionDirectory)
+        {
+            CallCount++;
+            Directory.CreateDirectory(Path.Combine(versionDirectory, "bin"));
+            File.WriteAllText(
+                Path.Combine(versionDirectory, "manifest.json"),
+                BuildManifest("sample", "2.0.0", "bin/other.exe"));
+            File.WriteAllText(Path.Combine(versionDirectory, "bin", "other.exe"), "competing-payload");
+            File.WriteAllText(
+                Path.Combine(versionDirectory, "package.json"),
+                JsonSerializer.Serialize(new { schemaVersion = 2, sha256 = packageSha256 }));
+            throw new IOException("测试模拟另一个进程已抢先落盘不同扩展包。");
         }
     }
 

@@ -116,6 +116,55 @@ public sealed class ExtensionRegistryTests
     }
 
     [Fact]
+    public async Task ActivateAsync_WhenSameHealthyPackageIsAlreadyCurrent_PreservesExistingRollback()
+    {
+        using var layout = new ExtensionTestLayout();
+        layout.WriteManifest("sample", "1.0.0");
+        layout.WriteManifest("sample", "2.0.0");
+        layout.WriteCurrent("sample", "2.0.0", ExtensionTestLayout.HashB, ExtensionActivationState.Healthy);
+        layout.WriteBackup("sample", "1.0.0", ExtensionTestLayout.HashA, ExtensionActivationState.Healthy);
+        var checker = new StubHealthChecker();
+        var registry = new ExtensionRegistry(layout.ExtensionsRoot, checker);
+        await registry.LoadAsync();
+
+        var activated = await registry.ActivateAsync("sample", "2.0.0", ExtensionTestLayout.HashB);
+
+        Assert.Equal("2.0.0", activated.Version);
+        Assert.Equal(1, checker.CallCount);
+        var current = ExtensionCurrentParser.Parse(await File.ReadAllTextAsync(layout.CurrentPath("sample")));
+        var backup = ExtensionCurrentParser.Parse(await File.ReadAllTextAsync(layout.BackupPath("sample")));
+        Assert.Equal("2.0.0", current.Version);
+        Assert.Equal(ExtensionActivationState.Healthy, current.State);
+        Assert.Equal("1.0.0", backup.Version);
+        Assert.Equal(ExtensionActivationState.Healthy, backup.State);
+    }
+
+    [Fact]
+    public async Task ActivateAsync_WhenAnotherRegistryFinishesSamePackageFirst_PreservesRollbackAndRefreshesActiveState()
+    {
+        using var layout = new ExtensionTestLayout();
+        layout.WriteManifest("sample", "1.0.0");
+        layout.WriteManifest("sample", "2.0.0");
+        layout.WriteCurrent("sample", "1.0.0", ExtensionTestLayout.HashA, ExtensionActivationState.Healthy);
+        var firstRegistry = new ExtensionRegistry(layout.ExtensionsRoot, new StubHealthChecker());
+        var laterChecker = new StubHealthChecker();
+        var laterRegistry = new ExtensionRegistry(layout.ExtensionsRoot, laterChecker);
+        await firstRegistry.LoadAsync();
+        await laterRegistry.LoadAsync();
+
+        await firstRegistry.ActivateAsync("sample", "2.0.0", ExtensionTestLayout.HashB);
+        var activated = await laterRegistry.ActivateAsync("sample", "2.0.0", ExtensionTestLayout.HashB);
+
+        Assert.Equal("2.0.0", activated.Version);
+        Assert.Equal(1, laterChecker.CallCount);
+        var backup = ExtensionCurrentParser.Parse(await File.ReadAllTextAsync(layout.BackupPath("sample")));
+        Assert.Equal("1.0.0", backup.Version);
+        Assert.Equal(ExtensionActivationState.Healthy, backup.State);
+        using var lease = laterRegistry.LeaseCurrentVersion("sample");
+        Assert.Equal("2.0.0", lease.Version);
+    }
+
+    [Fact]
     public async Task ActivateAsync_HealthCheckFails_RestoresBackup()
     {
         using var layout = new ExtensionTestLayout();
