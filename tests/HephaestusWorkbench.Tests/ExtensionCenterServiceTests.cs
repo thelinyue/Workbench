@@ -91,7 +91,7 @@ public sealed class ExtensionCenterServiceTests
         Assert.NotNull(entry.InstalledManifest);
         Assert.True(entry.IsCatalogListed);
         Assert.True(entry.HasIdentityConflict);
-        Assert.False(entry.HasCompatibleRelease);
+        Assert.True(entry.HasCompatibleRelease);
         Assert.Null(entry.AvailableRelease);
         Assert.False(entry.HasUpdate);
         Assert.Contains("身份冲突", snapshot.Warning, StringComparison.Ordinal);
@@ -154,6 +154,38 @@ public sealed class ExtensionCenterServiceTests
         Assert.Equal(0, environment.Verifier.VerificationCount);
         Assert.Contains(environment.LogMessages, message =>
             message.Contains("身份冲突", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task InstallAsync_WhenActiveIdentityChangesDuringVerification_RejectsInsideActivationTransaction()
+    {
+        var package = CreateAnalysisPackage("log-analyzer", "2.1.0");
+        var sha256 = Convert.ToHexString(SHA256.HashData(package)).ToLowerInvariant();
+        using var environment = new TestEnvironment(InstallCatalogJson(package.Length, sha256), package);
+        await environment.AddInstalledAsync("log-analyzer", "2.0.0", ExtensionKind.Analysis);
+        environment.Verifier.PauseVerification = true;
+
+        var installation = environment.Service.InstallAsync(new ExtensionCenterInstallRequest
+        {
+            ExtensionId = "log-analyzer",
+            Version = "2.1.0"
+        });
+        await environment.Verifier.VerificationStarted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+
+        await environment.AddInstalledAsync(
+            "log-analyzer",
+            "2.0.5",
+            ExtensionKind.Analysis,
+            publisherId: "other-publisher");
+        environment.Verifier.ContinueVerification.TrySetResult();
+
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => installation);
+        var current = ExtensionCurrentParser.Parse(await File.ReadAllTextAsync(
+            Path.Combine(environment.Paths.ExtensionsDirectory, "log-analyzer", "current.json")));
+
+        Assert.Contains("身份冲突", exception.Message, StringComparison.Ordinal);
+        Assert.Equal("2.0.5", current.Version);
+        Assert.Equal(ExtensionActivationState.Healthy, current.State);
     }
 
     [Fact]
@@ -458,12 +490,22 @@ public sealed class ExtensionCenterServiceTests
     private sealed class RecordingVerifier : IExtensionPackageVerifier
     {
         public int VerificationCount { get; private set; }
+        public bool PauseVerification { get; set; }
+        public TaskCompletionSource VerificationStarted { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public TaskCompletionSource ContinueVerification { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
 
-        public Task<ExtensionPackageVerificationResult> VerifyAsync(
+        public async Task<ExtensionPackageVerificationResult> VerifyAsync(
             ExtensionPackageVerificationRequest request,
             CancellationToken cancellationToken = default)
         {
             VerificationCount++;
+            if (PauseVerification)
+            {
+                VerificationStarted.TrySetResult();
+                await ContinueVerification.Task.WaitAsync(cancellationToken);
+            }
             var manifest = new ExtensionManifest
             {
                 SchemaVersion = 2,
@@ -484,12 +526,12 @@ public sealed class ExtensionCenterServiceTests
                 Permissions = [],
                 Dependencies = []
             };
-            return Task.FromResult(new ExtensionPackageVerificationResult
+            return new ExtensionPackageVerificationResult
             {
                 Manifest = manifest,
                 TrustedKeyId = request.Release.Signature.KeyId,
                 PackageSha256 = Convert.ToHexString(SHA256.HashData(request.PackageBytes)).ToLowerInvariant()
-            });
+            };
         }
     }
 }

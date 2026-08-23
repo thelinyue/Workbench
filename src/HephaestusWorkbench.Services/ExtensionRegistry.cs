@@ -146,18 +146,20 @@ public sealed class ExtensionRegistry
                 var existing = await ReadCurrentAsync(currentPath, cancellationToken);
                 ValidateDirectoryIdentity(extensionDirectory, existing);
                 RejectDifferentHashForSameVersion(existing, pending);
-                if (existing.State == ExtensionActivationState.Healthy && IsSamePackage(existing, pending))
-                {
-                    // 幂等激活仍执行正式健康检查，但不能重写 current/backup，否则会用活动版本覆盖真正的回滚版本。
-                    await _healthChecker.CheckAsync(candidate, cancellationToken);
-                    lock (_stateGate)
-                        _active[pending.Id] = candidate;
-                    return candidate;
-                }
-
                 if (existing.State == ExtensionActivationState.Healthy)
                 {
-                    rollbackManifest = await ReadMatchingManifestAsync(extensionDirectory, existing, cancellationToken);
+                    var activeManifest = await ReadMatchingManifestAsync(extensionDirectory, existing, cancellationToken);
+                    EnsureIdentityContinuity(candidate, activeManifest);
+                    if (IsSamePackage(existing, pending))
+                    {
+                        // 幂等激活仍执行正式健康检查，但不能重写 current/backup，否则会用活动版本覆盖真正的回滚版本。
+                        await _healthChecker.CheckAsync(candidate, cancellationToken);
+                        lock (_stateGate)
+                            _active[pending.Id] = candidate;
+                        return candidate;
+                    }
+
+                    rollbackManifest = activeManifest;
                     rollback = existing;
                 }
                 else if (!IsSamePackage(existing, pending))
@@ -175,6 +177,7 @@ public sealed class ExtensionRegistry
                 if (rollback is null && existingBackup.State == ExtensionActivationState.Healthy)
                 {
                     rollbackManifest = await ReadMatchingManifestAsync(extensionDirectory, existingBackup, cancellationToken);
+                    EnsureIdentityContinuity(candidate, rollbackManifest);
                     rollback = existingBackup;
                 }
             }
@@ -278,6 +281,22 @@ public sealed class ExtensionRegistry
         }
         return !DocumentProtectsVersion(Path.Combine(extensionDirectory, "current.json"), id, version) &&
                !DocumentProtectsVersion(Path.Combine(extensionDirectory, "current.json.bak"), id, version);
+    }
+
+    /// <summary>
+    /// 候选版本在激活锁内必须与当前健康版本保持发布者和类别连续，避免下载、验签期间活动版本变化后被覆盖。
+    /// </summary>
+    private static void EnsureIdentityContinuity(ExtensionManifest candidate, ExtensionManifest active)
+    {
+        if (string.Equals(candidate.PublisherId, active.PublisherId, StringComparison.Ordinal) &&
+            candidate.Kind == active.Kind)
+        {
+            return;
+        }
+
+        throw new InvalidOperationException(
+            $"扩展 {candidate.Id} 存在身份冲突：候选发布者/类别为 {candidate.PublisherId}/{candidate.Kind}，" +
+            $"当前活动版本为 {active.PublisherId}/{active.Kind}。已拒绝激活。");
     }
 
     private static ExtensionCurrentDocument ValidateRequestedCurrent(string id, string version, string packageSha256)

@@ -169,12 +169,13 @@ public sealed class ExtensionCenterService : IExtensionCenterService
                 _logger.Error(conflictMessage);
             }
 
-            var release = catalogItem is null || hasIdentityConflict
+            var compatibleRelease = catalogItem is null
                 ? null
                 : SelectLatestRelease(catalogItem, settings.UpdateChannel);
+            var availableRelease = hasIdentityConflict ? null : compatibleRelease;
             var enabled = !enabledPreferences.TryGetValue(id, out var configuredEnabled) || configuredEnabled;
-            var hasUpdate = !hasIdentityConflict && manifest is not null && release is not null &&
-                            SemanticVersion.Parse(release.Version).CompareTo(SemanticVersion.Parse(manifest.Version)) > 0;
+            var hasUpdate = !hasIdentityConflict && manifest is not null && availableRelease is not null &&
+                            SemanticVersion.Parse(availableRelease.Version).CompareTo(SemanticVersion.Parse(manifest.Version)) > 0;
             var useInstalledIdentity = manifest is not null && hasIdentityConflict;
 
             entries.Add(new ExtensionCenterEntry
@@ -185,10 +186,10 @@ public sealed class ExtensionCenterService : IExtensionCenterService
                 PublisherId = useInstalledIdentity ? manifest!.PublisherId : catalogItem?.PublisherId ?? manifest!.PublisherId,
                 Kind = useInstalledIdentity ? manifest!.Kind : catalogItem?.Kind ?? manifest!.Kind,
                 InstalledManifest = manifest,
-                AvailableRelease = release,
+                AvailableRelease = availableRelease,
                 Enabled = enabled,
                 IsCatalogListed = catalogItem is not null,
-                HasCompatibleRelease = release is not null,
+                HasCompatibleRelease = compatibleRelease is not null,
                 IsInstalledVersionCompatible = manifest is null ? null : IsHostCompatible(manifest.MinHostVersion),
                 HasIdentityConflict = hasIdentityConflict,
                 HasUpdate = hasUpdate

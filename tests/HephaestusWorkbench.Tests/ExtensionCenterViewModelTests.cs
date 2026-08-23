@@ -71,7 +71,7 @@ public sealed class ExtensionCenterViewModelTests
             Manifest("log-analyzer", "日志分析", "2.0.0", ExtensionKind.Analysis),
             availableRelease: null,
             isCatalogListed: true,
-            hasCompatibleRelease: false,
+            hasCompatibleRelease: true,
             isInstalledVersionCompatible: true,
             hasUpdate: false,
             hasIdentityConflict: true));
@@ -79,6 +79,30 @@ public sealed class ExtensionCenterViewModelTests
         Assert.Equal("扩展身份冲突", item.StatusText);
         Assert.False(item.CanInstall);
         Assert.Equal(System.Windows.Visibility.Collapsed, item.InstallVisibility);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(null)]
+    public async Task OpenCommand_WhenInstalledWorkspaceCompatibilityIsNotConfirmed_DoesNotOpen(
+        bool? isInstalledVersionCompatible)
+    {
+        var opened = new List<ExtensionManifest>();
+        var viewModel = new ExtensionCenterViewModel(
+            new FakeExtensionCenterService(CreateInstalledWorkspaceSnapshot(
+                enabled: true,
+                isInstalledVersionCompatible)),
+            opened.Add,
+            new WorkbenchLogger(CreateRoot()));
+        await viewModel.InitializeAsync();
+        var workspace = Assert.Single(viewModel.VisibleItems);
+
+        Assert.False(workspace.CanOpen);
+        Assert.False(viewModel.OpenCommand.CanExecute(workspace));
+
+        viewModel.OpenCommand.Execute(workspace);
+
+        Assert.Empty(opened);
     }
 
     [Fact]
@@ -225,7 +249,9 @@ public sealed class ExtensionCenterViewModelTests
         };
     }
 
-    private static ExtensionCenterSnapshot CreateInstalledWorkspaceSnapshot(bool enabled)
+    private static ExtensionCenterSnapshot CreateInstalledWorkspaceSnapshot(
+        bool enabled,
+        bool? isInstalledVersionCompatible = true)
     {
         var manifest = Manifest("rule-editor", "规则编辑器", "2.0.0", ExtensionKind.Workspace);
         return new ExtensionCenterSnapshot
@@ -242,7 +268,7 @@ public sealed class ExtensionCenterViewModelTests
                     Release("2.1.0"),
                     isCatalogListed: true,
                     hasCompatibleRelease: true,
-                    isInstalledVersionCompatible: true,
+                    isInstalledVersionCompatible: isInstalledVersionCompatible,
                     enabled: enabled,
                     hasUpdate: true)
             ]

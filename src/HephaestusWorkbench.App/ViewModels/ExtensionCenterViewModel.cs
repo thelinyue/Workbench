@@ -58,7 +58,8 @@ public sealed class ExtensionCenterItemViewModel : ViewModelBase
     public bool CanInstall => !Source.HasIdentityConflict && Source.HasCompatibleRelease &&
                               Source.AvailableRelease is not null &&
                               (Source.InstalledManifest is null || Source.HasUpdate);
-    public bool CanOpen => Enabled && Source.InstalledManifest?.Kind == ExtensionKind.Workspace;
+    public bool CanOpen => Enabled && Source.IsInstalledVersionCompatible == true &&
+                           Source.InstalledManifest?.Kind == ExtensionKind.Workspace;
     public string ToggleText => Enabled ? "禁用" : "启用";
     public string ToggleAutomationName => $"{ToggleText}扩展：{Name}";
     public string OpenAutomationName => $"打开扩展：{Name}";

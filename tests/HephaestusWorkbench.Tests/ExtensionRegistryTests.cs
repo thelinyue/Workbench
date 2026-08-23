@@ -115,6 +115,31 @@ public sealed class ExtensionRegistryTests
         Assert.Equal("2.0.0", registry.LeaseCurrentVersion("sample").Version);
     }
 
+    [Theory]
+    [InlineData("other-publisher", ExtensionKind.Analysis)]
+    [InlineData("thelinyue", ExtensionKind.Workspace)]
+    public async Task ActivateAsync_WhenCandidateIdentityDiffersFromActive_RejectsBeforeMutation(
+        string candidatePublisherId,
+        ExtensionKind candidateKind)
+    {
+        using var layout = new ExtensionTestLayout();
+        layout.WriteManifest("sample", "1.0.0");
+        layout.WriteManifest("sample", "2.0.0", candidatePublisherId, candidateKind);
+        layout.WriteCurrent("sample", "1.0.0", ExtensionTestLayout.HashA, ExtensionActivationState.Healthy);
+        var checker = new StubHealthChecker();
+        var registry = new ExtensionRegistry(layout.ExtensionsRoot, checker);
+        await registry.LoadAsync();
+
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            registry.ActivateAsync("sample", "2.0.0", ExtensionTestLayout.HashB));
+        var current = ExtensionCurrentParser.Parse(await File.ReadAllTextAsync(layout.CurrentPath("sample")));
+
+        Assert.Contains("身份冲突", exception.Message, StringComparison.Ordinal);
+        Assert.Equal("1.0.0", current.Version);
+        Assert.Equal(ExtensionActivationState.Healthy, current.State);
+        Assert.Equal(0, checker.CallCount);
+    }
+
     [Fact]
     public async Task ActivateAsync_WhenSameHealthyPackageIsAlreadyCurrent_PreservesExistingRollback()
     {
@@ -372,26 +397,37 @@ internal sealed class ExtensionTestLayout : IDisposable
 
     public string BackupPath(string id) => Path.Combine(ExtensionsRoot, id, "current.json.bak");
 
-    public void WriteManifest(string id, string version)
+    public void WriteManifest(
+        string id,
+        string version,
+        string publisherId = "thelinyue",
+        ExtensionKind kind = ExtensionKind.Analysis)
     {
         var directory = VersionDirectory(id, version);
         Directory.CreateDirectory(directory);
+        var kindText = kind.ToString().ToLowerInvariant();
+        var runtime = kind == ExtensionKind.Workspace
+            ? "{ \"kind\": \"web\", \"protocol\": \"workspace-bridge-v1\", \"entry\": \"index.html\" }"
+            : "{ \"kind\": \"content\" }";
+        var capability = kind == ExtensionKind.Workspace ? "workspace.page" : "analysis.rule-pack";
         File.WriteAllText(Path.Combine(directory, "manifest.json"), $$"""
             {
               "schemaVersion": 2,
               "id": "{{id}}",
               "name": "测试扩展",
               "version": "{{version}}",
-              "kind": "analysis",
-              "publisherId": "thelinyue",
+              "kind": "{{kindText}}",
+              "publisherId": "{{publisherId}}",
               "hostApiVersion": "1.0",
               "minHostVersion": "2.0.0",
-              "runtime": { "kind": "content" },
-              "capabilities": ["analysis.rule-pack"],
+              "runtime": {{runtime}},
+              "capabilities": ["{{capability}}"],
               "permissions": [],
               "dependencies": []
             }
             """);
+        if (kind == ExtensionKind.Workspace)
+            File.WriteAllText(Path.Combine(directory, "index.html"), "fixture");
     }
 
     public void WriteCurrent(string id, string version, string hash, ExtensionActivationState state)
