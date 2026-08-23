@@ -1,16 +1,26 @@
-# 赫菲斯托斯工程工作台（Hephaestus Workbench）
+# Hephaestus Workbench v2.0.0
 
-赫菲斯托斯工程工作台（简称“赫工”）是面向内部工程师的 Windows 本地日志分析工作台。
+Hephaestus Workbench 是面向 Windows 10/11 x64 的本地工程诊断客户端。v2.0.0 将 Shell 固定为四个一级入口：
 
-## 当前能力
+```text
+工作
+├─ 分析中心
+└─ SSH 终端
 
-- 默认监控工作台数据目录下的 `Inbox`，也可以在设置中添加 Downloads、网络盘或其他目录。
-- 首页展示最近 5 个有效监控日志，可直接“分析并查看”；也可选择或拖入监控目录外的单个 `.tgz` 或 `.tgz.temp` 日志。
-- 识别 `任意前缀_{DeviceID}_{YYYYMMDDHHMM 或 YYMMDDHHMM}.tgz` 或 `.tgz.temp`，前缀不限定为 `diag`。
-- 使用现有 `log_analyzer.exe -d <原始日志文件> -o <报告目录>` 执行分析；源文件和解压目录保留在原始日志目录。
-- 管理 Analysis Case、后台任务和标准报告。
-- 通过分析中心统一搜索日志、案例、任务历史和报告，并使用 WebView2 多标签只读查看；主要结果入口也可直接打开对应解压目录，补充排查报告未覆盖的问题。
-- 分项统计日志、解压目录和报告占用，并清理可释放数据。
+扩展
+└─ 扩展中心
+
+系统
+└─ 设置
+```
+
+## v2 核心行为
+
+- 默认启动进入分析中心。
+- 分析中心固定使用日志分析扩展，不选择分析引擎，只选择“综合分析”或后续支持的“存储分析”。
+- 单日志快速分析成功后使用默认电脑浏览器打开 `Report/index.html`；批量与目录监控不会自动打开多个标签。
+- Workspace 扩展只能从扩展中心进入固定受控 Host，不能贡献侧栏导航。
+- 报告不再使用内嵌 WebView2；WebView2 仅保留给 SSH 终端和 Workspace Extension。
 
 ## 开发环境
 
@@ -18,91 +28,48 @@
 - .NET 8 SDK
 - WebView2 Runtime
 
-日志分析插件不随源码仓库提供。GitHub Actions 会从官方插件 Releases 仓库获取最新正式版本，将其作为 `PluginSeed` 注入发布目录，首次启动时登记到用户数据目录的 `Plugins/log-analyzer`。
-
-插件开发请参阅 [插件开发文档](docs/plugin-development.md)。v1.1.1 插件中心从独立公开目录 `thelinyue/Hephaestus-Workbench-Plugins` 安装和更新 EXE 插件，并可管理启用状态与默认插件；DLL 插件运行尚未接入。
-
-公开安装包和官方插件位于独立分发仓库 `thelinyue/Hephaestus-Workbench-Releases`。本源码仓库保持私有，发布流程见 [闭源分发说明](docs/distribution.md)。
-
-提供的测试日志文件名为 `宇diag_EC660JJ42230BE31_2608101025.tgz`，可直接放入监控目录；程序会忽略前缀，只校验末尾的设备序列号和时间。
-
-## 构建与运行
-
 ```powershell
-dotnet restore .\HephaestusWorkbench.sln
-dotnet build .\HephaestusWorkbench.sln -c Debug
-dotnet run --project .\src\HephaestusWorkbench.App\HephaestusWorkbench.App.csproj
+dotnet restore .\HephaestusWorkbench.sln --configfile .\NuGet.config
+dotnet build .\HephaestusWorkbench.sln -c Release --no-restore
+dotnet test .\HephaestusWorkbench.sln -c Release --no-build --no-restore
 ```
 
-发布 Windows x64：
+普通源码构建不携带正式扩展资产，也不提供 unsigned/developer extension mode。
 
-```powershell
-dotnet publish .\src\HephaestusWorkbench.App\HephaestusWorkbench.App.csproj -c Release -r win-x64 --self-contained true -o .\publish\win-x64
-```
+## 数据目录
 
-首次启动会选择 `HephaestusWorkbenchData` 数据目录，并创建：
+新工作区使用 schema v2：
 
 ```text
-Database/workbench.db
-Inbox/
-  sample.tgz
-  sample/
-    report/
-Plugins/
-Rules/
-  Official/
-  Local/
-  Active/
-  History/
 Config/
-Database/workbench.db
+  workspace.json
+  appsettings.json
+  extensions.json
+Database/
+  workbench.db
+Extensions/
+Operations/
 Logs/
 Temp/
 Cache/
 ```
 
-首次启动会进入五步配置向导，默认监控 `Inbox`，并写入：
+v2.0.0 不兼容旧数据库、旧配置、旧 `Plugins`、旧 manifest/catalog、旧 `report.html` 或旧客户端。发现旧工作区时只显示绝对路径和“打开目录 / 退出”，不会迁移、备份或删除旧数据。
+
+## 正式安装包
+
+正式构建固定读取仓库内：
 
 ```text
-Config/appsettings.json
-Config/plugins.json
-Config/workspace.json
+distribution/bundled-extensions.json
 ```
 
-`workspace.json` 中的 `MonitorPaths` 支持多个目录。程序只扫描这些目录中符合命名规则的 `.tgz` 或 `.tgz.temp` 文件。
-
-## 制作 Windows 安装包
-
-安装包使用 .NET 8 self-contained 发布，不需要目标机器预装 .NET Desktop Runtime。默认安装目录为 `C:\Program Files\HephaestusWorkbench`，安装器需要管理员权限；目标机器仍需安装 Microsoft Edge WebView2 Runtime。
-
-直接执行：
+清单必须锁定真实签名扩展 ZIP 的 URL、size、SHA-256、Ed25519 keyId/signature。构建脚本不会查询远端最新版本，也不会提取单个插件 EXE。
 
 ```powershell
-.\installer\build-installer.ps1 -Configuration Release -Version 1.2.1 -PluginBinaryPath '<CI 下载的 log_analyzer.exe>'
+.\installer\build-installer.ps1 -Configuration Release -Version 2.0.0
 ```
 
-输出位于 `installer\dist`：
+只有真实签名 Log Analyzer、锁定清单、宿主正式公钥信任锚和 Windows 10/11 全新安装烟测全部就绪后，才能发布 v2.0.0。
 
-```text
-Hephaestus工作台_v1.2.1.exe
-SHA256SUMS.txt
-```
-
-同一个 Setup 用于首次安装、覆盖升级和修复；卸载入口由 Windows 设置或控制面板管理。应用数据位于程序安装目录之外，升级和卸载默认保留用户数据。
-
-## 验收流程
-
-推荐在首页完成快速分析：
-
-1. 从“最近日志”中点击“分析并查看”，或把单个 `.tgz` / `.tgz.temp` 文件拖入“快速分析日志”区域。
-2. 首页会显示检查、等待和分析状态；分析成功后进入分析中心内嵌的报告查看器。
-3. 已完成的最近日志可以直接“查看报告”，失败或取消的日志可以重新分析。
-4. 首页和分析中心均可快捷打开实际解压目录；若目录已被存储清理，程序会明确提示目录不存在。
-
-首页文件选择和拖放均为原地接管：工作台不会复制日志，插件在原文件旁生成同名解压目录；以后清理或删除案例时会删除原日志及该解压目录。执行删除前，确认框会显示实际绝对路径。
-
-完整日志浏览、异常日志、案例、任务历史和报告统一在“分析中心”管理；报告生成在实际解压目录下的 `report` 子目录中，当前后台任务可从右上角任务面板查看和取消。默认最多同时打开 10 个报告，报告标签不会跨启动恢复。
-
-## 说明
-
-初始 PowerShell 脚本只用于确认现有插件的命令行和报告路径约定；SSH、LVM 和脚本菜单中的交互式清理不属于当前 WPF MVP 功能。
+扩展开发参阅 `docs/plugin-development.md`，发布边界参阅 `docs/distribution.md`。

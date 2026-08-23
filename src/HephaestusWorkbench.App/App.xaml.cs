@@ -79,12 +79,22 @@ internal sealed class WorkbenchHost : IDisposable
         LifecycleRepository = new SqliteAnalysisLifecycleRepository(_factory);
         Configuration = new WorkbenchConfigurationService(Paths);
         ExtensionSettings = new ExtensionSettingsStore(Paths);
-        ExtensionRegistry = new ExtensionRegistry(Paths.ExtensionsDirectory, new ExtensionHealthChecker());
+        var extensionHealthChecker = new ExtensionHealthChecker();
+        ExtensionRegistry = new ExtensionRegistry(Paths.ExtensionsDirectory, extensionHealthChecker);
         ExtensionTrustStore = new ExtensionTrustStore();
         ExtensionPackageVerifier = new ExtensionPackageVerifier(ExtensionTrustStore);
-        ExtensionInstaller = new ExtensionInstaller(Paths.ExtensionsDirectory, ExtensionPackageVerifier, ExtensionRegistry);
-        ExtensionCatalogClient = new ExtensionCatalogClient(Paths, Logger);
         var hostVersion = AppVersionInfo.DisplayVersion.TrimStart('v');
+        var extensionHostCompatibility = new ExtensionHostCompatibility(hostVersion);
+        ExtensionInstaller = new ExtensionInstaller(Paths.ExtensionsDirectory, ExtensionPackageVerifier, ExtensionRegistry);
+        BundledExtensions = new BundledExtensionInitializationService(
+            Path.Combine(AppContext.BaseDirectory, "BundledExtensions"),
+            ExtensionInstaller,
+            ExtensionRegistry,
+            ExtensionPackageVerifier,
+            extensionHealthChecker,
+            extensionHostCompatibility,
+            Logger);
+        ExtensionCatalogClient = new ExtensionCatalogClient(Paths, Logger);
         ExtensionCenter = new ExtensionCenterService(
             ExtensionCatalogClient,
             ExtensionInstaller,
@@ -114,6 +124,7 @@ internal sealed class WorkbenchHost : IDisposable
     public IExtensionTrustStore ExtensionTrustStore { get; }
     public IExtensionPackageVerifier ExtensionPackageVerifier { get; }
     public ExtensionInstaller ExtensionInstaller { get; }
+    public BundledExtensionInitializationService BundledExtensions { get; }
     public ExtensionCatalogClient ExtensionCatalogClient { get; }
     public IExtensionCenterService ExtensionCenter { get; }
     public AnalysisProcessHost AnalysisProcessHost { get; }
@@ -189,6 +200,7 @@ internal sealed class WorkbenchHost : IDisposable
         await Configuration.EnsureWorkspaceAsync();
         AppSettings = await Configuration.EnsureAppSettingsAsync();
         await ExtensionSettings.EnsureAsync();
+        await InitializeBundledExtensionsAsync();
 
         Logger.Info("开始启动日志收件箱监控。");
         await Inbox.StartAsync();
@@ -208,6 +220,30 @@ internal sealed class WorkbenchHost : IDisposable
         await MainViewModel.InitializeAsync();
         Logger.Info("工作台初始化完成。");
     }
+
+    /// <summary>
+    /// 正式安装包必须携带锁定 Bundle；普通源码构建允许缺少该目录，便于在正式签名资产尚未注入时开发宿主。
+    /// 两种构建都不提供 unsigned/developer extension mode：只要目录存在，就必须通过同一正式验签与安装链路。
+    /// </summary>
+    private async Task InitializeBundledExtensionsAsync()
+    {
+        var bundleRoot = Path.Combine(AppContext.BaseDirectory, "BundledExtensions");
+        if (!Directory.Exists(bundleRoot) && !RequireBundledExtensions)
+        {
+            Logger.Info($"当前源码构建未携带 BundledExtensions，跳过离线扩展初始化：{Path.GetFullPath(bundleRoot)}");
+            return;
+        }
+
+        Logger.Info("开始验证并部署安装包内置扩展。");
+        await BundledExtensions.InitializeAsync();
+        Logger.Info("安装包内置扩展初始化完成。");
+    }
+
+#if REQUIRE_BUNDLED_EXTENSIONS
+    private const bool RequireBundledExtensions = true;
+#else
+    private const bool RequireBundledExtensions = false;
+#endif
 
     /// <summary>
     /// Workspace 扩展只能进入宿主固定窗口。窗口持有实际打开版本的租约，关闭前该版本不能被清理。

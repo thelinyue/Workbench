@@ -30,7 +30,7 @@ public sealed class BundledExtensionItem
     public required string PublisherId { get; init; }
 
     [JsonPropertyName("kind")]
-    public ExtensionKind Kind { get; init; }
+    public required ExtensionKind Kind { get; init; }
 
     [JsonPropertyName("asset")]
     public required string Asset { get; init; }

@@ -44,6 +44,27 @@ public sealed class BundledExtensionManifestTests
     }
 
     [Fact]
+    public void Parse_MissingKind_IsRejectedInsteadOfDefaultingToWorkspace()
+    {
+        var json = ValidJson().Replace("\"kind\":\"analysis\",", string.Empty, StringComparison.Ordinal);
+
+        var error = Assert.Throws<InvalidDataException>(() => BundledExtensionManifestParser.Parse(json));
+
+        Assert.Contains("kind", error.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void Parse_PackageAbove64MiB_IsRejectedBySharedResourceLimit()
+    {
+        var oversized = 64L * 1024 * 1024 + 1;
+        var json = ValidJson().Replace("\"size\":1024", $"\"size\":{oversized}", StringComparison.Ordinal);
+
+        var error = Assert.Throws<InvalidDataException>(() => BundledExtensionManifestParser.Parse(json));
+
+        Assert.Contains("size", error.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
     public void Parse_NullRelease_IsReportedAsChineseContractError()
     {
         var item = ValidItem("log-analyzer", "a.zip");

@@ -48,6 +48,7 @@ public sealed class V2ShellContractTests
         Assert.Contains("ExtensionCenterService", app);
         Assert.Contains("ExtensionSettingsStore", app);
         Assert.Contains("ExtensionInstaller", app);
+        Assert.Contains("BundledExtensionInitializationService", app);
         Assert.Contains("ExtensionCatalogClient", app);
         Assert.Contains("new TaskCenter(TasksRepository, Logger)", app);
         Assert.DoesNotContain("EnsurePluginConfigAsync", app);
@@ -59,6 +60,33 @@ public sealed class V2ShellContractTests
         Assert.Contains("ExtensionCenterViewModel", main);
         Assert.DoesNotContain("MarketplacePluginsViewModel", main);
         Assert.DoesNotContain("DefaultPluginId", main);
+    }
+
+    [Fact]
+    public void ProductionComposition_InitializesBundledExtensionsBeforeInboxAndMainViewModel()
+    {
+        var app = File.ReadAllText(Path.Combine(FindAppDirectory(), "App.xaml.cs"));
+        var project = XDocument.Load(Path.Combine(FindAppDirectory(), "HephaestusWorkbench.App.csproj"));
+
+        var extensionSettingsIndex = app.IndexOf("await ExtensionSettings.EnsureAsync()", StringComparison.Ordinal);
+        var bundledIndex = app.IndexOf("await InitializeBundledExtensionsAsync()", StringComparison.Ordinal);
+        var inboxIndex = app.IndexOf("await Inbox.StartAsync()", StringComparison.Ordinal);
+        var mainViewModelIndex = app.IndexOf("MainViewModel = new MainViewModel", StringComparison.Ordinal);
+
+        Assert.True(extensionSettingsIndex >= 0, "启动过程必须先初始化 extensions.json。");
+        Assert.True(bundledIndex > extensionSettingsIndex, "内置扩展必须在 v2 配置完成后初始化。");
+        Assert.True(inboxIndex > bundledIndex, "内置扩展失败必须在日志收件箱启动前阻止启动。");
+        Assert.True(mainViewModelIndex > bundledIndex, "内置扩展失败必须在主界面 ViewModel 创建前阻止启动。");
+        Assert.Contains("Path.Combine(AppContext.BaseDirectory, \"BundledExtensions\")", app, StringComparison.Ordinal);
+        Assert.Contains("REQUIRE_BUNDLED_EXTENSIONS", app, StringComparison.Ordinal);
+
+        var constantGroups = project.Root!.Elements("PropertyGroup")
+            .Where(group => (group.Element("DefineConstants")?.Value ?? string.Empty)
+                .Split(';', StringSplitOptions.RemoveEmptyEntries)
+                .Contains("REQUIRE_BUNDLED_EXTENSIONS", StringComparer.Ordinal))
+            .ToArray();
+        var constantGroup = Assert.Single(constantGroups);
+        Assert.Equal("'$(RequireBundledExtensions)' == 'true'", (string?)constantGroup.Attribute("Condition"));
     }
 
     [Fact]
@@ -116,7 +144,7 @@ public sealed class V2ShellContractTests
         var appDirectory = FindAppDirectory();
         var project = File.ReadAllText(Path.Combine(appDirectory, "HephaestusWorkbench.App.csproj"));
 
-        // BundledExtensions 尚未在本阶段实现；此处只锁定旧 PluginSeed 不得被复制或发布。
+        // v2 安装介质只允许 BundledExtensions；旧 PluginSeed 不得重新进入项目或发布目录。
         Assert.False(Directory.Exists(Path.Combine(appDirectory, "PluginSeed")));
         Assert.DoesNotContain("PluginSeed", project, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("PluginBinaryPath", project, StringComparison.OrdinalIgnoreCase);

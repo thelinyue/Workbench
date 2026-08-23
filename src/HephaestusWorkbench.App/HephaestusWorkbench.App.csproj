@@ -9,6 +9,9 @@
     <RootNamespace>HephaestusWorkbench.App</RootNamespace>
     <ApplicationIcon>Assets\AppIcon\app-icon.ico</ApplicationIcon>
   </PropertyGroup>
+  <PropertyGroup Condition="'$(RequireBundledExtensions)' == 'true'">
+    <DefineConstants>$(DefineConstants);REQUIRE_BUNDLED_EXTENSIONS</DefineConstants>
+  </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="..\HephaestusWorkbench.Core\HephaestusWorkbench.Core.csproj" />
     <ProjectReference Include="..\HephaestusWorkbench.Data\HephaestusWorkbench.Data.csproj" />

@@ -11,11 +11,6 @@ on:
         required: true
         default: "2.0.0"
         type: string
-      publish:
-        description: "同时发布到公开 Releases 仓库"
-        required: true
-        default: false
-        type: boolean
 
 permissions:
   contents: read
@@ -25,7 +20,6 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  PLUGIN_REPO: thelinyue/Hephaestus-Workbench-Releases
   INNO_URL: https://github.com/jrsoftware/issrc/releases/download/is-6_7_3/innosetup-6.7.3.exe
   INNO_SHA256: 9c73c3bae7ed48d44112a0f48e66742c00090bdb5bef71d9d3c056c66e97b732
   INNO_SIZE: "10592232"
@@ -36,26 +30,37 @@ jobs:
     name: 构建与校验
     runs-on: windows-latest
     timeout-minutes: 45
+    permissions:
+      contents: read
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      tag: ${{ steps.version.outputs.tag }}
+      setup_name: ${{ steps.assets.outputs.setup_name }}
+      setup_hash: ${{ steps.assets.outputs.setup_hash }}
 
     steps:
       - name: 检出私有源码
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           persist-credentials: false
 
       - name: 校验版本号
         id: version
         shell: pwsh
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          REF_NAME: ${{ github.ref_name }}
+          INPUT_VERSION: ${{ inputs.version }}
         run: |
-          if ("${{ github.event_name }}" -eq "push") {
-            $tag = "${{ github.ref_name }}"
+          if ($env:EVENT_NAME -eq "push") {
+            $tag = $env:REF_NAME
             if ($tag -notmatch '^v(?<version>\d+\.\d+\.\d+)$') {
               throw "发布标签格式无效：$tag；必须为 vX.Y.Z。"
             }
             $version = $Matches.version
           }
           else {
-            $version = "${{ inputs.version }}".Trim()
+            $version = $env:INPUT_VERSION.Trim()
             if ($version -notmatch '^\d+\.\d+\.\d+$') {
               throw "手工构建版本号无效：$version；必须为 X.Y.Z。"
             }
@@ -73,7 +78,7 @@ jobs:
           Write-Host "已确认发行版本：$tag"
 
       - name: 配置 .NET 8
-        uses: actions/setup-dotnet@v4
+        uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9
         with:
           dotnet-version: 8.0.x
           cache: true
@@ -87,80 +92,9 @@ jobs:
           dotnet build HephaestusWorkbench.sln -c Release --no-restore
           if ($LASTEXITCODE -ne 0) { throw "无插件二进制源码构建失败，退出码：$LASTEXITCODE" }
 
-      - name: 下载并校验官方插件
-        id: plugin
+      - name: 运行正式版自动化测试
         shell: pwsh
         run: |
-          $headers = @{
-            Accept = "application/vnd.github+json"
-            "User-Agent" = "Hephaestus-Workbench-CI"
-          }
-          $apiUrl = "https://api.github.com/repos/$env:PLUGIN_REPO/releases?per_page=100"
-          $releases = Invoke-RestMethod -Headers $headers -Uri $apiUrl -TimeoutSec 120
-          $candidates = @(
-            foreach ($release in $releases) {
-              if ($release.draft -or $release.prerelease) { continue }
-              if ($release.tag_name -match '^plugin-log-analyzer-v(?<version>\d+(?:\.\d+)+)$') {
-                [pscustomobject]@{ Release = $release; Version = [version]$Matches.version }
-              }
-            }
-          )
-          $selected = $candidates | Sort-Object Version -Descending | Select-Object -First 1
-          if ($null -eq $selected) {
-            throw "远程 Releases 仓库没有找到正式的日志分析插件版本。"
-          }
-
-          $release = $selected.Release
-          $version = $selected.Version.ToString()
-          $assetNames = @(
-            "log-analyzer-$version-win-x64.zip",
-            "plugin-log-analyzer-v$version-win-x64.zip"
-          )
-          $asset = @($release.assets | Where-Object name -in $assetNames | Select-Object -First 1)
-          if ($asset.Count -ne 1) {
-            throw "Release $($release.tag_name) 缺少日志分析插件 ZIP，支持的资产名：$($assetNames -join '、')。"
-          }
-          $assetName = $asset.name
-
-          $directory = Join-Path $env:RUNNER_TEMP "official-plugin"
-          $archive = Join-Path $directory "log-analyzer.zip"
-          $expanded = Join-Path $directory "expanded"
-          New-Item -ItemType Directory -Force -Path $directory, $expanded | Out-Null
-          Invoke-WebRequest -Uri $asset.browser_download_url -OutFile $archive -TimeoutSec 120
-
-          $file = Get-Item -LiteralPath $archive
-          $hash = (Get-FileHash -Algorithm SHA256 -LiteralPath $archive).Hash.ToLowerInvariant()
-          if ($file.Length -le 0) { throw "官方插件包为空：$assetName。" }
-
-          Expand-Archive -LiteralPath $archive -DestinationPath $expanded
-          $manifestPath = Join-Path $expanded "manifest.json"
-          $binaryPath = Join-Path $expanded "log_analyzer.exe"
-          if (-not (Test-Path -LiteralPath $manifestPath -PathType Leaf) -or
-              -not (Test-Path -LiteralPath $binaryPath -PathType Leaf)) {
-            throw "官方插件包缺少 manifest.json 或 log_analyzer.exe。"
-          }
-
-          $manifest = Get-Content -Raw -Encoding UTF8 $manifestPath | ConvertFrom-Json
-          if ($manifest.id -ne "log-analyzer" -or $manifest.version -ne $version -or
-              $manifest.type -ne "Exe" -or $manifest.entry -ne "log_analyzer.exe") {
-            throw "官方插件清单与 Release 版本不一致：$($release.tag_name)。"
-          }
-
-          $seedManifest = Join-Path $env:GITHUB_WORKSPACE "src\HephaestusWorkbench.App\PluginSeed\manifest.json"
-          Copy-Item -LiteralPath $manifestPath -Destination $seedManifest -Force
-          "binary=$binaryPath" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
-          "version=$version" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
-          "sha256=$hash" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
-          Write-Host "官方插件校验通过：版本 $version，SHA-256 $hash"
-
-      - name: 使用授权插件运行完整测试
-        shell: pwsh
-        run: |
-          dotnet build HephaestusWorkbench.sln `
-            -c Release `
-            --no-restore `
-            -p:PluginBinaryPath="${{ steps.plugin.outputs.binary }}"
-          if ($LASTEXITCODE -ne 0) { throw "带授权插件的测试构建失败，退出码：$LASTEXITCODE" }
           dotnet test HephaestusWorkbench.sln -c Release --no-build --no-restore
           if ($LASTEXITCODE -ne 0) { throw "自动化测试失败，退出码：$LASTEXITCODE" }
 
@@ -206,7 +140,6 @@ jobs:
           & .\installer\build-installer.ps1 `
             -Configuration Release `
             -Version "${{ steps.version.outputs.version }}" `
-            -PluginBinaryPath "${{ steps.plugin.outputs.binary }}" `
             -InnoCompilerPath "${{ steps.inno.outputs.compiler }}"
           if ($LASTEXITCODE -ne 0) { throw "正式安装包构建失败，退出码：$LASTEXITCODE" }
 
@@ -251,51 +184,131 @@ jobs:
           "setup_hash=$hash" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
           Write-Host "公开资产复核通过：$setupName，SHA-256 $hash"
 
-      - name: 上传构建 Artifact
-        uses: actions/upload-artifact@v4
+      - name: 准备候选发布说明与烟测证据
+        shell: pwsh
+        run: |
+          $tag = "${{ steps.version.outputs.tag }}"
+          $notes = Join-Path $PWD "distribution\releases\$tag.md"
+          if (-not (Test-Path -LiteralPath $notes -PathType Leaf)) {
+            throw "缺少公开发行说明：$notes"
+          }
+          New-Item -ItemType Directory -Force -Path "release-evidence" | Out-Null
+          Copy-Item -LiteralPath $notes -Destination "release-evidence\release-notes.md"
+          @"
+          正式发布前必须在受保护的 workbench-production Environment 中人工确认：
+          1. Windows 10 x64 全新安装、启动、Bundle 健康、浏览器报告和卸载烟测通过。
+          2. Windows 11 x64 全新安装、启动、Bundle 健康、浏览器报告和卸载烟测通过。
+          3. 安装包及 SHA256SUMS.txt 与本候选 Artifact 一致。
+          "@ | Set-Content -LiteralPath "release-evidence\SMOKE-APPROVAL.txt" -Encoding utf8
+
+      - name: 上传候选安装包 Artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: Hephaestus工作台-v${{ steps.version.outputs.version }}
           path: release-assets/*
           if-no-files-found: error
           retention-days: 14
 
-      - name: 发布到公开 Releases 仓库
-        if: github.event_name == 'push' || inputs.publish == true
+      - name: 上传候选烟测证据模板
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: Hephaestus工作台-v${{ steps.version.outputs.version }}-release-evidence
+          path: release-evidence/*
+          if-no-files-found: error
+          retention-days: 14
+
+  publish:
+    name: 受保护的正式发布
+    needs: build
+    if: github.event_name == 'push'
+    runs-on: windows-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    environment:
+      name: workbench-production
+
+    steps:
+      - name: 下载已验证候选安装包
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: Hephaestus工作台-v${{ needs.build.outputs.version }}
+          path: release-assets
+
+      - name: 下载发行说明与烟测证据模板
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: Hephaestus工作台-v${{ needs.build.outputs.version }}-release-evidence
+          path: release-evidence
+
+      - name: 复核候选 Artifact
+        shell: pwsh
+        run: |
+          $setupName = "${{ needs.build.outputs.setup_name }}"
+          $setup = Join-Path "release-assets" $setupName
+          $checksums = Join-Path "release-assets" "SHA256SUMS.txt"
+          $notes = Join-Path "release-evidence" "release-notes.md"
+          $smoke = Join-Path "release-evidence" "SMOKE-APPROVAL.txt"
+          foreach ($path in @($setup, $checksums, $notes, $smoke)) {
+            if (-not (Test-Path -LiteralPath $path -PathType Leaf)) {
+              throw "受保护发布缺少候选证据文件：$path"
+            }
+          }
+          $hash = (Get-FileHash -Algorithm SHA256 -LiteralPath $setup).Hash.ToLowerInvariant()
+          $checksumLine = (Get-Content -Raw -Encoding UTF8 $checksums).Trim()
+          if ($hash -ne "${{ needs.build.outputs.setup_hash }}" -or $checksumLine -ne "$hash  $setupName") {
+            throw "受保护发布下载的候选 Artifact 与构建结果不一致。"
+          }
+
+      - name: 确认目标 Release 不存在
         shell: pwsh
         env:
           GH_TOKEN: ${{ secrets.RELEASES_TOKEN }}
+          RELEASE_TAG: ${{ needs.build.outputs.tag }}
         run: |
           if ([string]::IsNullOrWhiteSpace($env:GH_TOKEN)) {
             throw "未配置 RELEASES_TOKEN。请使用仅授予公开 Releases 仓库 Contents 写权限的细粒度令牌。"
           }
-
-          $tag = "${{ steps.version.outputs.tag }}"
-          $version = "${{ steps.version.outputs.version }}"
-          $notes = Join-Path $PWD "distribution\releases\$tag.md"
-          if (-not (Test-Path -LiteralPath $notes -PathType Leaf)) {
-            throw "缺少公开发行说明：$notes"
+          $headers = @{
+            Authorization = "Bearer $env:GH_TOKEN"
+            Accept = "application/vnd.github+json"
+            "X-GitHub-Api-Version" = "2022-11-28"
+          }
+          $repositoryUri = "https://api.github.com/repos/$env:RELEASES_REPO"
+          $repositoryResponse = Invoke-WebRequest -Uri $repositoryUri -Headers $headers -SkipHttpErrorCheck
+          if ($repositoryResponse.StatusCode -ne 200) {
+            throw "RELEASES_TOKEN 无法访问公开发布仓库，状态码：$($repositoryResponse.StatusCode)。"
+          }
+          $encodedTag = [Uri]::EscapeDataString($env:RELEASE_TAG)
+          $releaseResponse = Invoke-WebRequest -Uri "$repositoryUri/releases/tags/$encodedTag" -Headers $headers -SkipHttpErrorCheck
+          if ($releaseResponse.StatusCode -eq 200) {
+            throw "目标 Release 已存在，拒绝覆盖历史资产：$env:RELEASE_TAG"
+          }
+          if ($releaseResponse.StatusCode -ne 404) {
+            throw "无法确认目标 Release 是否存在，状态码：$($releaseResponse.StatusCode)。"
           }
 
-          gh release view $tag --repo $env:RELEASES_REPO *> $null
-          if ($LASTEXITCODE -eq 0) {
-            throw "目标 Release 已存在，拒绝覆盖历史资产：$tag"
-          }
-
+      - name: 发布到公开 Releases 仓库
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.RELEASES_TOKEN }}
+        run: |
+          $tag = "${{ needs.build.outputs.tag }}"
+          $setupName = "${{ needs.build.outputs.setup_name }}"
           gh release create $tag `
-            "release-assets\${{ steps.assets.outputs.setup_name }}" `
+            "release-assets\$setupName" `
             "release-assets\SHA256SUMS.txt" `
             --repo $env:RELEASES_REPO `
             --title "Hephaestus Workbench $tag" `
-            --notes-file $notes `
+            --notes-file "release-evidence\release-notes.md" `
             --latest
           if ($LASTEXITCODE -ne 0) { throw "公开 Release 创建失败，退出码：$LASTEXITCODE" }
 
       - name: 匿名验证公开下载
-        if: github.event_name == 'push' || inputs.publish == true
         shell: pwsh
         run: |
-          $tag = "${{ steps.version.outputs.tag }}"
-          $setupName = "${{ steps.assets.outputs.setup_name }}"
+          $tag = "${{ needs.build.outputs.tag }}"
+          $setupName = "${{ needs.build.outputs.setup_name }}"
           $directory = Join-Path $env:RUNNER_TEMP "anonymous-release-check"
           New-Item -ItemType Directory -Force -Path $directory | Out-Null
           $setup = Join-Path $directory $setupName
@@ -310,7 +323,7 @@ jobs:
 
           $setupHash = (Get-FileHash -Algorithm SHA256 -LiteralPath $setup).Hash.ToLowerInvariant()
           $checksumLine = (Get-Content -Raw -Encoding UTF8 $checksums).Trim()
-          if ($setupHash -ne "${{ steps.assets.outputs.setup_hash }}" -or
+          if ($setupHash -ne "${{ needs.build.outputs.setup_hash }}" -or
               $checksumLine -ne "$setupHash  $setupName") {
             throw "匿名下载的安装包或校验文件与构建产物不一致。"
           }
