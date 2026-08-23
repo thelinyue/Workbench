@@ -25,7 +25,7 @@ public sealed class AnalysisProcessHost
 {
     private const int MaximumCapturedCharacters = 1024 * 1024;
     private readonly WorkbenchLogger _logger;
-    private readonly ConcurrentDictionary<string, SemaphoreSlim> _reportGates =
+    private static readonly ConcurrentDictionary<string, SemaphoreSlim> ReportGates =
         new(StringComparer.OrdinalIgnoreCase);
 
     public AnalysisProcessHost(WorkbenchLogger logger)
@@ -53,15 +53,15 @@ public sealed class AnalysisProcessHost
             reportDirectory = ResolveReportDirectory(normalizedRequest);
             ValidateReportPath(extractDirectory, reportDirectory);
 
-            reportGate = _reportGates.GetOrAdd(reportDirectory, _ => new SemaphoreSlim(1, 1));
+            reportGate = ReportGates.GetOrAdd(reportDirectory, _ => new SemaphoreSlim(1, 1));
             await reportGate.WaitAsync(cancellationToken);
             reportGateHeld = true;
 
             // 等待期间目录可能被其他任务或外部程序改变，开始事务前必须再次验证。
             ValidateReportPath(extractDirectory, reportDirectory);
             previousReportDirectory = BackupPreviousReportDirectory(reportDirectory, extractDirectory);
-            Directory.CreateDirectory(reportDirectory);
             reportTransactionStarted = true;
+            Directory.CreateDirectory(reportDirectory);
 
             process = CreateProcess(manifest.EntryPath!, manifest.DirectoryPath);
             if (!process.Start())
@@ -259,6 +259,11 @@ public sealed class AnalysisProcessHost
 
     private static void DeleteDirectoryWithoutFollowingLinks(string path)
     {
+        if (File.Exists(path))
+        {
+            File.Delete(path);
+            return;
+        }
         if (!Directory.Exists(path)) return;
         if (File.GetAttributes(path).HasFlag(FileAttributes.ReparsePoint))
         {

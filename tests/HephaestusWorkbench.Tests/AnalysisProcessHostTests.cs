@@ -83,7 +83,8 @@ public sealed class AnalysisProcessHostTests
         await WaitForFileAsync(Path.Combine(environment.ExtractDirectory, "fixture.started"));
         var successRequest = await environment.CreateRequestAsync("success", "request-success");
 
-        var successTask = environment.Host.RunAsync(environment.Manifest, successRequest);
+        var anotherHost = environment.CreateHost();
+        var successTask = anotherHost.RunAsync(environment.Manifest, successRequest);
         var failed = await failedTask;
         var succeeded = await successTask;
 
@@ -115,6 +116,21 @@ public sealed class AnalysisProcessHostTests
         {
             if (Directory.Exists(reportDirectory)) Directory.Delete(reportDirectory);
         }
+    }
+
+    [Fact]
+    public async Task RunAsync_WhenExtensionReplacesReportRootWithFile_RestoresPreviousReport()
+    {
+        using var environment = await TestEnvironment.CreateAsync("report-root-file-failure");
+        var reportDirectory = Path.Combine(environment.ExtractDirectory, "Report");
+        Directory.CreateDirectory(reportDirectory);
+        await File.WriteAllTextAsync(Path.Combine(reportDirectory, "index.html"), "previous");
+
+        var result = await environment.Host.RunAsync(environment.Manifest, environment.Request);
+
+        Assert.False(result.Succeeded);
+        Assert.True(Directory.Exists(reportDirectory));
+        Assert.Equal("previous", await File.ReadAllTextAsync(Path.Combine(reportDirectory, "index.html")));
     }
 
     [Fact]
@@ -242,6 +258,9 @@ public sealed class AnalysisProcessHostTests
         public AnalysisProcessHost Host { get; }
         public ExtensionManifest Manifest { get; }
         public AnalysisProcessRequest Request { get; }
+
+        public AnalysisProcessHost CreateHost()
+            => new(new WorkbenchLogger(Path.Combine(Root, "AdditionalHostLogs")));
 
         public async Task<AnalysisProcessRequest> CreateRequestAsync(string mode, string requestId)
         {

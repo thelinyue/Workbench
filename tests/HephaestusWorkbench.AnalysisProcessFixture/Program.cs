@@ -65,6 +65,13 @@ if (mode != "missing-report")
         await File.WriteAllTextAsync(Path.Combine(reportDirectory, "asset.txt"), "new asset");
 }
 
+if (mode == "report-root-file-failure")
+{
+    var reportRoot = Path.Combine(request.ExtractDirectory, "Report");
+    if (Directory.Exists(reportRoot)) Directory.Delete(reportRoot, recursive: true);
+    await File.WriteAllTextAsync(reportRoot, "blocking file");
+}
+
 if (mode == "report-path")
 {
     await Console.Out.WriteAsync($$"""{"protocol":"analysis-process-v1","requestId":"{{request.RequestId}}","succeeded":true,"reportPath":"outside.html"}""");
@@ -79,7 +86,7 @@ var response = mode switch
         RequestId = "another-request",
         Succeeded = true
     },
-    "failure" or "delayed-failure" or "overwrite-then-fail" => new AnalysisProcessResponse
+    "failure" or "delayed-failure" or "overwrite-then-fail" or "report-root-file-failure" => new AnalysisProcessResponse
     {
         Protocol = AnalysisProcessProtocol.Version,
         RequestId = request.RequestId,
