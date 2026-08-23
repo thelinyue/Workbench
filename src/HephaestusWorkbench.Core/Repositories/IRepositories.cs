@@ -48,6 +48,8 @@ public interface IAnalysisLifecycleRepository
     Task CreateAsync(AnalysisCase analysisCase, AnalysisTask task, CancellationToken cancellationToken = default);
     Task MarkRunningAsync(AnalysisCase analysisCase, AnalysisTask task, CancellationToken cancellationToken = default);
     Task CompleteAsync(AnalysisCase analysisCase, AnalysisTask task, Report? report, CancellationToken cancellationToken = default);
+    /// <summary>在一个事务中完成案例、任务并写入本次分析生成的全部报告。</summary>
+    Task CompleteAsync(AnalysisCase analysisCase, AnalysisTask task, IReadOnlyList<Report> reports, CancellationToken cancellationToken = default);
     /// <summary>在一个事务中删除案例及其关联的报告会话、报告和分析任务记录。</summary>
     Task DeleteByCaseIdsAsync(IReadOnlyCollection<string> caseIds, CancellationToken cancellationToken = default);
     Task<int> RecoverInterruptedAsync(DateTime recoveredAt, CancellationToken cancellationToken = default);

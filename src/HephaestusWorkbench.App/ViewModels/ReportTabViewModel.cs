@@ -20,7 +20,7 @@ public sealed class ReportTabViewModel : ViewModelBase
     public event EventHandler? DisposeRequested;
     public ReportSummary Report { get; }
     public string SessionId { get; }
-    public string Title => Report.CaseName;
+    public string Title => $"{Report.CaseName} · {Report.Title}";
     public string ReportFile => Report.ReportFile;
     public DateTime LastOpenTime { get; set; }
     public bool IsAvailable => Report.IsAvailable;

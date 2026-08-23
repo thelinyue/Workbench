@@ -235,15 +235,18 @@ public sealed class AnalysisCenterViewModel : ViewModelBase, IDisposable
         var tasksByCase = tasks.GroupBy(x => x.CaseId, StringComparer.OrdinalIgnoreCase)
             .ToDictionary(x => x.Key, x => x.OrderByDescending(t => t.StartTime ?? DateTime.MinValue).First(), StringComparer.OrdinalIgnoreCase);
         var reportsByCase = reports.GroupBy(x => x.CaseId, StringComparer.OrdinalIgnoreCase)
-            .ToDictionary(x => x.Key, x => x.OrderByDescending(r => r.CreateTime).First(), StringComparer.OrdinalIgnoreCase);
+            .ToDictionary(
+                x => x.Key,
+                x => (IReadOnlyList<ReportSummary>)x.OrderByDescending(r => r.CreateTime).ThenByDescending(r => r.IsDefault).ToArray(),
+                StringComparer.OrdinalIgnoreCase);
 
         foreach (var analysisCase in cases)
         {
             var key = NormalizePath(analysisCase.SourcePath);
             if (!builders.TryGetValue(key, out var builder)) builders[key] = builder = new AnalysisLogGroupBuilder(key);
             tasksByCase.TryGetValue(analysisCase.Id, out var task);
-            reportsByCase.TryGetValue(analysisCase.Id, out var report);
-            builder.Attempts.Add(new AnalysisAttemptViewModel(analysisCase, task, report));
+            reportsByCase.TryGetValue(analysisCase.Id, out var caseReports);
+            builder.Attempts.Add(new AnalysisAttemptViewModel(analysisCase, task, caseReports ?? Array.Empty<ReportSummary>()));
         }
 
         return builders.Values
@@ -457,7 +460,7 @@ public sealed class AnalysisCenterViewModel : ViewModelBase, IDisposable
         var targets = Items.Where(x => x.IsInvalidDeleteEligible).ToArray();
         if (targets.Length == 0) return;
         var caseCount = targets.Sum(x => x.Attempts.Count);
-        var reportCount = targets.Sum(x => x.Attempts.Count(a => a.Report is not null));
+        var reportCount = targets.Sum(x => x.Attempts.Sum(a => a.Reports.Count));
         var message = $"确认删除当前筛选结果中的 {targets.Length} 个无效日志吗？\n\n"
             + $"关联案例：{caseCount} 个\n关联报告：{reportCount} 个\n\n"
             + "报告文件、原始日志、解压目录及全部数据库记录（案例、任务、报告、报告会话）都将被删除，此操作不可恢复。";
@@ -643,15 +646,18 @@ public sealed class AnalysisCenterViewModel : ViewModelBase, IDisposable
 /// <summary>单次案例、任务和报告的只读组合，供日志聚合和报告生命周期处理使用。</summary>
 public sealed class AnalysisAttemptViewModel : ViewModelBase
 {
-    public AnalysisAttemptViewModel(AnalysisCase analysisCase, AnalysisTask? task, ReportSummary? report)
+    public AnalysisAttemptViewModel(AnalysisCase analysisCase, AnalysisTask? task, IReadOnlyList<ReportSummary> reports)
     {
         Case = analysisCase;
         Task = task;
-        Report = report;
+        Reports = reports;
+        Report = reports.FirstOrDefault(x => x.IsDefault) ?? reports.FirstOrDefault();
     }
 
     public AnalysisCase Case { get; }
     public AnalysisTask? Task { get; }
+    /// <summary>保留该次分析生成的全部报告，Report 仅作为默认打开入口。</summary>
+    public IReadOnlyList<ReportSummary> Reports { get; }
     public ReportSummary? Report { get; }
     public string PluginId => Report?.PluginId ?? Task?.PluginId ?? string.Empty;
     public string PluginName => Report?.PluginName ?? Task?.PluginId ?? "未知插件";
@@ -681,7 +687,7 @@ public sealed class AnalysisLogGroupViewModel : ViewModelBase
         HasActiveTask = Attempts.Any(x => x.IsActive);
         LastActivityTime = Attempts.Select(x => x.ActivityTime).Append(LogTime).Max();
         ActivityTimes = Attempts.Select(x => x.ActivityTime).Append(LogTime).ToArray();
-        SearchText = string.Join('\n', new[] { FileName, DeviceId, SourcePath }.Concat(Attempts.SelectMany(x => new[] { x.Case.DisplayName, x.PluginName })));
+        SearchText = string.Join('\n', new[] { FileName, DeviceId, SourcePath }.Concat(Attempts.SelectMany(x => new[] { x.Case.DisplayName, x.PluginName }.Concat(x.Reports.Select(r => r.Title)))));
 
         if (inboxItem is { IsValidArchive: false })
         {

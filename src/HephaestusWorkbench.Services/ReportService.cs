@@ -20,8 +20,10 @@ public sealed class ReportService
 
     public async Task<ReportSummary?> GetLatestForCaseAsync(string caseId, CancellationToken cancellationToken = default)
     {
-        var reports = await _reports.ListAsync(new ReportQuery(), cancellationToken);
-        return reports.FirstOrDefault(x => x.CaseId == caseId);
+        var report = await _reports.GetByCaseIdAsync(caseId, cancellationToken);
+        if (report is null) return null;
+        var summaries = await _reports.ListAsync(new ReportQuery(), cancellationToken);
+        return summaries.FirstOrDefault(x => x.Id == report.Id);
     }
 
     public Task<AnalysisCase?> GetCaseAsync(string caseId, CancellationToken cancellationToken = default)

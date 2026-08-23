@@ -160,8 +160,19 @@ public sealed class AnalysisCenterViewModelTests
         await environment.Cases.InsertAsync(reportCase);
         var reportPath = environment.Paths.GetReportDirectory(reportCase.ExtractPath);
         Directory.CreateDirectory(reportPath);
-        await File.WriteAllTextAsync(Path.Combine(reportPath, "report.html"), "<html>ok</html>");
-        await environment.Reports.InsertAsync(new Report { Id = "report-row", CaseId = reportCase.Id, Path = reportPath, PluginId = "test-plugin", CreateTime = DateTime.Now });
+        await File.WriteAllTextAsync(Path.Combine(reportPath, "storage.html"), "<html>storage</html>");
+        await File.WriteAllTextAsync(Path.Combine(reportPath, "log.html"), "<html>log</html>");
+        var reportTime = DateTime.Now;
+        await environment.Reports.InsertAsync(new Report
+        {
+            Id = "report-storage", CaseId = reportCase.Id, Path = reportPath, ReportKey = "storage", Title = "存储健康诊断报告",
+            Kind = "storage-health", EntryFile = "storage.html", IsDefault = true, PluginId = "test-plugin", CreateTime = reportTime
+        });
+        await environment.Reports.InsertAsync(new Report
+        {
+            Id = "report-log", CaseId = reportCase.Id, Path = reportPath, ReportKey = "log", Title = "综合日志分析报告",
+            Kind = "log-analysis", EntryFile = "log.html", IsDefault = false, PluginId = "test-plugin", CreateTime = reportTime
+        });
 
         using var center = environment.CreateAnalysisCenter();
         await center.InitializeAsync();
@@ -171,7 +182,8 @@ public sealed class AnalysisCenterViewModelTests
         center.OpenRowReportCommand.Execute(row);
         await WaitUntilAsync(() => Task.FromResult(center.Reports.OpenTabs.Count == 1));
 
-        Assert.Equal("report-row", Assert.Single(center.Reports.OpenTabs).Report.Id);
+        Assert.Equal(2, Assert.Single(row.Attempts).Reports.Count);
+        Assert.Equal("report-storage", Assert.Single(center.Reports.OpenTabs).Report.Id);
     }
 
     [Fact]

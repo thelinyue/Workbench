@@ -51,6 +51,11 @@ public sealed class DatabaseInitializer
                 id TEXT PRIMARY KEY,
                 case_id TEXT NOT NULL,
                 path TEXT NOT NULL,
+                report_key TEXT NOT NULL DEFAULT 'legacy',
+                title TEXT NOT NULL DEFAULT '综合日志分析报告',
+                kind TEXT NOT NULL DEFAULT 'log-analysis',
+                entry_file TEXT NOT NULL DEFAULT 'report.html',
+                is_default INTEGER NOT NULL DEFAULT 1,
                 plugin_id TEXT NULL,
                 plugin_name TEXT NULL,
                 plugin_version TEXT NULL,
@@ -79,6 +84,22 @@ public sealed class DatabaseInitializer
 
         // 旧版数据库的 reports 表没有 plugin_id。SQLite 不支持 ADD COLUMN IF NOT EXISTS，
         // 因此先检查表结构，再以幂等方式迁移并用最近一次任务的插件信息回填。
+        // 多报告协议新增列均提供旧 report.html 的兼容默认值，升级后历史报告无需重建即可继续打开。
+        foreach (var migration in new[]
+        {
+            (Column: "report_key", Sql: "ALTER TABLE reports ADD COLUMN report_key TEXT NOT NULL DEFAULT 'legacy';"),
+            (Column: "title", Sql: "ALTER TABLE reports ADD COLUMN title TEXT NOT NULL DEFAULT '综合日志分析报告';"),
+            (Column: "kind", Sql: "ALTER TABLE reports ADD COLUMN kind TEXT NOT NULL DEFAULT 'log-analysis';"),
+            (Column: "entry_file", Sql: "ALTER TABLE reports ADD COLUMN entry_file TEXT NOT NULL DEFAULT 'report.html';"),
+            (Column: "is_default", Sql: "ALTER TABLE reports ADD COLUMN is_default INTEGER NOT NULL DEFAULT 1;")
+        })
+        {
+            if (await ColumnExistsAsync(connection, "reports", migration.Column, cancellationToken)) continue;
+            await using var alter = connection.CreateCommand();
+            alter.CommandText = migration.Sql;
+            await alter.ExecuteNonQueryAsync(cancellationToken);
+        }
+
         if (!await ColumnExistsAsync(connection, "reports", "plugin_id", cancellationToken))
         {
             await using var alter = connection.CreateCommand();

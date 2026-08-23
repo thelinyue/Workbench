@@ -119,6 +119,11 @@ public sealed class SqliteRepositoryTests
             await new DatabaseInitializer(factory).InitializeAsync();
             var report = await new SqliteReportRepository(factory).GetAsync("report-1");
             Assert.Equal("legacy-plugin", report?.PluginId);
+            Assert.Equal("legacy", report?.ReportKey);
+            Assert.Equal("综合日志分析报告", report?.Title);
+            Assert.Equal("log-analysis", report?.Kind);
+            Assert.Equal("report.html", report?.EntryFile);
+            Assert.True(report?.IsDefault);
         }
         finally
         {

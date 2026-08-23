@@ -42,11 +42,27 @@ public sealed record PluginExecutionContext(
     string WorkingDirectory,
     string? RulesPath = null);
 
+/// <summary>
+/// 插件生成的单个报告产物。File 始终是相对于本次输出目录的 HTML 入口，
+/// 工作台通过稳定的 Id 区分同一分析批次中的多份报告，而不是依赖文件名猜测用途。
+/// </summary>
+public sealed record PluginReportArtifact(
+    string Id,
+    string Title,
+    string Kind,
+    string File,
+    bool IsDefault);
+
+/// <summary>
+/// 插件执行结果。ReportPath 保留为报告输出目录以兼容旧插件；
+/// Reports 仅在插件提供 reports.json 时赋值，用于承载同一分析批次的多个正式报告。
+/// </summary>
 public sealed record PluginExecutionResult(
     int ExitCode,
     string? ReportPath,
     string? ErrorMessage,
-    bool Cancelled = false);
+    bool Cancelled = false,
+    IReadOnlyList<PluginReportArtifact>? Reports = null);
 
 /// <summary>供未来 DLL 插件实现的统一入口。</summary>
 public interface IAnalysisPlugin

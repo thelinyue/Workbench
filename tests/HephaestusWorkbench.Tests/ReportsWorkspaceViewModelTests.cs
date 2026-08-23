@@ -50,6 +50,13 @@ public sealed class ReportsWorkspaceViewModelTests
             var selected = workspace.SelectedTab!;
             workspace.CloseTab(selected);
             Assert.Equal("report-9", workspace.SelectedTab?.Report.Id);
+
+            var relatedFirst = Summary(20, "shared-case");
+            var relatedSecond = Summary(21, "shared-case");
+            await workspace.OpenReportAsync(relatedFirst);
+            await workspace.OpenReportAsync(relatedSecond);
+            workspace.CloseCaseTabs(new[] { "shared-case" });
+            Assert.DoesNotContain(workspace.OpenTabs, tab => tab.Report.CaseId == "shared-case");
         }
         finally
         {
@@ -57,9 +64,9 @@ public sealed class ReportsWorkspaceViewModelTests
         }
     }
 
-    private static ReportSummary Summary(int index) => new()
+    private static ReportSummary Summary(int index, string? caseId = null) => new()
     {
-        Id = $"report-{index}", CaseId = $"case-{index}", CaseName = $"案例 {index}", DeviceId = $"device-{index}",
+        Id = $"report-{index}", CaseId = caseId ?? $"case-{index}", CaseName = $"案例 {index}", DeviceId = $"device-{index}",
         Path = Path.GetTempPath(), ExtractPath = Path.Combine(Path.GetTempPath(), $"extract-{index}"), PluginId = "plugin", PluginName = "插件", CreateTime = DateTime.Now.AddMinutes(index), IsAvailable = true
     };
 }

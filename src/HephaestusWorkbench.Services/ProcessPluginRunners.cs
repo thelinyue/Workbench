@@ -3,6 +3,12 @@ using HephaestusWorkbench.PluginSDK;
 
 namespace HephaestusWorkbench.Services;
 
+internal delegate Task<(int ExitCode, string StandardError)> PluginProcessExecutor(
+    string executable,
+    string workingDirectory,
+    IEnumerable<string> arguments,
+    CancellationToken cancellationToken);
+
 internal static class ProcessPluginRunnerUtilities
 {
     public static async Task<(int ExitCode, string StandardError)> ExecuteAsync(
@@ -50,25 +56,37 @@ internal static class ProcessPluginRunnerUtilities
 public sealed class StandardExePluginRunner : IPluginRunner
 {
     private readonly WorkbenchLogger _logger;
+    private readonly PluginProcessExecutor _execute;
 
-    public StandardExePluginRunner(WorkbenchLogger logger) => _logger = logger;
+    public StandardExePluginRunner(WorkbenchLogger logger)
+        : this(logger, ProcessPluginRunnerUtilities.ExecuteAsync) { }
+
+    internal StandardExePluginRunner(WorkbenchLogger logger, PluginProcessExecutor execute)
+    {
+        _logger = logger;
+        _execute = execute;
+    }
 
     public async Task<PluginExecutionResult> RunAsync(PluginManifest manifest, PluginExecutionContext context, CancellationToken cancellationToken = default)
     {
         try
         {
             Directory.CreateDirectory(context.OutputPath);
-            var result = await ProcessPluginRunnerUtilities.ExecuteAsync(
+            var result = await _execute(
                 manifest.EntryPath,
                 manifest.DirectoryPath,
                 new[] { "--case", context.CaseId, "--input", context.SourcePath, "--output", context.OutputPath },
                 cancellationToken);
             if (result.ExitCode != 0)
                 return new PluginExecutionResult(result.ExitCode, null, string.IsNullOrWhiteSpace(result.StandardError) ? "标准分析插件返回失败退出码。" : result.StandardError.Trim());
-            var report = Path.Combine(context.OutputPath, "report.html");
-            return File.Exists(report)
-                ? new PluginExecutionResult(0, context.OutputPath, null)
-                : new PluginExecutionResult(0, null, "插件执行成功，但没有生成 report.html。");
+            var discovery = await PluginReportManifestReader.DiscoverAsync(context.OutputPath, cancellationToken);
+            if (discovery.ErrorMessage is not null)
+                return new PluginExecutionResult(0, null, discovery.ErrorMessage);
+            return discovery.ManifestExists
+                ? new PluginExecutionResult(0, context.OutputPath, null, Reports: discovery.Reports)
+                : discovery.LegacyReportExists
+                    ? new PluginExecutionResult(0, context.OutputPath, null)
+                    : new PluginExecutionResult(0, null, "插件执行成功，但没有生成 reports.json 或 report.html。");
         }
         catch (OperationCanceledException)
         {
@@ -89,14 +107,22 @@ public sealed class StandardExePluginRunner : IPluginRunner
 public sealed class LegacyLogAnalyzerRunner : IPluginRunner
 {
     private readonly WorkbenchLogger _logger;
+    private readonly PluginProcessExecutor _execute;
 
-    public LegacyLogAnalyzerRunner(WorkbenchLogger logger) => _logger = logger;
+    public LegacyLogAnalyzerRunner(WorkbenchLogger logger)
+        : this(logger, ProcessPluginRunnerUtilities.ExecuteAsync) { }
+
+    internal LegacyLogAnalyzerRunner(WorkbenchLogger logger, PluginProcessExecutor execute)
+    {
+        _logger = logger;
+        _execute = execute;
+    }
 
     public async Task<PluginExecutionResult> RunAsync(PluginManifest manifest, PluginExecutionContext context, CancellationToken cancellationToken = default)
     {
         try
         {
-            var result = await ProcessPluginRunnerUtilities.ExecuteAsync(
+            var result = await _execute(
                 manifest.EntryPath,
                 context.WorkingDirectory,
                 BuildLegacyArguments(context),
@@ -104,12 +130,16 @@ public sealed class LegacyLogAnalyzerRunner : IPluginRunner
             if (result.ExitCode != 0)
                 return new PluginExecutionResult(result.ExitCode, null, string.IsNullOrWhiteSpace(result.StandardError) ? "日志分析插件执行失败。" : result.StandardError.Trim());
 
-            var generatedReport = Path.Combine(context.OutputPath, "report.html");
-            if (!File.Exists(generatedReport))
-                return new PluginExecutionResult(result.ExitCode, null, "日志分析完成，但未找到指定输出目录中的 report.html。");
+            var discovery = await PluginReportManifestReader.DiscoverAsync(context.OutputPath, cancellationToken);
+            if (discovery.ErrorMessage is not null)
+                return new PluginExecutionResult(result.ExitCode, null, discovery.ErrorMessage);
+            if (!discovery.ManifestExists && !discovery.LegacyReportExists)
+                return new PluginExecutionResult(result.ExitCode, null, "日志分析完成，但未找到指定输出目录中的 reports.json 或 report.html。");
 
             _logger.Info($"日志分析插件完成：{context.CaseId}");
-            return new PluginExecutionResult(0, context.OutputPath, null);
+            return discovery.ManifestExists
+                ? new PluginExecutionResult(0, context.OutputPath, null, Reports: discovery.Reports)
+                : new PluginExecutionResult(0, context.OutputPath, null);
         }
         catch (OperationCanceledException)
         {

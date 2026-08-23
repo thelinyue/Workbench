@@ -294,19 +294,44 @@ public sealed class CaseAnalysisService
                 ? AnalysisTaskStatus.Cancelled
                 : result.ReportPath is null ? AnalysisTaskStatus.Failed : AnalysisTaskStatus.Completed;
 
-            var report = result.ReportPath is null
-                ? null
-                : new Report
-                {
-                    Id = Guid.NewGuid().ToString("N"),
-                    CaseId = analysisCase.Id,
-                    Path = result.ReportPath,
-                    PluginId = plugin.Id,
-                    PluginName = plugin.Name,
-                    PluginVersion = plugin.Version,
-                    CreateTime = DateTime.Now
-                };
-            await _lifecycle.CompleteAsync(analysisCase, task, report);
+            var reportTime = DateTime.Now;
+            var reports = result.ReportPath is null
+                ? Array.Empty<Report>()
+                : result.Reports is { Count: > 0 }
+                    ? result.Reports.Select(artifact => new Report
+                    {
+                        Id = Guid.NewGuid().ToString("N"),
+                        CaseId = analysisCase.Id,
+                        Path = result.ReportPath,
+                        ReportKey = artifact.Id,
+                        Title = artifact.Title,
+                        Kind = artifact.Kind,
+                        EntryFile = artifact.File,
+                        IsDefault = artifact.IsDefault,
+                        PluginId = plugin.Id,
+                        PluginName = plugin.Name,
+                        PluginVersion = plugin.Version,
+                        CreateTime = reportTime
+                    }).ToArray()
+                    : new[]
+                    {
+                        new Report
+                        {
+                            Id = Guid.NewGuid().ToString("N"),
+                            CaseId = analysisCase.Id,
+                            Path = result.ReportPath,
+                            ReportKey = "legacy",
+                            Title = "综合日志分析报告",
+                            Kind = "log-analysis",
+                            EntryFile = "report.html",
+                            IsDefault = true,
+                            PluginId = plugin.Id,
+                            PluginName = plugin.Name,
+                            PluginVersion = plugin.Version,
+                            CreateTime = reportTime
+                        }
+                    };
+            await _lifecycle.CompleteAsync(analysisCase, task, reports);
 
             // 只有报告记录和案例状态都落库后，任务才对外呈现为完成，避免读取到半完成状态。
             StateChanged?.Invoke(this, EventArgs.Empty);
@@ -321,7 +346,7 @@ public sealed class CaseAnalysisService
             analysisCase.UpdateTime = DateTime.Now;
             try
             {
-                await _lifecycle.CompleteAsync(analysisCase, task, null);
+                await _lifecycle.CompleteAsync(analysisCase, task, Array.Empty<Report>());
             }
             catch (Exception persistException)
             {

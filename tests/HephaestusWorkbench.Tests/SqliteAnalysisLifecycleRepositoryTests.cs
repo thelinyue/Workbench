@@ -96,6 +96,19 @@ public sealed class SqliteAnalysisLifecycleRepositoryTests
                 CreateTime = now
             });
             await InsertReportSessionAsync(factory, "report-delete");
+            await reports.InsertAsync(new Report
+            {
+                Id = "report-delete-secondary",
+                CaseId = "case-delete",
+                Path = Path.Combine(root, "report"),
+                ReportKey = "secondary",
+                Title = "综合日志分析报告",
+                Kind = "log-analysis",
+                EntryFile = "log-analysis-report.html",
+                IsDefault = false,
+                CreateTime = now
+            });
+            await InsertReportSessionAsync(factory, "report-delete-secondary");
 
             await lifecycle.DeleteByCaseIdsAsync(new[] { "case-delete" });
 

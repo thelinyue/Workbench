@@ -87,7 +87,10 @@ public sealed class SqliteAnalysisLifecycleRepository : IAnalysisLifecycleReposi
         await transaction.CommitAsync(cancellationToken);
     }
 
-    public async Task CompleteAsync(AnalysisCase analysisCase, AnalysisTask task, Report? report, CancellationToken cancellationToken = default)
+    public Task CompleteAsync(AnalysisCase analysisCase, AnalysisTask task, Report? report, CancellationToken cancellationToken = default)
+        => CompleteAsync(analysisCase, task, report is null ? Array.Empty<Report>() : new[] { report }, cancellationToken);
+
+    public async Task CompleteAsync(AnalysisCase analysisCase, AnalysisTask task, IReadOnlyList<Report> reports, CancellationToken cancellationToken = default)
     {
         await using var connection = await _factory.OpenAsync(cancellationToken);
         await using var transaction = (Microsoft.Data.Sqlite.SqliteTransaction)await connection.BeginTransactionAsync(cancellationToken);
@@ -104,16 +107,21 @@ public sealed class SqliteAnalysisLifecycleRepository : IAnalysisLifecycleReposi
             command.Parameters.AddWithValue("$id", analysisCase.Id);
         }, cancellationToken);
 
-        if (report is not null)
+        foreach (var report in reports)
         {
             await ExecuteAsync(connection, transaction, """
-                INSERT INTO reports (id, case_id, path, plugin_id, plugin_name, plugin_version, create_time)
-                VALUES ($id, $case_id, $path, $plugin_id, $plugin_name, $plugin_version, $create_time);
+                INSERT INTO reports (id, case_id, path, report_key, title, kind, entry_file, is_default, plugin_id, plugin_name, plugin_version, create_time)
+                VALUES ($id, $case_id, $path, $report_key, $title, $kind, $entry_file, $is_default, $plugin_id, $plugin_name, $plugin_version, $create_time);
                 """, command =>
             {
                 command.Parameters.AddWithValue("$id", report.Id);
                 command.Parameters.AddWithValue("$case_id", report.CaseId);
                 command.Parameters.AddWithValue("$path", report.Path);
+                command.Parameters.AddWithValue("$report_key", report.ReportKey);
+                command.Parameters.AddWithValue("$title", report.Title);
+                command.Parameters.AddWithValue("$kind", report.Kind);
+                command.Parameters.AddWithValue("$entry_file", report.EntryFile);
+                command.Parameters.AddWithValue("$is_default", report.IsDefault ? 1 : 0);
                 command.Parameters.AddWithValue("$plugin_id", (object?)report.PluginId ?? DBNull.Value);
                 command.Parameters.AddWithValue("$plugin_name", (object?)report.PluginName ?? DBNull.Value);
                 command.Parameters.AddWithValue("$plugin_version", (object?)report.PluginVersion ?? DBNull.Value);
