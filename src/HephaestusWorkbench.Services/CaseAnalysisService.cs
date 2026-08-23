@@ -258,6 +258,7 @@ public sealed class CaseAnalysisService
 
     private async Task RunAsync(AnalysisCase analysisCase, AnalysisTask task, CancellationToken cancellationToken)
     {
+        ExtensionVersionLease? lease = null;
         try
         {
             task.Status = AnalysisTaskStatus.Running;
@@ -267,9 +268,9 @@ public sealed class CaseAnalysisService
             await _lifecycle.MarkRunningAsync(analysisCase, task);
             StateChanged?.Invoke(this, EventArgs.Empty);
 
-            // 租约从实际运行开始持续到结果落库完成。扩展中心可以切换 current，
-            // 但不能在本任务结束前清理这里固定的版本目录。
-            using var lease = _extensions.LeaseCurrentVersion(task.PluginId);
+            // 租约从实际运行开始持续到最终状态落库完成。扩展中心可以切换 current，
+            // 但正常完成和异常补偿落库都结束前，不能清理这里固定的版本目录。
+            lease = _extensions.LeaseCurrentVersion(task.PluginId);
             var request = new AnalysisProcessRequest
             {
                 Protocol = AnalysisProcessProtocol.Version,
@@ -334,5 +335,9 @@ public sealed class CaseAnalysisService
             }
             _logger.Error($"分析任务异常终止：{task.Id}", ex);
             StateChanged?.Invoke(this, EventArgs.Empty);
+        }
+        finally
+        {
+            lease?.Dispose();
         }
     }}

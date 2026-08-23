@@ -83,31 +83,67 @@ public sealed class ExtensionCatalogClient
             throw new InvalidDataException($"扩展 {item.Id} 的发布包大小必须在 1 到 {MaximumPackageBytes} 字节之间。");
 
         using var request = new HttpRequestMessage(HttpMethod.Get, release.Url);
-        using var response = await _http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
-        response.EnsureSuccessStatusCode();
-        EnsureHttps(response.RequestMessage?.RequestUri, "扩展包下载地址");
-
-        if (response.Content.Headers.ContentLength is { } contentLength && contentLength != release.Size)
-            throw new InvalidDataException($"扩展 {item.Id} 的下载响应大小与 Catalog 声明不一致。");
-
-        await using var source = await response.Content.ReadAsStreamAsync(cancellationToken);
-        using var target = new MemoryStream((int)release.Size);
-        var buffer = new byte[81920];
-        long total = 0;
-        while (true)
+        HttpResponseMessage response;
+        try
         {
-            var read = await source.ReadAsync(buffer.AsMemory(), cancellationToken);
-            if (read == 0) break;
-            total += read;
-            if (total > release.Size)
-                throw new InvalidDataException($"扩展 {item.Id} 的下载内容超过 Catalog 声明大小。");
-            await target.WriteAsync(buffer.AsMemory(0, read), cancellationToken);
-            progress?.Report(new ExtensionDownloadProgress(total, release.Size));
+            response = await _http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception exception) when (exception is HttpRequestException or IOException or OperationCanceledException)
+        {
+            throw new InvalidDataException($"扩展 {item.Id} 下载请求失败：{exception.Message}", exception);
         }
 
-        if (total != release.Size)
-            throw new InvalidDataException($"扩展 {item.Id} 的下载内容大小与 Catalog 声明不一致。");
-        return target.ToArray();
+        using (response)
+        {
+            // HttpClient 可能已自动跟随重定向，必须先检查最终 URI，不能让失败状态码掩盖 HTTPS 降级。
+            EnsureHttps(response.RequestMessage?.RequestUri, "扩展包下载地址");
+            if (!response.IsSuccessStatusCode)
+            {
+                throw new InvalidDataException(
+                    $"扩展 {item.Id} 下载失败，服务器返回 HTTP 状态码 {(int)response.StatusCode}。");
+            }
+
+            if (response.Content.Headers.ContentLength is { } contentLength && contentLength != release.Size)
+                throw new InvalidDataException($"扩展 {item.Id} 的下载响应大小与 Catalog 声明不一致。");
+
+            try
+            {
+                await using var source = await response.Content.ReadAsStreamAsync(cancellationToken);
+                using var target = new MemoryStream((int)release.Size);
+                var buffer = new byte[81920];
+                long total = 0;
+                while (true)
+                {
+                    var read = await source.ReadAsync(buffer.AsMemory(), cancellationToken);
+                    if (read == 0) break;
+                    total += read;
+                    if (total > release.Size)
+                        throw new InvalidDataException($"扩展 {item.Id} 的下载内容超过 Catalog 声明大小。");
+                    await target.WriteAsync(buffer.AsMemory(0, read), cancellationToken);
+                    progress?.Report(new ExtensionDownloadProgress(total, release.Size));
+                }
+
+                if (total != release.Size)
+                    throw new InvalidDataException($"扩展 {item.Id} 的下载内容大小与 Catalog 声明不一致。");
+                return target.ToArray();
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (InvalidDataException)
+            {
+                throw;
+            }
+            catch (Exception exception) when (exception is HttpRequestException or IOException or ObjectDisposedException or OperationCanceledException)
+            {
+                throw new InvalidDataException($"读取扩展 {item.Id} 的下载内容失败：{exception.Message}", exception);
+            }
+        }
     }
 
     private async Task<string> DownloadCatalogJsonAsync(CancellationToken cancellationToken)

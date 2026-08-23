@@ -85,6 +85,62 @@ public sealed class ExtensionCatalogClientTests
         Assert.Contains("HTTPS", error.Message, StringComparison.Ordinal);
     }
 
+    [Fact]
+    public async Task DownloadPackageAsync_RejectsInsecureRedirectBeforeCheckingFailureStatus()
+    {
+        var package = Encoding.UTF8.GetBytes("package");
+        using var environment = new TestEnvironment(_ =>
+            BytesResponse(package, "http://example.invalid/package.zip", HttpStatusCode.NotFound));
+        var (item, release) = CatalogEntry(package.Length);
+
+        var error = await Assert.ThrowsAsync<InvalidDataException>(() =>
+            environment.Client.DownloadPackageAsync(item, release));
+
+        Assert.Contains("HTTPS", error.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task DownloadPackageAsync_WhenNetworkRequestFails_ReturnsChineseInvalidDataError()
+    {
+        using var environment = new TestEnvironment(_ => throw new HttpRequestException("connection reset"));
+        var (item, release) = CatalogEntry(7);
+
+        var error = await Assert.ThrowsAsync<InvalidDataException>(() =>
+            environment.Client.DownloadPackageAsync(item, release));
+
+        Assert.Contains("扩展 log-analyzer 下载请求失败", error.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task DownloadPackageAsync_WhenServerReturnsFailureStatus_ReturnsChineseInvalidDataError()
+    {
+        var package = Encoding.UTF8.GetBytes("package");
+        using var environment = new TestEnvironment(_ =>
+            BytesResponse(package, statusCode: HttpStatusCode.ServiceUnavailable));
+        var (item, release) = CatalogEntry(package.Length);
+
+        var error = await Assert.ThrowsAsync<InvalidDataException>(() =>
+            environment.Client.DownloadPackageAsync(item, release));
+
+        Assert.Contains("HTTP 状态码 503", error.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task DownloadPackageAsync_WhenResponseStreamReadFails_ReturnsChineseInvalidDataError()
+    {
+        using var environment = new TestEnvironment(_ => new HttpResponseMessage(HttpStatusCode.OK)
+        {
+            Content = new StreamContent(new ThrowingReadStream()),
+            RequestMessage = new HttpRequestMessage(HttpMethod.Get, "https://example.invalid/package.zip")
+        });
+        var (item, release) = CatalogEntry(7);
+
+        var error = await Assert.ThrowsAsync<InvalidDataException>(() =>
+            environment.Client.DownloadPackageAsync(item, release));
+
+        Assert.Contains("读取扩展 log-analyzer 的下载内容失败", error.Message, StringComparison.Ordinal);
+    }
+
     private static (PluginSDK.ExtensionCatalogItem Item, PluginSDK.ExtensionRelease Release) CatalogEntry(long size)
     {
         var release = new PluginSDK.ExtensionRelease
@@ -146,8 +202,11 @@ public sealed class ExtensionCatalogClientTests
             RequestMessage = new HttpRequestMessage(HttpMethod.Get, "https://example.invalid/catalog.json")
         };
 
-    private static HttpResponseMessage BytesResponse(byte[] bytes, string uri = "https://example.invalid/package.zip")
-        => new(HttpStatusCode.OK)
+    private static HttpResponseMessage BytesResponse(
+        byte[] bytes,
+        string uri = "https://example.invalid/package.zip",
+        HttpStatusCode statusCode = HttpStatusCode.OK)
+        => new(statusCode)
         {
             Content = new ByteArrayContent(bytes),
             RequestMessage = new HttpRequestMessage(HttpMethod.Get, uri)
@@ -174,6 +233,30 @@ public sealed class ExtensionCatalogClientTests
         {
             if (Directory.Exists(Root)) Directory.Delete(Root, recursive: true);
         }
+    }
+
+    private sealed class ThrowingReadStream : Stream
+    {
+        public override bool CanRead => true;
+        public override bool CanSeek => false;
+        public override bool CanWrite => false;
+        public override long Length => throw new NotSupportedException();
+        public override long Position
+        {
+            get => throw new NotSupportedException();
+            set => throw new NotSupportedException();
+        }
+
+        public override int Read(byte[] buffer, int offset, int count)
+            => throw new IOException("stream read failed");
+
+        public override ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken cancellationToken = default)
+            => ValueTask.FromException<int>(new IOException("stream read failed"));
+
+        public override void Flush() => throw new NotSupportedException();
+        public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
+        public override void SetLength(long value) => throw new NotSupportedException();
+        public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();
     }
 
     private sealed class StubHandler(Func<HttpRequestMessage, HttpResponseMessage> responseFactory) : HttpMessageHandler
