@@ -6,16 +6,22 @@ namespace HephaestusWorkbench.Tests;
 public sealed class ExtensionCenterPageTests
 {
     [Fact]
-    public void Page_UsesThreeFixedTabsAndTypeFilterWithoutLegacyPluginActions()
+    public void Page_UsesThreeMutuallyExclusiveTabsAndTypeFilterWithoutLegacyPluginActions()
     {
         var document = LoadXaml();
         XNamespace presentation = "http://schemas.microsoft.com/winfx/2006/xaml/presentation";
         var text = document.ToString(SaveOptions.DisableFormatting);
-        var buttons = document.Descendants(presentation + "Button").ToArray();
+        var tabs = document.Descendants(presentation + "RadioButton").ToArray();
 
-        Assert.Contains(buttons, button => (string?)button.Attribute("Content") == "发现");
-        Assert.Contains(buttons, button => (string?)button.Attribute("Content") == "已安装");
-        Assert.Contains(buttons, button => (string?)button.Attribute("Content") == "更新");
+        Assert.Equal(3, tabs.Length);
+        Assert.Contains(tabs, tab => (string?)tab.Attribute("Content") == "发现");
+        Assert.Contains(tabs, tab => (string?)tab.Attribute("Content") == "已安装");
+        Assert.Contains(tabs, tab => (string?)tab.Attribute("Content") == "更新");
+        Assert.All(tabs, tab => Assert.Equal("ExtensionCenterTabs", (string?)tab.Attribute("GroupName")));
+        Assert.All(tabs, tab => Assert.Contains("TabSelected", tab.Attributes()
+            .First(attribute => attribute.Name.LocalName == "IsChecked").Value, StringComparison.Ordinal));
+        Assert.Contains("IsChecked", text, StringComparison.Ordinal);
+        Assert.Contains("WorkbenchSelectedBrush", text, StringComparison.Ordinal);
         Assert.Contains("TypeFilters", text, StringComparison.Ordinal);
         Assert.Contains("SearchText", text, StringComparison.Ordinal);
         Assert.Contains("OpenCommand", text, StringComparison.Ordinal);
@@ -28,20 +34,25 @@ public sealed class ExtensionCenterPageTests
     }
 
     [Fact]
-    public void Page_ProvidesVisibleKeyboardAccessiblePrimaryControls()
+    public void Page_ProvidesKeyboardAccessibleControlsAndDynamicItemAutomationNames()
     {
         var document = LoadXaml();
         XNamespace presentation = "http://schemas.microsoft.com/winfx/2006/xaml/presentation";
         var controls = document.Descendants()
             .Where(element => element.Name == presentation + "Button" ||
+                              element.Name == presentation + "RadioButton" ||
                               element.Name == presentation + "TextBox" ||
                               element.Name == presentation + "ComboBox" ||
                               element.Name == presentation + "ListBox")
             .ToArray();
+        var text = document.ToString(SaveOptions.DisableFormatting);
 
         Assert.All(controls, control =>
             Assert.False(string.IsNullOrWhiteSpace(control.Attributes()
                 .FirstOrDefault(attribute => attribute.Name.LocalName == "AutomationProperties.Name")?.Value)));
+        Assert.Contains("ToggleAutomationName", text, StringComparison.Ordinal);
+        Assert.Contains("OpenAutomationName", text, StringComparison.Ordinal);
+        Assert.Contains("InstallAutomationName", text, StringComparison.Ordinal);
         Assert.DoesNotContain(document.Descendants(), element =>
             element.Name.LocalName.Contains("Mouse", StringComparison.OrdinalIgnoreCase));
     }

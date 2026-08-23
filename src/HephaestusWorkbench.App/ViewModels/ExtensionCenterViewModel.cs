@@ -6,16 +6,26 @@ using HephaestusWorkbench.Services;
 
 namespace HephaestusWorkbench.App.ViewModels;
 
-/// <summary>扩展中心列表项，只负责把宿主 DTO 转换为稳定的中文显示和操作可见性。</summary>
-public sealed class ExtensionCenterItemViewModel
+/// <summary>
+/// 扩展中心列表项。保留 Service DTO 的不可变事实，并只在启用状态写入成功后维护一个本地状态，
+/// 避免后续目录刷新失败时重新开放已持久化禁用的 Workspace 扩展。
+/// </summary>
+public sealed class ExtensionCenterItemViewModel : ViewModelBase
 {
-    public ExtensionCenterItemViewModel(ExtensionCenterEntry source) => Source = source;
+    private bool _enabled;
+
+    public ExtensionCenterItemViewModel(ExtensionCenterEntry source)
+    {
+        Source = source;
+        _enabled = source.Enabled;
+    }
 
     public ExtensionCenterEntry Source { get; }
     public string Id => Source.Id;
     public string Name => Source.Name;
     public string Description => Source.Description;
     public ExtensionKind Kind => Source.Kind;
+    public bool Enabled => _enabled;
     public string KindText => Source.Kind switch
     {
         ExtensionKind.Workspace => "Workspace",
@@ -25,25 +35,35 @@ public sealed class ExtensionCenterItemViewModel
     };
     public string PublisherText => $"发布者：{Source.PublisherId}";
     public string VersionText => Source.InstalledManifest is null
-        ? $"可用版本 {Source.AvailableRelease?.Version ?? "—"}"
+        ? Source.HasCompatibleRelease
+            ? $"可用版本 {Source.AvailableRelease?.Version ?? "—"}"
+            : "暂无兼容版本"
         : Source.AvailableRelease is not null && Source.HasUpdate
             ? $"已安装 {Source.InstalledManifest.Version} · 可更新至 {Source.AvailableRelease.Version}"
             : $"已安装 {Source.InstalledManifest.Version}";
-    public string StatusText => !Source.IsCompatible
-        ? "当前版本不兼容"
-        : Source.InstalledManifest is null
-            ? "未安装"
-            : !Source.Enabled
-                ? "已禁用"
-                : Source.HasUpdate
-                    ? "有可用更新"
-                    : "已启用";
+    public string StatusText => Source.HasIdentityConflict
+        ? "扩展身份冲突"
+        : Source.InstalledManifest is not null
+            ? Source.IsInstalledVersionCompatible == false
+                ? "已安装版本不兼容"
+                : !Enabled
+                    ? "已禁用"
+                    : Source.HasUpdate
+                        ? "有可用更新"
+                        : "已启用"
+            : !Source.HasCompatibleRelease
+                ? "当前宿主暂无兼容版本"
+                : "未安装";
     public string InstallText => Source.InstalledManifest is null ? "安装" : "更新";
-    public bool CanInstall => Source.IsCompatible && Source.AvailableRelease is not null &&
+    public bool CanInstall => !Source.HasIdentityConflict && Source.HasCompatibleRelease &&
+                              Source.AvailableRelease is not null &&
                               (Source.InstalledManifest is null || Source.HasUpdate);
-    public bool CanOpen => Source.Enabled && Source.InstalledManifest?.Kind == ExtensionKind.Workspace;
-    public string ToggleText => Source.Enabled ? "禁用" : "启用";
-    public Visibility InstallVisibility => Source.AvailableRelease is not null &&
+    public bool CanOpen => Enabled && Source.InstalledManifest?.Kind == ExtensionKind.Workspace;
+    public string ToggleText => Enabled ? "禁用" : "启用";
+    public string ToggleAutomationName => $"{ToggleText}扩展：{Name}";
+    public string OpenAutomationName => $"打开扩展：{Name}";
+    public string InstallAutomationName => $"{InstallText}扩展：{Name}";
+    public Visibility InstallVisibility => Source.IsCatalogListed &&
                                            (Source.InstalledManifest is null || Source.HasUpdate)
         ? Visibility.Visible
         : Visibility.Collapsed;
@@ -53,6 +73,16 @@ public sealed class ExtensionCenterItemViewModel
     public Visibility ToggleVisibility => Source.InstalledManifest is null
         ? Visibility.Collapsed
         : Visibility.Visible;
+
+    /// <summary>仅在启用偏好已经持久化成功后调用，使失败刷新仍保持保守的本地权限状态。</summary>
+    public void SetEnabled(bool enabled)
+    {
+        if (!SetProperty(ref _enabled, enabled, nameof(Enabled))) return;
+        OnPropertyChanged(nameof(StatusText));
+        OnPropertyChanged(nameof(CanOpen));
+        OnPropertyChanged(nameof(ToggleText));
+        OnPropertyChanged(nameof(ToggleAutomationName));
+    }
 }
 
 /// <summary>
@@ -113,6 +143,10 @@ public sealed class ExtensionCenterViewModel : ViewModelBase
     public ICommand ToggleEnabledCommand { get; }
     public ICommand OpenCommand { get; }
 
+    public bool IsDiscoveryTabSelected => string.Equals(_selectedTab, DiscoveryTab, StringComparison.Ordinal);
+    public bool IsInstalledTabSelected => string.Equals(_selectedTab, InstalledTab, StringComparison.Ordinal);
+    public bool IsUpdatesTabSelected => string.Equals(_selectedTab, UpdatesTab, StringComparison.Ordinal);
+
     public string SelectedTypeFilter
     {
         get => _selectedTypeFilter;
@@ -167,7 +201,7 @@ public sealed class ExtensionCenterViewModel : ViewModelBase
         _ => "请调整搜索关键词或扩展类型筛选。"
     };
     public bool HasEnabledAnalysisEngine => _allItems.Any(item =>
-        item.Source.Enabled && item.Source.InstalledManifest is { Kind: ExtensionKind.Analysis } manifest &&
+        item.Enabled && item.Source.InstalledManifest is { Kind: ExtensionKind.Analysis } manifest &&
         manifest.Capabilities.Contains("analysis.engine", StringComparer.Ordinal));
 
     public Task InitializeAsync(CancellationToken cancellationToken = default)
@@ -236,11 +270,13 @@ public sealed class ExtensionCenterViewModel : ViewModelBase
     {
         if (item?.Source.InstalledManifest is null || IsBusy) return;
         IsBusy = true;
-        var enabled = !item.Source.Enabled;
+        var enabled = !item.Enabled;
         BusyText = $"正在{(enabled ? "启用" : "禁用")}“{item.Name}”…";
         try
         {
             await _service.SetEnabledAsync(item.Id, enabled);
+            item.SetEnabled(enabled);
+            RaiseCommandStates();
             Message = $"扩展“{item.Name}”已{(enabled ? "启用" : "禁用")}。";
         }
         catch (Exception exception)
@@ -260,13 +296,25 @@ public sealed class ExtensionCenterViewModel : ViewModelBase
     private void Open(ExtensionCenterItemViewModel? item)
     {
         if (item is null || !item.CanOpen || item.Source.InstalledManifest is null) return;
-        _openWorkspace(item.Source.InstalledManifest);
+        try
+        {
+            _openWorkspace(item.Source.InstalledManifest);
+        }
+        catch (Exception exception)
+        {
+            var context = $"打开扩展“{item.Name}”失败";
+            Message = $"{context}：{exception.Message}";
+            _logger.Error(context, exception);
+        }
     }
 
     private void SelectTab(string tab)
     {
         if (string.Equals(_selectedTab, tab, StringComparison.Ordinal)) return;
         _selectedTab = tab;
+        OnPropertyChanged(nameof(IsDiscoveryTabSelected));
+        OnPropertyChanged(nameof(IsInstalledTabSelected));
+        OnPropertyChanged(nameof(IsUpdatesTabSelected));
         ApplyFilter();
     }
 
@@ -292,7 +340,7 @@ public sealed class ExtensionCenterViewModel : ViewModelBase
     {
         InstalledTab => item.Source.InstalledManifest is not null,
         UpdatesTab => item.Source.HasUpdate,
-        _ => item.Source.AvailableRelease is not null
+        _ => item.Source.IsCatalogListed
     };
 
     private bool MatchesType(ExtensionCenterItemViewModel item)

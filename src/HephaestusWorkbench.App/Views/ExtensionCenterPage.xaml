@@ -3,10 +3,46 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              AutomationProperties.Name="扩展中心">
     <UserControl.Resources>
-        <Style x:Key="ExtensionTabButtonStyle" TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
+        <Style x:Key="ExtensionTabButtonStyle" TargetType="RadioButton">
+            <Setter Property="Foreground" Value="{DynamicResource WorkbenchTextBrush}"/>
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="BorderBrush" Value="Transparent"/>
+            <Setter Property="BorderThickness" Value="1"/>
             <Setter Property="MinWidth" Value="88"/>
+            <Setter Property="MinHeight" Value="32"/>
             <Setter Property="Margin" Value="0,0,8,0"/>
             <Setter Property="Padding" Value="14,7"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="RadioButton">
+                        <Border x:Name="TabBorder"
+                                Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}"
+                                CornerRadius="5"
+                                Padding="{TemplateBinding Padding}">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="TabBorder" Property="Background" Value="{DynamicResource WorkbenchHoverBrush}"/>
+                            </Trigger>
+                            <Trigger Property="IsChecked" Value="True">
+                                <Setter TargetName="TabBorder" Property="Background" Value="{DynamicResource WorkbenchSelectedBrush}"/>
+                                <Setter TargetName="TabBorder" Property="BorderBrush" Value="{DynamicResource WorkbenchPrimaryBrush}"/>
+                            </Trigger>
+                            <Trigger Property="IsKeyboardFocused" Value="True">
+                                <Setter TargetName="TabBorder" Property="BorderBrush" Value="{DynamicResource WorkbenchPrimaryBrush}"/>
+                                <Setter TargetName="TabBorder" Property="BorderThickness" Value="2"/>
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter TargetName="TabBorder" Property="Opacity" Value="0.45"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
         </Style>
         <Style x:Key="ExtensionCardStyle" TargetType="Border" BasedOn="{StaticResource CardStyle}">
             <Setter Property="Margin" Value="0,0,0,8"/>
@@ -39,18 +75,24 @@
 
         <Border Grid.Row="1" Style="{StaticResource TabStripStyle}" Padding="6" Margin="0,0,0,12">
             <StackPanel Orientation="Horizontal">
-                <Button Content="发现"
-                        Command="{Binding SelectDiscoveryTabCommand}"
-                        Style="{StaticResource ExtensionTabButtonStyle}"
-                        AutomationProperties.Name="显示发现扩展"/>
-                <Button Content="已安装"
-                        Command="{Binding SelectInstalledTabCommand}"
-                        Style="{StaticResource ExtensionTabButtonStyle}"
-                        AutomationProperties.Name="显示已安装扩展"/>
-                <Button Content="更新"
-                        Command="{Binding SelectUpdatesTabCommand}"
-                        Style="{StaticResource ExtensionTabButtonStyle}"
-                        AutomationProperties.Name="显示扩展更新"/>
+                <RadioButton Content="发现"
+                             GroupName="ExtensionCenterTabs"
+                             IsChecked="{Binding IsDiscoveryTabSelected, Mode=OneWay}"
+                             Command="{Binding SelectDiscoveryTabCommand}"
+                             Style="{StaticResource ExtensionTabButtonStyle}"
+                             AutomationProperties.Name="发现扩展页签"/>
+                <RadioButton Content="已安装"
+                             GroupName="ExtensionCenterTabs"
+                             IsChecked="{Binding IsInstalledTabSelected, Mode=OneWay}"
+                             Command="{Binding SelectInstalledTabCommand}"
+                             Style="{StaticResource ExtensionTabButtonStyle}"
+                             AutomationProperties.Name="已安装扩展页签"/>
+                <RadioButton Content="更新"
+                             GroupName="ExtensionCenterTabs"
+                             IsChecked="{Binding IsUpdatesTabSelected, Mode=OneWay}"
+                             Command="{Binding SelectUpdatesTabCommand}"
+                             Style="{StaticResource ExtensionTabButtonStyle}"
+                             AutomationProperties.Name="扩展更新页签"/>
             </StackPanel>
         </Border>
 
@@ -106,12 +148,12 @@
                                             Command="{Binding DataContext.ToggleEnabledCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
                                             CommandParameter="{Binding}"
                                             Visibility="{Binding ToggleVisibility}"
-                                            AutomationProperties.Name="切换扩展启用状态"/>
+                                            AutomationProperties.Name="{Binding ToggleAutomationName}"/>
                                     <Button Content="打开"
                                             Command="{Binding DataContext.OpenCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
                                             CommandParameter="{Binding}"
                                             Visibility="{Binding OpenVisibility}"
-                                            AutomationProperties.Name="打开工作区扩展"/>
+                                            AutomationProperties.Name="{Binding OpenAutomationName}"/>
                                     <Button Content="{Binding InstallText}"
                                             Command="{Binding DataContext.InstallCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
                                             CommandParameter="{Binding}"
@@ -119,7 +161,7 @@
                                             Visibility="{Binding InstallVisibility}"
                                             Style="{StaticResource PrimaryButtonStyle}"
                                             Margin="0"
-                                            AutomationProperties.Name="安装或更新扩展"/>
+                                            AutomationProperties.Name="{Binding InstallAutomationName}"/>
                                 </StackPanel>
                             </Grid>
                         </Border>

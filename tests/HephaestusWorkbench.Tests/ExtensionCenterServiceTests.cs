@@ -27,7 +27,10 @@ public sealed class ExtensionCenterServiceTests
         Assert.Equal("2.1.0", entry.AvailableRelease?.Version);
         Assert.True(entry.HasUpdate);
         Assert.False(entry.Enabled);
-        Assert.True(entry.IsCompatible);
+        Assert.True(entry.IsCatalogListed);
+        Assert.True(entry.HasCompatibleRelease);
+        Assert.True(entry.IsInstalledVersionCompatible);
+        Assert.False(entry.HasIdentityConflict);
         Assert.False(snapshot.IsCatalogFromCache);
     }
 
@@ -43,6 +46,9 @@ public sealed class ExtensionCenterServiceTests
         Assert.Equal("rule-editor", entry.Id);
         Assert.NotNull(entry.InstalledManifest);
         Assert.Null(entry.AvailableRelease);
+        Assert.False(entry.IsCatalogListed);
+        Assert.False(entry.HasCompatibleRelease);
+        Assert.True(entry.IsInstalledVersionCompatible);
         Assert.Contains("在线扩展目录", snapshot.Warning, StringComparison.Ordinal);
     }
 
@@ -56,8 +62,115 @@ public sealed class ExtensionCenterServiceTests
 
         var entry = Assert.Single(snapshot.Extensions);
         Assert.Equal("2.10.0", entry.AvailableRelease?.Version);
-        Assert.True(entry.IsCompatible);
+        Assert.True(entry.IsCatalogListed);
+        Assert.True(entry.HasCompatibleRelease);
+        Assert.True(entry.IsInstalledVersionCompatible);
         Assert.True(entry.HasUpdate);
+    }
+
+    [Theory]
+    [InlineData("other-publisher", ExtensionKind.Analysis)]
+    [InlineData("thelinyue", ExtensionKind.Workspace)]
+    public async Task LoadAsync_WhenInstalledIdentityConflictsWithCatalog_PreservesLocalAndBlocksUpdate(
+        string installedPublisherId,
+        ExtensionKind installedKind)
+    {
+        using var environment = new TestEnvironment(CatalogJson());
+        await environment.AddInstalledAsync(
+            "log-analyzer",
+            "2.0.0",
+            installedKind,
+            installedPublisherId);
+
+        var snapshot = await environment.Service.LoadAsync();
+
+        var entry = Assert.Single(snapshot.Extensions);
+        Assert.Equal(installedPublisherId, entry.PublisherId);
+        Assert.Equal(installedKind, entry.Kind);
+        Assert.Equal("测试扩展", entry.Name);
+        Assert.NotNull(entry.InstalledManifest);
+        Assert.True(entry.IsCatalogListed);
+        Assert.True(entry.HasIdentityConflict);
+        Assert.False(entry.HasCompatibleRelease);
+        Assert.Null(entry.AvailableRelease);
+        Assert.False(entry.HasUpdate);
+        Assert.Contains("身份冲突", snapshot.Warning, StringComparison.Ordinal);
+        Assert.Contains(environment.LogMessages, message =>
+            message.Contains("身份冲突", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task LoadAsync_CatalogListedWithoutCompatibleRelease_ReportsSeparateCompatibilityStates()
+    {
+        using var environment = new TestEnvironment(IncompatibleOnlyCatalogJson());
+
+        var catalogOnly = Assert.Single((await environment.Service.LoadAsync()).Extensions);
+
+        Assert.True(catalogOnly.IsCatalogListed);
+        Assert.False(catalogOnly.HasCompatibleRelease);
+        Assert.Null(catalogOnly.IsInstalledVersionCompatible);
+        Assert.False(catalogOnly.HasIdentityConflict);
+        Assert.Null(catalogOnly.AvailableRelease);
+    }
+
+    [Fact]
+    public async Task LoadAsync_InstalledCompatibleVersionIsNotMisreportedWhenCatalogHasNoCompatibleRelease()
+    {
+        using var environment = new TestEnvironment(IncompatibleOnlyCatalogJson());
+        await environment.AddInstalledAsync("log-analyzer", "2.0.0", ExtensionKind.Analysis);
+
+        var entry = Assert.Single((await environment.Service.LoadAsync()).Extensions);
+
+        Assert.True(entry.IsCatalogListed);
+        Assert.False(entry.HasCompatibleRelease);
+        Assert.True(entry.IsInstalledVersionCompatible);
+        Assert.Null(entry.AvailableRelease);
+        Assert.False(entry.HasUpdate);
+    }
+
+    [Theory]
+    [InlineData("other-publisher", ExtensionKind.Analysis)]
+    [InlineData("thelinyue", ExtensionKind.Workspace)]
+    public async Task InstallAsync_WhenInstalledIdentityConflictsWithCatalog_RejectsBeforeDownload(
+        string installedPublisherId,
+        ExtensionKind installedKind)
+    {
+        using var environment = new TestEnvironment(CatalogJson());
+        await environment.AddInstalledAsync(
+            "log-analyzer",
+            "2.0.0",
+            installedKind,
+            installedPublisherId);
+
+        var exception = await Assert.ThrowsAsync<InvalidDataException>(() =>
+            environment.Service.InstallAsync(new ExtensionCenterInstallRequest
+            {
+                ExtensionId = "log-analyzer",
+                Version = "2.1.0"
+            }));
+
+        Assert.Contains("身份冲突", exception.Message, StringComparison.Ordinal);
+        Assert.Equal(0, environment.Handler.PackageRequestCount);
+        Assert.Equal(0, environment.Verifier.VerificationCount);
+        Assert.Contains(environment.LogMessages, message =>
+            message.Contains("身份冲突", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task LoadAsync_InstalledVersionAboveHost_ReportsInstalledIncompatibleOnly()
+    {
+        using var environment = new TestEnvironment(null);
+        await environment.AddInstalledAsync(
+            "rule-editor",
+            "3.0.0",
+            ExtensionKind.Workspace,
+            minHostVersion: "3.0.0");
+
+        var entry = Assert.Single((await environment.Service.LoadAsync()).Extensions);
+
+        Assert.False(entry.IsCatalogListed);
+        Assert.False(entry.HasCompatibleRelease);
+        Assert.False(entry.IsInstalledVersionCompatible);
     }
 
     [Fact]
@@ -92,6 +205,9 @@ public sealed class ExtensionCenterServiceTests
         Assert.False(Assert.Single(snapshot.Extensions).Enabled);
         Assert.False(json.RootElement.GetProperty("extensions")[0].TryGetProperty("version", out _));
     }
+
+    private static string IncompatibleOnlyCatalogJson()
+        => CatalogJson().Replace("\"minHostVersion\": \"2.0.0\"", "\"minHostVersion\": \"3.0.0\"", StringComparison.Ordinal);
 
     private static string SemVerCatalogJson() => """
         {
@@ -241,6 +357,7 @@ public sealed class ExtensionCenterServiceTests
             Root = Path.Combine(Path.GetTempPath(), "HephaestusWorkbenchTests", Guid.NewGuid().ToString("N"));
             Paths = new DataPaths(Root);
             Logger = new WorkbenchLogger(Root);
+            Logger.MessageWritten += (_, message) => LogMessages.Add(message);
             Registry = new ExtensionRegistry(Paths.ExtensionsDirectory, new ExtensionHealthChecker());
             Settings = new ExtensionSettingsStore(Paths);
             Handler = new StubHandler(catalogJson, packageBytes);
@@ -253,13 +370,19 @@ public sealed class ExtensionCenterServiceTests
         public string Root { get; }
         public DataPaths Paths { get; }
         public WorkbenchLogger Logger { get; }
+        public List<string> LogMessages { get; } = [];
         public ExtensionRegistry Registry { get; }
         public ExtensionSettingsStore Settings { get; }
         public StubHandler Handler { get; }
         public RecordingVerifier Verifier { get; }
         public ExtensionCenterService Service { get; }
 
-        public async Task AddInstalledAsync(string id, string version, ExtensionKind kind)
+        public async Task AddInstalledAsync(
+            string id,
+            string version,
+            ExtensionKind kind,
+            string publisherId = "thelinyue",
+            string minHostVersion = "2.0.0")
         {
             var versionDirectory = Path.Combine(Paths.ExtensionsDirectory, id, version);
             Directory.CreateDirectory(versionDirectory);
@@ -274,9 +397,9 @@ public sealed class ExtensionCenterServiceTests
                   "name": "测试扩展",
                   "version": "{{version}}",
                   "kind": "{{kind.ToString().ToLowerInvariant()}}",
-                  "publisherId": "thelinyue",
+                  "publisherId": "{{publisherId}}",
                   "hostApiVersion": "1.0",
-                  "minHostVersion": "2.0.0",
+                  "minHostVersion": "{{minHostVersion}}",
                   "runtime": { "kind": "{{runtimeKind}}", "protocol": "{{protocol}}", "entry": "{{entry}}" },
                   "capabilities": ["{{capability}}"],
                   "permissions": [],

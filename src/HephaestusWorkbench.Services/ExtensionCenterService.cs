@@ -41,8 +41,21 @@ public sealed class ExtensionCenterEntry
     [JsonPropertyName("enabled")]
     public bool Enabled { get; init; }
 
-    [JsonPropertyName("isCompatible")]
-    public bool IsCompatible { get; init; }
+    /// <summary>Catalog v2 当前是否仍列出该扩展；离线或仅本机安装时为 false。</summary>
+    [JsonPropertyName("isCatalogListed")]
+    public bool IsCatalogListed { get; init; }
+
+    /// <summary>当前更新通道是否存在适用于本宿主版本的发布包。</summary>
+    [JsonPropertyName("hasCompatibleRelease")]
+    public bool HasCompatibleRelease { get; init; }
+
+    /// <summary>已安装版本是否适用于当前宿主；未安装时为 null。</summary>
+    [JsonPropertyName("isInstalledVersionCompatible")]
+    public bool? IsInstalledVersionCompatible { get; init; }
+
+    /// <summary>同 ID 的本机 manifest 与 Catalog 在发布者或类别上是否冲突。</summary>
+    [JsonPropertyName("hasIdentityConflict")]
+    public bool HasIdentityConflict { get; init; }
 
     [JsonPropertyName("hasUpdate")]
     public bool HasUpdate { get; init; }
@@ -141,32 +154,46 @@ public sealed class ExtensionCenterService : IExtensionCenterService
             .Concat(catalogItems.Keys)
             .Distinct(StringComparer.Ordinal)
             .OrderBy(id => id, StringComparer.Ordinal);
+        var entries = new List<ExtensionCenterEntry>();
 
-        var entries = ids.Select(id =>
+        foreach (var id in ids)
         {
             installedItems.TryGetValue(id, out var manifest);
             catalogItems.TryGetValue(id, out var catalogItem);
-            var release = catalogItem is null
+            var hasIdentityConflict = manifest is not null && catalogItem is not null &&
+                                      !HasSameIdentity(manifest, catalogItem);
+            if (hasIdentityConflict)
+            {
+                var conflictMessage = CreateIdentityConflictMessage(manifest!, catalogItem!);
+                warning = AppendWarning(warning, conflictMessage);
+                _logger.Error(conflictMessage);
+            }
+
+            var release = catalogItem is null || hasIdentityConflict
                 ? null
                 : SelectLatestRelease(catalogItem, settings.UpdateChannel);
             var enabled = !enabledPreferences.TryGetValue(id, out var configuredEnabled) || configuredEnabled;
-            var hasUpdate = manifest is not null && release is not null &&
-                SemanticVersion.Parse(release.Version).CompareTo(SemanticVersion.Parse(manifest.Version)) > 0;
+            var hasUpdate = !hasIdentityConflict && manifest is not null && release is not null &&
+                            SemanticVersion.Parse(release.Version).CompareTo(SemanticVersion.Parse(manifest.Version)) > 0;
+            var useInstalledIdentity = manifest is not null && hasIdentityConflict;
 
-            return new ExtensionCenterEntry
+            entries.Add(new ExtensionCenterEntry
             {
                 Id = id,
-                Name = catalogItem?.Name ?? manifest!.Name,
-                Description = catalogItem?.Description ?? string.Empty,
-                PublisherId = catalogItem?.PublisherId ?? manifest!.PublisherId,
-                Kind = catalogItem?.Kind ?? manifest!.Kind,
+                Name = useInstalledIdentity ? manifest!.Name : catalogItem?.Name ?? manifest!.Name,
+                Description = useInstalledIdentity ? string.Empty : catalogItem?.Description ?? string.Empty,
+                PublisherId = useInstalledIdentity ? manifest!.PublisherId : catalogItem?.PublisherId ?? manifest!.PublisherId,
+                Kind = useInstalledIdentity ? manifest!.Kind : catalogItem?.Kind ?? manifest!.Kind,
                 InstalledManifest = manifest,
                 AvailableRelease = release,
                 Enabled = enabled,
-                IsCompatible = catalogItem is null || release is not null,
+                IsCatalogListed = catalogItem is not null,
+                HasCompatibleRelease = release is not null,
+                IsInstalledVersionCompatible = manifest is null ? null : IsHostCompatible(manifest.MinHostVersion),
+                HasIdentityConflict = hasIdentityConflict,
                 HasUpdate = hasUpdate
-            };
-        }).ToArray();
+            });
+        }
 
         return new ExtensionCenterSnapshot
         {
@@ -192,6 +219,15 @@ public sealed class ExtensionCenterService : IExtensionCenterService
             string.Equals(candidate.Id, extensionId, StringComparison.Ordinal));
         if (item is null)
             throw new InvalidDataException($"扩展目录中不存在扩展 {extensionId}。");
+
+        var installedManifest = (await _registry.LoadAsync(cancellationToken)).SingleOrDefault(candidate =>
+            string.Equals(candidate.Id, extensionId, StringComparison.Ordinal));
+        if (installedManifest is not null && !HasSameIdentity(installedManifest, item))
+        {
+            var conflictMessage = CreateIdentityConflictMessage(installedManifest, item);
+            _logger.Error(conflictMessage);
+            throw new InvalidDataException(conflictMessage);
+        }
 
         ExtensionRelease? release;
         if (string.IsNullOrWhiteSpace(request.Version))
@@ -228,6 +264,22 @@ public sealed class ExtensionCenterService : IExtensionCenterService
         CancellationToken cancellationToken = default)
         => _settings.SetEnabledAsync(extensionId, enabled, cancellationToken);
 
+    private bool IsHostCompatible(string minHostVersion)
+        => SemanticVersion.Parse(minHostVersion).CompareTo(_hostVersion) <= 0;
+
+    private static bool HasSameIdentity(ExtensionManifest manifest, ExtensionCatalogItem catalogItem)
+        => string.Equals(manifest.PublisherId, catalogItem.PublisherId, StringComparison.Ordinal) &&
+           manifest.Kind == catalogItem.Kind;
+
+    private static string CreateIdentityConflictMessage(
+        ExtensionManifest manifest,
+        ExtensionCatalogItem catalogItem)
+        => $"扩展 {manifest.Id} 存在身份冲突：本机发布者/类别为 {manifest.PublisherId}/{manifest.Kind}，" +
+           $"Catalog 为 {catalogItem.PublisherId}/{catalogItem.Kind}。已保留本机版本并禁止更新或安装。";
+
+    private static string AppendWarning(string? current, string warning)
+        => string.IsNullOrWhiteSpace(current) ? warning : $"{current}；{warning}";
+
     private ExtensionRelease? SelectLatestRelease(ExtensionCatalogItem item, string updateChannel)
         => item.Releases
             .Where(release => IsAllowedRelease(release, updateChannel))
@@ -242,7 +294,7 @@ public sealed class ExtensionCenterService : IExtensionCenterService
         if (string.Equals(updateChannel, StableChannel, StringComparison.Ordinal) && version.IsPrerelease)
             return false;
 
-        return SemanticVersion.Parse(release.MinHostVersion).CompareTo(_hostVersion) <= 0;
+        return IsHostCompatible(release.MinHostVersion);
     }
 
     /// <summary>
