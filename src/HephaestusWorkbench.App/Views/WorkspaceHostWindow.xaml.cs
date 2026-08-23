@@ -40,6 +40,8 @@ public partial class WorkspaceHostWindow : Window
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
 
         InitializeComponent();
+        // 禁止把宿主文件拖入不受信任页面，避免页面借浏览器默认行为读取本地文件。
+        Browser.AllowExternalDrop = false;
         Title = manifest.Name;
         Loaded += OnLoaded;
         Closed += OnClosed;
@@ -64,7 +66,7 @@ public partial class WorkspaceHostWindow : Window
             Browser.CoreWebView2.SetVirtualHostNameToFolderMapping(
                 VirtualHostName,
                 _manifest.DirectoryPath,
-                CoreWebView2HostResourceAccessKind.DenyCors);
+                CoreWebView2HostResourceAccessKind.Deny);
             Browser.CoreWebView2.Navigate(BuildVirtualEntryUri(_manifest.DirectoryPath, entryPath).AbsoluteUri);
         }
         catch (Exception exception)
@@ -221,6 +223,7 @@ public partial class WorkspaceHostWindow : Window
         settings.AreDevToolsEnabled = false;
         settings.IsStatusBarEnabled = false;
         settings.AreDefaultContextMenusEnabled = false;
+        settings.AreDefaultScriptDialogsEnabled = false;
         settings.AreHostObjectsAllowed = false;
         settings.AreBrowserAcceleratorKeysEnabled = false;
         settings.IsBuiltInErrorPageEnabled = false;
@@ -232,6 +235,9 @@ public partial class WorkspaceHostWindow : Window
     private void AttachBrowserEvents(CoreWebView2 core)
     {
         core.NavigationStarting += OnNavigationStarting;
+        core.FrameNavigationStarting += OnFrameNavigationStarting;
+        core.LaunchingExternalUriScheme += OnLaunchingExternalUriScheme;
+        core.DownloadStarting += OnDownloadStarting;
         core.AddWebResourceRequestedFilter(
             ResourceFilter,
             CoreWebView2WebResourceContext.All,
@@ -248,6 +254,29 @@ public partial class WorkspaceHostWindow : Window
         if (IsCurrentVirtualOrigin(e.Uri)) return;
         e.Cancel = true;
         _logger.Error($"Workspace 扩展阻止了非同源导航：{e.Uri}");
+    }
+
+    /// <summary>子框架与顶层页面共用固定虚拟源策略，禁止 iframe 绕过顶层导航边界。</summary>
+    private void OnFrameNavigationStarting(object? sender, CoreWebView2NavigationStartingEventArgs e)
+    {
+        if (IsCurrentVirtualOrigin(e.Uri)) return;
+        e.Cancel = true;
+        _logger.Error($"Workspace 扩展阻止了子框架非同源导航：{e.Uri}");
+    }
+
+    /// <summary>任何外部 URI Scheme 都不得离开 WebView2 交给操作系统处理。</summary>
+    private void OnLaunchingExternalUriScheme(object? sender, CoreWebView2LaunchingExternalUriSchemeEventArgs e)
+    {
+        e.Cancel = true;
+        _logger.Error($"Workspace 扩展阻止了外部 URI Scheme：{e.Uri}");
+    }
+
+    /// <summary>Workspace 页面只允许读取映射内静态资源，不允许向本机文件系统写入下载内容。</summary>
+    private void OnDownloadStarting(object? sender, CoreWebView2DownloadStartingEventArgs e)
+    {
+        e.Cancel = true;
+        e.Handled = true;
+        _logger.Error("Workspace 扩展阻止了下载请求。");
     }
 
     private void OnWebResourceRequested(object? sender, CoreWebView2WebResourceRequestedEventArgs e)
@@ -304,6 +333,9 @@ public partial class WorkspaceHostWindow : Window
         if (core is not null && _eventsAttached)
         {
             core.NavigationStarting -= OnNavigationStarting;
+            core.FrameNavigationStarting -= OnFrameNavigationStarting;
+            core.LaunchingExternalUriScheme -= OnLaunchingExternalUriScheme;
+            core.DownloadStarting -= OnDownloadStarting;
             core.WebResourceRequested -= OnWebResourceRequested;
             core.NewWindowRequested -= OnNewWindowRequested;
             core.PermissionRequested -= OnPermissionRequested;

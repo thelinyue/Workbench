@@ -107,6 +107,54 @@ public sealed class WorkspaceHostWindowTests
     }
 
     [Fact]
+    public void BrowserSecurityContract_DisablesUnsafeSettingsAndCrossOriginFolderAccess()
+    {
+        var source = LoadWorkspaceHostSource();
+
+        Assert.Contains("Browser.AllowExternalDrop = false;", source, StringComparison.Ordinal);
+        Assert.Contains("settings.AreDefaultScriptDialogsEnabled = false;", source, StringComparison.Ordinal);
+        Assert.Contains("CoreWebView2HostResourceAccessKind.Deny);", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("CoreWebView2HostResourceAccessKind.DenyCors", source, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("LaunchingExternalUriScheme", "OnLaunchingExternalUriScheme")]
+    [InlineData("DownloadStarting", "OnDownloadStarting")]
+    [InlineData("FrameNavigationStarting", "OnFrameNavigationStarting")]
+    public void BrowserSecurityContract_AttachesAndDetachesSecurityEvents(
+        string eventName,
+        string handlerName)
+    {
+        var source = LoadWorkspaceHostSource();
+
+        Assert.Contains($"core.{eventName} += {handlerName};", source, StringComparison.Ordinal);
+        Assert.Contains($"core.{eventName} -= {handlerName};", source, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void BrowserSecurityContract_ExternalSchemeAndDownloadHandlersAlwaysCancel()
+    {
+        var source = LoadWorkspaceHostSource();
+        var externalSchemeHandler = ExtractMethod(source, "OnLaunchingExternalUriScheme");
+        var downloadHandler = ExtractMethod(source, "OnDownloadStarting");
+
+        Assert.Contains("e.Cancel = true;", externalSchemeHandler, StringComparison.Ordinal);
+        Assert.DoesNotContain("IsCurrentVirtualOrigin", externalSchemeHandler, StringComparison.Ordinal);
+        Assert.Contains("e.Cancel = true;", downloadHandler, StringComparison.Ordinal);
+        Assert.Contains("e.Handled = true;", downloadHandler, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void BrowserSecurityContract_FrameNavigationUsesTopLevelOriginPolicy()
+    {
+        var source = LoadWorkspaceHostSource();
+        var handler = ExtractMethod(source, "OnFrameNavigationStarting");
+
+        Assert.Contains("IsCurrentVirtualOrigin(e.Uri)", handler, StringComparison.Ordinal);
+        Assert.Contains("e.Cancel = true;", handler, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void CreateBridgeResponse_RejectsUnknownMethodWithoutExecutingIt()
     {
         var response = WorkspaceHostWindow.CreateBridgeResponse("""
@@ -145,6 +193,44 @@ public sealed class WorkspaceHostWindowTests
                && !relative.Equals("..", StringComparison.Ordinal)
                && !relative.StartsWith($"..{Path.DirectorySeparatorChar}", StringComparison.Ordinal)
                && !relative.StartsWith($"..{Path.AltDirectorySeparatorChar}", StringComparison.Ordinal);
+    }
+
+    private static string LoadWorkspaceHostSource()
+        => File.ReadAllText(Path.Combine(
+            FindRepositoryRoot(),
+            "src",
+            "HephaestusWorkbench.App",
+            "Views",
+            "WorkspaceHostWindow.xaml.cs"));
+
+    private static string ExtractMethod(string source, string methodName)
+    {
+        var methodStart = source.IndexOf($" {methodName}(", StringComparison.Ordinal);
+        Assert.True(methodStart >= 0, $"未找到安全事件处理方法：{methodName}");
+
+        var bodyStart = source.IndexOf('{', methodStart);
+        Assert.True(bodyStart >= 0, $"安全事件处理方法缺少方法体：{methodName}");
+
+        var depth = 0;
+        for (var index = bodyStart; index < source.Length; index++)
+        {
+            if (source[index] == '{') depth++;
+            if (source[index] != '}') continue;
+
+            depth--;
+            if (depth == 0) return source[bodyStart..(index + 1)];
+        }
+
+        throw new Xunit.Sdk.XunitException($"安全事件处理方法缺少结束括号：{methodName}");
+    }
+
+    private static string FindRepositoryRoot()
+    {
+        var directory = new DirectoryInfo(AppContext.BaseDirectory);
+        while (directory is not null && !File.Exists(Path.Combine(directory.FullName, "HephaestusWorkbench.sln")))
+            directory = directory.Parent;
+        Assert.NotNull(directory);
+        return directory!.FullName;
     }
 
     private sealed class WorkspaceManifestEnvironment : IDisposable
