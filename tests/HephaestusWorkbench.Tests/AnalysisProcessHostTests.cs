@@ -44,6 +44,21 @@ public sealed class AnalysisProcessHostTests
     }
 
     [Fact]
+    public async Task RunAsync_DoesNotTreatPreviousReportAsCurrentOutput()
+    {
+        using var environment = await TestEnvironment.CreateAsync("missing-report");
+        var previousReport = Path.Combine(environment.ExtractDirectory, "Report", "index.html");
+        Directory.CreateDirectory(Path.GetDirectoryName(previousReport)!);
+        await File.WriteAllTextAsync(previousReport, "<html>previous</html>");
+
+        var result = await environment.Host.RunAsync(environment.Manifest, environment.Request);
+
+        Assert.False(result.Succeeded);
+        Assert.Contains("未生成", result.ErrorMessage, StringComparison.Ordinal);
+        Assert.Equal("<html>previous</html>", await File.ReadAllTextAsync(previousReport));
+    }
+
+    [Fact]
     public async Task RunAsync_ReturnsExtensionFailureAsChineseError()
     {
         using var environment = await TestEnvironment.CreateAsync("failure");
@@ -67,15 +82,40 @@ public sealed class AnalysisProcessHostTests
     }
 
     [Fact]
+    public async Task RunAsync_DrainsStandardOutputAndErrorConcurrently()
+    {
+        using var environment = await TestEnvironment.CreateAsync("dual-output");
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+
+        var result = await environment.Host.RunAsync(environment.Manifest, environment.Request, timeout.Token);
+
+        Assert.True(result.Succeeded, result.ErrorMessage);
+    }
+
+    [Fact]
+    public async Task RunAsync_RejectsResponseThatDeclaresReportPath()
+    {
+        using var environment = await TestEnvironment.CreateAsync("report-path");
+
+        var result = await environment.Host.RunAsync(environment.Manifest, environment.Request);
+
+        Assert.False(result.Succeeded);
+        Assert.Contains("JSON", result.ErrorMessage, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task RunAsync_CancellationStopsTheExtensionProcess()
     {
-        using var environment = await TestEnvironment.CreateAsync("sleep");
+        using var environment = await TestEnvironment.CreateAsync("sleep-tree");
         using var cancellation = new CancellationTokenSource();
 
         var runTask = environment.Host.RunAsync(environment.Manifest, environment.Request, cancellation.Token);
-        var marker = Path.Combine(environment.ExtractDirectory, "fixture.started");
-        await WaitForFileAsync(marker);
-        var processId = int.Parse(await File.ReadAllTextAsync(marker));
+        var parentMarker = Path.Combine(environment.ExtractDirectory, "fixture.started");
+        var childMarker = Path.Combine(environment.ExtractDirectory, "fixture.child");
+        await WaitForFileAsync(parentMarker);
+        await WaitForFileAsync(childMarker);
+        var parentProcessId = int.Parse(await File.ReadAllTextAsync(parentMarker));
+        var childProcessId = int.Parse(await File.ReadAllTextAsync(childMarker));
 
         cancellation.Cancel();
         var result = await runTask;
@@ -83,7 +123,8 @@ public sealed class AnalysisProcessHostTests
         Assert.False(result.Succeeded);
         Assert.True(result.Cancelled);
         Assert.Contains("已取消", result.ErrorMessage, StringComparison.Ordinal);
-        await WaitForProcessExitAsync(processId);
+        AssertProcessExited(parentProcessId);
+        AssertProcessExited(childProcessId);
     }
 
     private static async Task WaitForFileAsync(string path)
@@ -93,22 +134,17 @@ public sealed class AnalysisProcessHostTests
         Assert.True(File.Exists(path), $"测试进程未创建启动标记：{path}");
     }
 
-    private static async Task WaitForProcessExitAsync(int processId)
+    private static void AssertProcessExited(int processId)
     {
-        for (var attempt = 0; attempt < 100; attempt++)
+        try
         {
-            try
-            {
-                using var process = System.Diagnostics.Process.GetProcessById(processId);
-                if (process.HasExited) return;
-            }
-            catch (ArgumentException)
-            {
-                return;
-            }
-            await Task.Delay(50);
+            using var process = System.Diagnostics.Process.GetProcessById(processId);
+            Assert.True(process.HasExited, $"分析扩展进程 {processId} 在 RunAsync 返回时仍未退出。");
         }
-        Assert.Fail($"分析扩展进程 {processId} 在取消后仍未退出。");
+        catch (ArgumentException)
+        {
+            // 进程对象已不存在，说明宿主在返回前完成了终止。
+        }
     }
 
     private sealed class TestEnvironment : IDisposable

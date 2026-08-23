@@ -36,11 +36,16 @@ public sealed class AnalysisProcessHost
         CancellationToken cancellationToken = default)
     {
         Process? process = null;
+        string? reportEntry = null;
+        string? previousReportEntry = null;
+        var succeeded = false;
         try
         {
             ValidateManifest(manifest);
             var normalizedRequest = ValidateRequest(request);
             var reportDirectory = ResolveReportDirectory(normalizedRequest);
+            reportEntry = Path.Combine(reportDirectory, "index.html");
+            previousReportEntry = BackupPreviousReportEntry(reportEntry, normalizedRequest.ExtractDirectory);
             Directory.CreateDirectory(reportDirectory);
 
             process = CreateProcess(manifest.EntryPath!, manifest.DirectoryPath);
@@ -77,34 +82,35 @@ public sealed class AnalysisProcessHost
             if (!response.Succeeded)
                 return Failure($"日志分析扩展执行失败：{response.ErrorMessage}", exitCode);
 
-            var reportEntry = Path.Combine(reportDirectory, "index.html");
             if (!File.Exists(reportEntry))
                 return Failure("日志分析完成，但未生成固定入口 Report/index.html。", exitCode);
 
+            succeeded = true;
             _logger.Info($"日志分析扩展完成：{normalizedRequest.CaseId}");
             return new AnalysisProcessHostResult(true, false, reportDirectory, null, exitCode);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
-            TryKill(process);
+            await StopProcessAsync(process);
             _logger.Info($"日志分析任务已取消：{request.CaseId}");
             return new AnalysisProcessHostResult(false, true, null, "分析任务已取消。", TryGetExitCode(process));
         }
         catch (AnalysisProcessOutputLimitException exception)
         {
-            TryKill(process);
+            await StopProcessAsync(process);
             _logger.Error("日志分析扩展输出超过宿主限制，已终止进程", exception);
             return Failure(exception.Message, TryGetExitCode(process));
         }
         catch (Exception exception)
         {
-            TryKill(process);
+            await StopProcessAsync(process);
             _logger.Error($"日志分析扩展运行失败：{manifest.Name}", exception);
             return Failure($"日志分析扩展运行失败：{exception.Message}", TryGetExitCode(process));
         }
         finally
         {
             process?.Dispose();
+            FinalizeReportEntry(reportEntry, previousReportEntry, succeeded, _logger);
         }
     }
 
@@ -172,9 +178,51 @@ public sealed class AnalysisProcessHost
             if (result.Length + read > MaximumCapturedCharacters)
             {
                 TryKill(process);
-                throw new AnalysisProcessOutputLimitException($"日志分析扩展的{streamName}输出超过 1 MiB 限制，已终止进程。");
+                throw new AnalysisProcessOutputLimitException($"日志分析扩展的{streamName}输出超过 1,048,576 个字符的宿主限制，已终止进程。");
             }
             result.Append(buffer, 0, read);
+        }
+    }
+
+    private static string? BackupPreviousReportEntry(string reportEntry, string extractDirectory)
+    {
+        if (!File.Exists(reportEntry)) return null;
+
+        var backupPath = Path.Combine(
+            Path.GetFullPath(extractDirectory),
+            $".report-index.previous.{Guid.NewGuid():N}.html");
+        File.Move(reportEntry, backupPath);
+        return backupPath;
+    }
+
+    private static void FinalizeReportEntry(
+        string? reportEntry,
+        string? previousReportEntry,
+        bool succeeded,
+        WorkbenchLogger logger)
+    {
+        if (reportEntry is null) return;
+
+        try
+        {
+            if (succeeded)
+            {
+                if (previousReportEntry is not null && File.Exists(previousReportEntry))
+                    File.Delete(previousReportEntry);
+                return;
+            }
+
+            if (File.Exists(reportEntry)) File.Delete(reportEntry);
+            if (previousReportEntry is not null && File.Exists(previousReportEntry))
+            {
+                Directory.CreateDirectory(Path.GetDirectoryName(reportEntry)!);
+                File.Move(previousReportEntry, reportEntry);
+            }
+        }
+        catch (Exception exception)
+        {
+            // 失败时保留备份文件，不再继续删除，确保原报告仍可由用户手工恢复。
+            logger.Error("收敛日志分析报告入口失败，原报告备份已保留", exception);
         }
     }
 
@@ -200,6 +248,20 @@ public sealed class AnalysisProcessHost
         }
     }
 
+    private static async Task StopProcessAsync(Process? process)
+    {
+        TryKill(process);
+        try
+        {
+            if (process is { HasExited: false })
+                await process.WaitForExitAsync(CancellationToken.None);
+        }
+        catch
+        {
+            // 终止失败不覆盖原始错误；调用方仍会记录清晰的中文原因。
+        }
+    }
+
     private static void TryKill(Process? process)
     {
         try
@@ -208,7 +270,7 @@ public sealed class AnalysisProcessHost
         }
         catch
         {
-            // 取消和异常收敛路径只做尽力终止；原始中文错误由调用方保留并显示。
+            // 输出限制发生在读取任务内，只能先尽力终止；外层异常路径随后等待进程退出。
         }
     }
 
