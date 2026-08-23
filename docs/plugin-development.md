@@ -1,182 +1,207 @@
-# Hephaestus Workbench 插件开发文档
+# Hephaestus Workbench v2 扩展开发文档
 
-本文说明如何为赫菲斯托斯工程工作台开发和登记本地日志分析插件。
+本文描述 Hephaestus Workbench **v2.0.0** 的扩展契约。v2 不兼容旧插件目录、旧 manifest、第三方 DLL/WPF 扩展或旧报告入口文件。
 
-## 1. 当前支持范围
+## 1. 扩展契约与当前宿主状态
 
-v1.1.1 同时支持本地插件目录和官方在线目录：
+| kind | runtime.kind | capability | 当前状态 |
+| --- | --- | --- | --- |
+| `workspace` | `web` | `workspace.page` | 已由固定 `WorkspaceHostWindow` 承载 |
+| `analysis` | `process` | `analysis.engine` | 已通过 `analysis-process-v1` 执行日志分析 |
+| `analysis` | `content` | `analysis.rule-pack`、`analysis.report-template` | 只有 manifest 组合校验；没有内容 DTO/schema，也没有宿主应用流程 |
+| `maintenance` | `content` | `maintenance.workflow-pack`、`maintenance.command-profile` | 已有 Workflow/Command Profile DTO；内容加载和 Planner/Policy/Executor 尚未实现 |
 
-- 支持扫描用户数据目录下的 `Plugins` 子目录中的 `manifest.json`。
-- 支持 EXE 标准插件。
-- 兼容现有的 `log_analyzer.exe` 旧版插件协议。
-- 支持在插件中心刷新、查看扫描问题、打开插件目录和打开本开发文档。
-- 官方 EXE 插件可通过在线目录安装和升级；安装包必须通过 HTTPS、SHA-256、大小、路径边界和清单一致性校验。
-- 暂不提供数字签名、沙箱隔离、社区投稿或 DLL 插件执行。
-- `IAnalysisPlugin` 和 `PluginType.Dll` 目前只是 SDK 契约，尚未接入 DLL 加载运行器；DLL 插件不能作为当前版本的可执行插件发布。
+不支持：
 
-插件会以当前 Windows 用户权限启动。只应安装来源可信、经过测试的插件。
+- 第三方 DLL、WPF View 或 ViewModel。
+- 扩展贡献侧栏导航、排序、分组或默认固定项。
+- unsigned package、developer mode 或绕过发布者信任。
+- manifest 指定任意报告入口。
 
-## 2. 插件目录结构
+## 2. manifest v2
 
-工作台数据目录默认由首次运行向导选择，插件目录为：
-
-```text
-<工作台数据目录>/Plugins/
-└── sample-analyzer/
-    ├── manifest.json
-    └── sample-analyzer.exe
-```
-
-推荐每个插件使用独立目录。插件中心会递归查找 `manifest.json`，但入口文件必须位于清单所在目录或其子路径内，并且入口文件必须真实存在。
-
-手工插件开发完成后，将整个插件目录复制到 `Plugins` 目录，打开工作台的“插件中心”，点击“刷新”即可登记。手工插件首次登记时不会被在线市场自动覆盖；如果在线目录存在同 ID 的更新，用户点击“更新”并完成校验后，插件来源会切换为“在线安装”，之后可由应用商店继续更新或卸载。扫描失败时，页面会显示中文错误并写入工作台 `Logs/workbench.log`。
-
-官方在线目录固定由公开插件仓库 `thelinyue/Hephaestus-Workbench-Plugins` 维护。`schemaVersion` 当前为 `1`，每个条目必须包含 `id`、`name`、`description`、`version`、`type`、`packageUrl`、`sha256`、`packageSize`、`minimumAppVersion`、`releaseNotesUrl`、作者、许可证、仓库地址和 manifest。插件 ZIP 根目录必须直接包含 `manifest.json` 和入口文件，目录字段必须与本地 manifest 的 ID、版本和类型一致。
-
-## 3. manifest.json
-
-最小的 EXE 标准插件清单如下：
+Analysis Process 扩展示例：
 
 ```json
 {
-  "id": "sample-analyzer",
-  "name": "示例日志分析",
-  "version": "1.0.0",
-  "type": "Exe",
-  "entry": "sample-analyzer.exe"
-}
-```
-
-字段说明：
-
-| 字段 | 必填 | 说明 |
-| --- | --- | --- |
-| `id` | 是 | 稳定且唯一的插件 ID。发布后不要随意修改，否则历史任务和报告无法按原 ID 关联。 |
-| `name` | 是 | 插件中心和报告列表中显示的名称。 |
-| `version` | 是 | 插件版本字符串，由插件作者维护。 |
-| `type` | 是 | 当前可执行插件填写 `Exe`。`Dll` 目前不会被运行。 |
-| `entry` | 是 | 相对于 `manifest.json` 所在目录的入口文件路径，例如 `bin/analyzer.exe`。不要填写绝对路径。 |
-| `runner` | 否 | 仅现有旧版插件使用 `legacy-log-analyzer`。标准 EXE 插件不要填写。 |
-| `capabilities` | 否 | 插件能力列表；规则编辑器需声明 `rule-editor`，否则工作台不会显示“使用规则编辑器”。 |
-
-### ID 和路径约定
-
-- `id` 建议使用小写字母、数字和短横线，例如 `sample-analyzer`。
-- 不要让不同插件使用相同的 `id`。
-- `entry` 必须使用相对路径，不能通过 `..` 指向插件目录之外。
-- 插件附带的 CSS、JavaScript、图片等报告资源，应与 `index.html` 一起放在输出目录中，并使用相对路径引用。
-
-## 4. EXE 标准运行协议
-
-工作台会在插件目录中启动 EXE，并传入以下参数：
-
-```text
-sample-analyzer.exe --case <case-id> --input <source-path> --output <output-path>
-```
-
-参数含义：
-
-| 参数 | 含义 |
-| --- | --- |
-| `--case` | 工作台生成的案例 ID。插件可以把它写入诊断信息，但不要假设它是文件名。 |
-| `--input` | 当前案例的原始日志压缩包绝对路径。 |
-| `--output` | 当前案例的报告输出目录绝对路径。 |
-| `--rules` | 工作台当前激活规则 JSON 路径；规则编辑器和支持外部规则的分析插件使用。 |
-
-插件必须遵守以下约定：
-
-1. 成功时退出码为 `0`。
-2. 成功时在 `--output` 目录直接生成 `index.html`。
-3. 报告引用的静态资源放在 `--output` 目录内，并使用相对路径。
-4. 失败时返回非零退出码，并将可供工程师理解的原因写到标准错误输出。
-5. 不要依赖工作台的当前进程目录；入口进程的工作目录是插件自身目录。
-6. 不要修改其他案例、工作台数据库或用户配置文件。
-
-工作台会检查 `index.html` 是否存在。即使 EXE 返回 `0`，如果报告文件缺失，任务也会标记为失败。
-
-一个最简单的兼容实现可以是：读取 `--input`，分析后创建 `--output`，写入 `index.html`，最后返回 `0`。报告可以是静态 HTML，也可以引用同一输出目录中的资源。
-
-## 5. 现有旧版插件协议
-
-当前随程序提供的 `log_analyzer.exe` 使用旧版协议，清单如下：
-
-```json
-{
+  "schemaVersion": 2,
   "id": "log-analyzer",
   "name": "日志分析",
-  "version": "1.49",
-  "type": "Exe",
-  "entry": "log_analyzer.exe",
-  "runner": "legacy-log-analyzer",
+  "version": "2.0.0",
+  "kind": "analysis",
+  "publisherId": "thelinyue",
+  "hostApiVersion": "1.0",
+  "minHostVersion": "2.0.0",
+  "runtime": {
+    "kind": "process",
+    "protocol": "analysis-process-v1",
+    "entry": "bin/log-analyzer.exe"
+  },
+  "capabilities": [
+    "analysis.engine",
+    "analysis.scope.comprehensive"
+  ],
+  "permissions": [],
+  "dependencies": []
 }
 ```
 
-设置 `runner` 后，工作台会使用兼容命令：
-
-```text
-log_analyzer.exe -d <source-path> -o <report-output-directory>
-```
-
-`-d` 保留原有输入参数；插件继续在原始输入文件同名目录下生成解压内容，`-o` 用于指定工作台报告目录。插件必须在输出目录中生成 `index.html` 以及它引用的 `static`、`structured` 等资源。未传入 `-o` 时，仍使用原始的 `Report/index.html` 默认位置。该协议用于适配当前日志分析插件；新插件应使用第 4 节的标准协议。
-
-当前日志分析插件还接受 `--rules <path>`。传入有效规则文件时使用外部规则；未传入时继续使用嵌入式 `config.json`。外部 JSON 无效时必须直接失败，不能静默回退。
-
-规则编辑器插件声明 `capabilities: ["rule-editor"]`，工作台启动时传入 `--rules <path> --listen 127.0.0.1:0 --open`。编辑器通过回环 API 提供 `GET /api/rules`、`PUT /api/rules` 和 `POST /api/rules/validate`，规则文件只写入工作台用户数据目录，不写入安装目录；“导出规则”仍用于跨环境交换。
-
-## 6. SDK 和 DLL 契约
-
-`src/HephaestusWorkbench.PluginSDK/PluginContracts.cs` 定义了未来 DLL 插件使用的 `IAnalysisPlugin` 和执行上下文：
-
-- `CaseId`：案例 ID。
-- `SourcePath`：原始日志路径。
-- `OutputPath`：报告输出目录。
-- `ExtractPath`：案例解压目录。
-- `WorkingDirectory`：插件工作目录。
-
-当前生产代码没有加载 DLL 的实现，因此不要仅凭实现 `IAnalysisPlugin` 就认为插件能够运行。等 DLL runner 正式接入后，应同步更新本文件、插件中心状态和回归测试。
-
-## 7. 本地安装和验收
-
-建议按以下顺序验收：
-
-1. 创建独立插件目录，并放入 EXE 和 `manifest.json`。
-2. 使用命令行单独运行 EXE，确认参数解析、退出码和 `index.html` 输出。
-3. 将插件目录复制到 `<数据目录>/Extensions/`。
-4. 在插件中心点击“刷新插件”，确认名称、版本、类型和入口路径正确。
-5. 将一个有效的 `.tgz` 日志放入收件目录，创建案例并执行分析。
-6. 在报告中心打开生成的报告，确认 HTML 及其静态资源均可加载。
-7. 人为制造入口缺失或清单格式错误，确认插件中心显示问题，且其他有效插件仍能被发现。
-
-## 8. 兼容性注意事项
-
-- 不要把插件输出写到程序安装目录；所有案例结果应只写入 `--output` 或插件自己的临时目录。
-- 不要依赖未记录的命令行参数、环境变量或工作台内部数据库表。
-- v2 清单不保留旧字段；新增字段必须先更新宿主契约和验证器。
-- `index.html` 是工作台电脑默认浏览器的稳定入口；修改入口文件名需要同时修改工作台运行器和测试。
-- 插件异常信息应明确说明原因，避免只返回“失败”。
-
-## 9. Web 独立工具插件
-
-Web 插件用于不参与案例分析流程的本地静态工具。清单示例：
+Workspace Web 扩展示例：
 
 ```json
 {
-  "id": "lvm-uncache-tool",
-  "name": "LVM 缓存清理工具",
-  "version": "1.0.0",
-  "type": "Web",
-  "entry": "index.html",
-  "capabilities": ["standalone-tool"]
+  "schemaVersion": 2,
+  "id": "rule-editor",
+  "name": "规则编辑器",
+  "version": "2.0.0",
+  "kind": "workspace",
+  "publisherId": "thelinyue",
+  "hostApiVersion": "1.0",
+  "minHostVersion": "2.0.0",
+  "runtime": {
+    "kind": "web",
+    "entry": "web/index.html"
+  },
+  "capabilities": ["workspace.page"],
+  "permissions": [],
+  "dependencies": []
 }
 ```
 
-Web 插件的入口必须是插件目录内的 HTML 文件。工作台会在独立 WebView2 窗口中加载它，禁止跳转到插件目录之外或外部网络地址；入口校验失败时会显示中文错误并写入日志。
+约束：
 
-页面如需保存文件，可发送最小消息：
+- `id`、版本、发布者、类别和能力必须与 Catalog release 一致。
+- `runtime.entry` 必须是扩展版本目录内的相对路径，禁止绝对路径、路径穿越和重解析点逃逸。
+- `hostApiVersion` 当前固定为 `1.0`。
+- `minHostVersion` 使用 SemVer。
+- manifest 不得包含 `navigation`、`order`、`group`、`pinned`、旧运行器字段或旧报告入口字段。
+
+## 3. 日志分析能力
+
+分析中心只使用日志分析扩展，不提供分析引擎选择器。分析范围由用户选择：
+
+- `comprehensive`：综合分析，即当前日志分析报告。
+- `storage`：存储分析，由后续日志分析扩展版本提供。
+
+扩展必须通过 capability 声明支持范围：
 
 ```text
-page -> host: { type: "saveFile", fileName, content, overwriteRequested }
-host -> page: { type: "saveSucceeded" | "saveCanceled" | "saveFailed", ... }
+analysis.scope.comprehensive
+analysis.scope.storage
 ```
 
-在普通浏览器中运行时，页面应回退到 Blob 下载。Web 工具不设置为默认分析插件，也不会由案例分析服务执行。
+宿主只会选择已启用、版本兼容且具有 `analysis.engine` 和对应范围 capability 的唯一扩展。零匹配或多匹配都会拒绝创建 Case/Task，并显示中文错误。
+
+## 4. analysis-process-v1
+
+宿主以独立进程启动扩展，通过标准输入发送一份 JSON 请求，并从标准输出读取一份 JSON 结果。DTO 定义位于：
+
+```text
+src/HephaestusWorkbench.PluginSDK/AnalysisProcessProtocol.cs
+```
+
+请求字段与 `AnalysisProcessRequest` 严格一致：
+
+- `protocol`
+- `requestId`
+- `caseId`
+- `sourcePath`
+- `outputDirectory`
+- `extractDirectory`
+- `rulesPath`（可选）
+- `scope`
+
+响应字段与 `AnalysisProcessResponse` 严格一致：
+
+- `protocol`
+- `requestId`
+- `succeeded`
+- `errorCode`（失败时必填）
+- `errorMessage`（失败时必填）
+
+成功响应不能包含错误字段；失败响应必须同时包含 `errorCode` 和 `errorMessage`。协议不接受其他响应字段。
+
+要求：
+
+1. 成功时退出码为 `0`。
+2. 扩展必须生成 `outputDirectory/index.html`；宿主保证并复核 `outputDirectory` 等于 `extractDirectory/Report`。
+3. 不生成或兼容旧版报告入口文件。
+4. 失败时返回非零退出码。非零退出码时，宿主仍优先解析 stdout 中协议合法、`requestId` 匹配且 `succeeded=false` 的结构化响应；无法解析时才回退到标准错误或通用退出码信息。
+5. 不访问其他 Case、工作台数据库、凭据或扩展 Registry。
+6. 进程启动后的具体扩展版本由版本租约固定，运行期间不会切换到新版本。
+
+快速单日志分析成功后宿主会用系统默认浏览器打开报告；批量和监控目录分析只更新状态，不批量打开浏览器标签。
+
+## 5. Workspace Web 扩展
+
+Workspace 扩展只能从扩展中心点击“打开”，由固定 `WorkspaceHostWindow` 承载，不注册侧栏入口。
+
+安全默认值：
+
+- 使用独立 WebView2 profile 和固定虚拟来源。
+- 禁止外部网络、跨源导航、新窗口、下载、外部 URI Scheme 和浏览器权限。
+- 禁止任意文件系统、Shell、进程和系统 API。
+- Web Message 必须来自当前虚拟来源并符合版本化 JSON-RPC：`requestId/method/params`。
+- Bridge 方法必须同时通过 manifest permission 和发布者 trust scope；v2.0.0 当前未开放 Workspace Bridge 方法。
+
+页面必须把全部 HTML、CSS、JavaScript、字体和图片打包在扩展目录中，不得使用 CDN。
+
+## 6. Content 与 Maintenance 预留状态（宿主尚未实现）
+
+这两类扩展目前都不能作为 v2.0.0 可用功能发布：
+
+- Analysis Content 目前只有 manifest 的 kind/runtime/capability 组合校验；**没有 Analysis Content 的内容 DTO/schema**，也没有规则包或报告模板的宿主应用流程。
+- Maintenance Content 已有预留 Workflow Definition / Command Profile DTO，但没有内容加载、Planner、Policy 或 Executor。
+
+Maintenance 定义只能声明高层 action、结构化参数 token、目标类型和步骤。宿主负责策略、目标唯一性、最终命令、确认、执行和审计。禁止自由命令字符串、`sh -c`、反引号、`$()`、管道和重定向。
+
+后续完成 Maintenance Host 后，首个可发布范围仍只允许只读发现、Preflight、不可变计划、确认、执行输出和审计框架；真实自动修复或破坏性 Runbook 不在当前实现中。
+
+## 7. Catalog、签名与安装
+
+Catalog 使用 schema v2。Release 至少包含：
+
+- URL
+- ZIP 大小
+- SHA-256
+- Ed25519 `keyId/signature`
+- `minHostVersion`
+
+签名覆盖原始 ZIP 字节。Catalog 提供的公钥不会自动获得信任；宿主内置信任表决定 `keyId → publisherId → allowedKinds/permissions`。
+
+安装事务：
+
+```text
+下载
+→ size / SHA-256 / Ed25519
+→ 同盘 staging 解压
+→ manifest / schema / path / Host API 校验
+→ 类型健康检查
+→ 原子移动版本目录
+→ current.json = pending
+→ 正式加载验证
+→ current.json = healthy
+```
+
+版本目录：
+
+```text
+Extensions/
+└─ <extension-id>/
+   ├─ <version>/
+   ├─ current.json
+   └─ current.json.bak
+```
+
+加载失败会回滚；运行任务持有版本租约；至少保留 active 和 rollback 两个版本。相同 ID/版本对应不同 ZIP 内容时拒绝安装。
+
+## 8. 开发与发布验收
+
+1. 使用 PluginSDK v2 DTO 和验证器生成 manifest。
+2. 为 Analysis Process 编写 request/response、取消、失败退出码和 `Report/index.html` 测试。
+3. 为 Workspace 页面验证离线资源、同源消息和无网络依赖。
+4. 运行扩展仓测试并打包 ZIP。
+5. 计算 size 与 SHA-256。
+6. 使用 CI Secret 中的 Ed25519 私钥签名原始 ZIP，并反向验签。
+7. 发布资产和 Catalog release；不要把私钥、占位签名或动态“远端最新版本”写入仓库。
+8. 在全新 v2 工作区验证安装、启用、运行、版本租约、回滚和默认浏览器报告打开。

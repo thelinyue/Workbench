@@ -85,6 +85,24 @@ public sealed class AnalysisProcessHost
             var standardError = await standardErrorTask;
             if (exitCode != 0)
             {
+                // 进程退出码仍表示失败，但扩展可能已经在 stdout 返回了可验证的业务错误；
+                // 只有协议合法、请求标识匹配且 succeeded=false 时才采用，其他情况回退到 stderr。
+                try
+                {
+                    var failureResponse = AnalysisProcessProtocol.ParseResponse(standardOutput);
+                    if (!failureResponse.Succeeded
+                        && string.Equals(failureResponse.RequestId, normalizedRequest.RequestId, StringComparison.Ordinal))
+                    {
+                        return Failure(
+                            $"日志分析扩展执行失败（{failureResponse.ErrorCode}）：{failureResponse.ErrorMessage}",
+                            exitCode);
+                    }
+                }
+                catch (ExtensionContractException)
+                {
+                    // 非零退出码可能来自进程级故障，stdout 不一定包含协议响应，继续使用 stderr 诊断。
+                }
+
                 var diagnostic = string.IsNullOrWhiteSpace(standardError)
                     ? string.Empty
                     : $"：{ShortenDiagnostic(standardError)}";

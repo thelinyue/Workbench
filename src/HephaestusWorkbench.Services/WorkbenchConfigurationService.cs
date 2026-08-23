@@ -6,7 +6,7 @@ using HephaestusWorkbench.Data;
 namespace HephaestusWorkbench.Services;
 
 /// <summary>
-/// 管理工作台的三个 JSON 配置文件。
+/// 管理 workspace.json 与 appsettings.json 两份基础配置；extensions.json 由 ExtensionSettingsStore 独立管理。
 /// 写入先落临时文件，再替换目标文件，避免进程中断时留下半份配置。
 /// </summary>
 public sealed class WorkbenchConfigurationService
@@ -73,24 +73,6 @@ public sealed class WorkbenchConfigurationService
         return created;
     }
 
-    public async Task<PluginConfig> EnsurePluginConfigAsync(CancellationToken cancellationToken = default)
-    {
-        _paths.EnsureCreated();
-        var existing = await ReadAsync<PluginConfig>(_paths.ExtensionsConfigFile, cancellationToken);
-        if (existing is not null)
-        {
-            ValidateSchema(existing.SchemaVersion, _paths.ExtensionsConfigFile);
-            existing.Plugins ??= new List<PluginConfigEntry>();
-            NormalizePluginConfig(existing);
-            await SavePluginConfigAsync(existing, cancellationToken);
-            return existing;
-        }
-
-        var created = new PluginConfig();
-        await SavePluginConfigAsync(created, cancellationToken);
-        return created;
-    }
-
     public Task SaveWorkspaceAsync(WorkspaceConfig config, CancellationToken cancellationToken = default)
     {
         config.DataPath = _paths.Root;
@@ -102,27 +84,6 @@ public sealed class WorkbenchConfigurationService
     {
         NormalizeAppSettings(config);
         return WriteAtomicAsync(_paths.AppSettingsFile, config, cancellationToken);
-    }
-
-    public Task SavePluginConfigAsync(PluginConfig config, CancellationToken cancellationToken = default)
-    {
-        config.Plugins ??= new List<PluginConfigEntry>();
-        NormalizePluginConfig(config);
-        return WriteAtomicAsync(_paths.ExtensionsConfigFile, config, cancellationToken);
-    }
-
-    public async Task UpsertPluginAsync(PluginConfigEntry plugin, CancellationToken cancellationToken = default)
-    {
-        var config = await EnsurePluginConfigAsync(cancellationToken);
-        var existing = config.Plugins.FirstOrDefault(x => string.Equals(x.Id, plugin.Id, StringComparison.OrdinalIgnoreCase));
-        if (existing is null) config.Plugins.Add(plugin);
-        else
-        {
-            existing.Version = plugin.Version;
-            existing.Source = plugin.Source;
-        }
-        config.DefaultPluginId ??= plugin.Enabled ? plugin.Id : null;
-        await SavePluginConfigAsync(config, cancellationToken);
     }
 
     private async Task<T?> ReadAsync<T>(string path, CancellationToken cancellationToken)
@@ -184,19 +145,6 @@ public sealed class WorkbenchConfigurationService
                 ? AppSettingsConfig.LightTheme
                 : AppSettingsConfig.LightTheme;
         settings.CleanupRetentionDays = Math.Clamp(settings.CleanupRetentionDays, 1, 7);
-        settings.GitHubDownloadMirrorTemplate = settings.GitHubDownloadMirrorTemplate?.Trim() ?? string.Empty;
     }
 
-    private static void NormalizePluginConfig(PluginConfig config)
-    {
-        config.Plugins = config.Plugins
-            .Where(x => !string.IsNullOrWhiteSpace(x.Id))
-            .GroupBy(x => x.Id, StringComparer.OrdinalIgnoreCase)
-            .Select(x => x.First())
-            .ToList();
-        if (config.DefaultPluginId is not null
-            && !config.Plugins.Any(x => x.Enabled && string.Equals(x.Id, config.DefaultPluginId, StringComparison.OrdinalIgnoreCase)))
-            config.DefaultPluginId = null;
-        config.DefaultPluginId ??= config.Plugins.FirstOrDefault(x => x.Enabled)?.Id;
-    }
 }

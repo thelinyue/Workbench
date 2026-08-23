@@ -27,7 +27,6 @@ public sealed class RuleSetService
     public string LocalRulesDirectory => _paths.LocalRulesDirectory;
     public string LocalAdditionsFile => _paths.LocalAdditionsFile;
     public string ActiveRulesPath => _paths.ActiveRulesFile;
-    public string RulePublisherTokenPath => _paths.RulePublisherTokenFile;
     public bool HasActiveRules => File.Exists(_paths.ActiveRulesFile) && HasRules(_paths.ActiveRulesFile);
 
     public async Task<RuleSet> ReadAsync(string path, CancellationToken cancellationToken = default)
@@ -141,41 +140,6 @@ public sealed class RuleSetService
             await RestoreFilesAsync(snapshot);
             throw;
         }
-    }
-
-    public async Task<RuleSubmission> BuildSubmissionAsync(
-        UserRuleSet? candidate = null,
-        CancellationToken cancellationToken = default)
-    {
-        var official = await ReadOfficialAsync(cancellationToken);
-        var user = candidate ?? await ReadUserAsync(cancellationToken);
-        var changes = user.Rules
-            .Where(x => x.Selected && x.Status is ("draft" or "rejected"))
-            .Select(x => new RuleChange
-            {
-                LocalId = x.LocalId,
-                Action = "add",
-                File = x.File,
-                Rule = Clone(x.Rule),
-                Reason = x.Reason
-            })
-            .ToList();
-        if (changes.Count == 0) throw new InvalidOperationException("没有选择可提交的用户规则。");
-        return new RuleSubmission { BaseVersion = official?.Version ?? user.BaseVersion, Changes = changes };
-    }
-
-    public async Task MarkSubmittedAsync(RuleSubmission submission, string? submissionId, CancellationToken cancellationToken = default)
-    {
-        var user = await ReadUserAsync(cancellationToken);
-        var ids = submission.Changes.Select(x => x.LocalId).ToHashSet(StringComparer.Ordinal);
-        foreach (var item in user.Rules.Where(x => ids.Contains(x.LocalId)))
-        {
-            item.Status = "pending";
-            item.SubmissionId = submissionId;
-            item.Selected = false;
-        }
-        await WriteJsonAtomicAsync(_paths.LocalAdditionsFile, user, cancellationToken);
-        await PersistStateAsync(cancellationToken);
     }
 
     public async Task<IReadOnlyList<LocalRuleFile>> ListLocalAsync(CancellationToken cancellationToken = default)
@@ -331,7 +295,6 @@ public sealed class RuleSetService
         {
             OfficialVersion = official?.Version,
             LocalRuleCount = user.Rules.Count(x => x.Status is not "merged"),
-            PendingRuleCount = user.Rules.Count(x => x.Status == "pending"),
             ConflictRuleCount = user.Rules.Count(x => x.Status == "conflict")
         };
 

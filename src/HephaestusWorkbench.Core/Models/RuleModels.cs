@@ -69,67 +69,8 @@ public sealed class UserRuleRecord
     public string Status { get; set; } = "draft";
     [JsonPropertyName("selected")]
     public bool Selected { get; set; }
-    [JsonPropertyName("submissionId")]
-    public string? SubmissionId { get; set; }
     [JsonPropertyName("conflictMessage")]
     public string? ConflictMessage { get; set; }
-}
-
-/// <summary>用户向维护者提交的规则增量，禁止携带完整 active.json。</summary>
-public sealed class RuleSubmission
-{
-    [JsonPropertyName("schemaVersion")]
-    public int SchemaVersion { get; set; } = 1;
-    [JsonPropertyName("ruleSetId")]
-    public string RuleSetId { get; set; } = "log-analyzer";
-    [JsonPropertyName("baseVersion")]
-    public string? BaseVersion { get; set; }
-    [JsonPropertyName("changes")]
-    public List<RuleChange> Changes { get; set; } = new();
-}
-
-/// <summary>单条用户规则提交变更。</summary>
-public sealed class RuleChange
-{
-    [JsonPropertyName("localId")]
-    public string LocalId { get; set; } = string.Empty;
-    [JsonPropertyName("action")]
-    public string Action { get; set; } = "add";
-    [JsonPropertyName("file")]
-    public string File { get; set; } = string.Empty;
-    [JsonPropertyName("rule")]
-    public RuleDefinition Rule { get; set; } = new();
-    [JsonPropertyName("reason")]
-    public string Reason { get; set; } = string.Empty;
-}
-
-/// <summary>规则同步清单。规则包通过 HTTPS 下载，并使用 Ed25519 签名校验。</summary>
-public sealed class RuleCatalogEntry
-{
-    [JsonPropertyName("schemaVersion")]
-    public int SchemaVersion { get; set; }
-    [JsonPropertyName("ruleSetId")]
-    public string RuleSetId { get; set; } = string.Empty;
-    [JsonPropertyName("pluginId")]
-    public string PluginId { get; set; } = string.Empty;
-    [JsonPropertyName("version")]
-    public string Version { get; set; } = string.Empty;
-    [JsonPropertyName("minimumPluginVersion")]
-    public string MinimumPluginVersion { get; set; } = string.Empty;
-    [JsonPropertyName("signatureAlgorithm")]
-    public string SignatureAlgorithm { get; set; } = string.Empty;
-    [JsonPropertyName("packageUrl")]
-    public string PackageUrl { get; set; } = string.Empty;
-    [JsonPropertyName("sha256")]
-    public string Sha256 { get; set; } = string.Empty;
-    [JsonPropertyName("packageSize")]
-    public long PackageSize { get; set; }
-    [JsonPropertyName("signature")]
-    public string Signature { get; set; } = string.Empty;
-    [JsonPropertyName("keyId")]
-    public string KeyId { get; set; } = string.Empty;
-    [JsonPropertyName("releaseNotesUrl")]
-    public string? ReleaseNotesUrl { get; set; }
 }
 
 /// <summary>工作台展示的规则同步状态。</summary>
@@ -139,18 +80,12 @@ public sealed class RuleStateSnapshot
     public string? OfficialVersion { get; set; }
     [JsonPropertyName("localRuleCount")]
     public int LocalRuleCount { get; set; }
-    [JsonPropertyName("pendingRuleCount")]
-    public int PendingRuleCount { get; set; }
     [JsonPropertyName("conflictRuleCount")]
     public int ConflictRuleCount { get; set; }
     [JsonPropertyName("lastCheckedAt")]
     public DateTime? LastCheckedAt { get; set; }
     [JsonPropertyName("lastError")]
     public string? LastError { get; set; }
-    [JsonPropertyName("submissionAvailable")]
-    public bool SubmissionAvailable { get; set; }
-    [JsonPropertyName("submissionUnavailableReason")]
-    public string? SubmissionUnavailableReason { get; set; }
 }
 
 /// <summary>规则编辑器一次加载所需的只读主规则、本地规则和激活结果。</summary>
@@ -165,8 +100,6 @@ public sealed class RuleEditorState
     [JsonPropertyName("state")]
     public RuleStateSnapshot State { get; set; } = new();
 }
-
-public sealed record RuleSyncResult(bool Updated, string? Version, string Message);
 
 /// <summary>本地规则文件的列表投影，不直接暴露或缓存规则正文。</summary>
 public sealed record LocalRuleFile(string Name, string Path, string? Version, DateTime LastWriteTime);

@@ -78,23 +78,6 @@ public sealed class SettingsService
         await _configuration.SaveAppSettingsAsync(settings, cancellationToken);
     }
 
-    /// <summary>读取应用级 GitHub 插件下载加速模板。</summary>
-    public async Task<string> GetGitHubDownloadMirrorTemplateAsync(CancellationToken cancellationToken = default)
-    {
-        return (await _configuration.EnsureAppSettingsAsync(cancellationToken)).GitHubDownloadMirrorTemplate;
-    }
-
-    /// <summary>
-    /// 保存 GitHub 插件下载加速模板。空值会停用加速；非空值必须是 HTTPS 模板并且只包含一个 {url}。
-    /// </summary>
-    public async Task SetGitHubDownloadMirrorTemplateAsync(string? template, CancellationToken cancellationToken = default)
-    {
-        var normalized = GitHubDownloadMirrorTemplate.ValidateAndNormalize(template);
-        var settings = await _configuration.EnsureAppSettingsAsync(cancellationToken);
-        settings.GitHubDownloadMirrorTemplate = normalized;
-        await _configuration.SaveAppSettingsAsync(settings, cancellationToken);
-    }
-
     private static string NormalizeTheme(string? theme)
         => string.Equals(theme, AppSettingsConfig.DarkTheme, StringComparison.OrdinalIgnoreCase)
             ? AppSettingsConfig.DarkTheme

@@ -134,14 +134,14 @@ public sealed class AnalysisProcessHostTests
     }
 
     [Fact]
-    public async Task RunAsync_ReturnsExtensionFailureAsChineseError()
+    public async Task RunAsync_NonzeroExitCodePreservesStructuredFailureResponse()
     {
         using var environment = await TestEnvironment.CreateAsync("failure");
 
         var result = await environment.Host.RunAsync(environment.Manifest, environment.Request);
 
         Assert.False(result.Succeeded);
-        Assert.Equal(0, result.ExitCode);
+        Assert.Equal(7, result.ExitCode);
         Assert.Contains("测试分析失败", result.ErrorMessage, StringComparison.Ordinal);
     }
 

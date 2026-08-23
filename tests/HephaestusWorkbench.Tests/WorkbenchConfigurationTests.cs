@@ -23,9 +23,6 @@ public sealed class WorkbenchConfigurationTests
             var dark = await configuration.EnsureAppSettingsAsync();
             Assert.Equal("Dark", dark.Theme);
 
-            await configuration.SaveAppSettingsAsync(new AppSettingsConfig { GitHubDownloadMirrorTemplate = " https://mirror.example/{url} " });
-            var withMirror = await configuration.EnsureAppSettingsAsync();
-            Assert.Equal("https://mirror.example/{url}", withMirror.GitHubDownloadMirrorTemplate);
 
             await File.WriteAllTextAsync(paths.AppSettingsFile, "{\"schemaVersion\":2,\"theme\":\"unknown\",\"cleanupRetentionDays\":30}");
             var normalized = await configuration.EnsureAppSettingsAsync();

@@ -57,20 +57,22 @@ Host 不根据插件版本号推断能力。未声明 `analysis.scope.storage` �
 
 ## 协议与数据
 
-`analysis-process-v1` 请求必须包含 `analysisScope`：
+`analysis-process-v1` 请求字段与 `AnalysisProcessRequest` 严格一致：`protocol`、`requestId`、`caseId`、`sourcePath`、`outputDirectory`、`extractDirectory`、可选 `rulesPath` 和 `scope`。
 
 ```json
 {
-  "protocolVersion": "analysis-process-v1",
+  "protocol": "analysis-process-v1",
   "requestId": "analysis-001",
-  "analysisScope": "comprehensive",
+  "caseId": "case-001",
   "sourcePath": "...",
-  "extractPath": "...",
-  "reportDirectory": ".../Report"
+  "outputDirectory": "...",
+  "extractDirectory": "...",
+  "rulesPath": null,
+  "scope": "comprehensive"
 }
 ```
 
-允许值固定为：
+`scope` 允许值固定为：
 
 - `comprehensive`
 - `storage`

@@ -39,10 +39,8 @@ public sealed class DataPaths
         ConfigDirectory = Path.Combine(StorageRoot, "Config");
         DatabaseFile = Path.Combine(DatabaseDirectory, "workbench.db");
         AppSettingsFile = Path.Combine(ConfigDirectory, "appsettings.json");
-        RulePublisherTokenFile = Path.Combine(ConfigDirectory, "rule-publisher.token");
         ExtensionsConfigFile = Path.Combine(ConfigDirectory, "extensions.json");
         WorkspaceConfigFile = Path.Combine(ConfigDirectory, "workspace.json");
-        MarketplaceCatalogCacheFile = Path.Combine(CacheDirectory, "marketplace-catalog.json");
         ExtensionCatalogCacheFile = Path.Combine(CacheDirectory, "extension-catalog.json");
     }
 
@@ -69,10 +67,8 @@ public sealed class DataPaths
     public string CacheDirectory { get; }
     public string ConfigDirectory { get; }
     public string AppSettingsFile { get; }
-    public string RulePublisherTokenFile { get; }
     public string ExtensionsConfigFile { get; }
     public string WorkspaceConfigFile { get; }
-    public string MarketplaceCatalogCacheFile { get; }
     public string ExtensionCatalogCacheFile { get; }
 
     public string GetCaseDirectory(string caseId) => Path.Combine(CasesDirectory, caseId);

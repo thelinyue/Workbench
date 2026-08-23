@@ -105,7 +105,7 @@ var response = mode switch
 
 if (mode == "failure") await Console.Error.WriteAsync("fixture stderr");
 await Console.Out.WriteAsync(JsonSerializer.Serialize(response));
-Environment.ExitCode = mode == "nonzero" ? 7 : 0;
+Environment.ExitCode = !response.Succeeded || mode == "nonzero" ? 7 : 0;
 
 static async Task WriteMarkerAsync(string path)
 {
