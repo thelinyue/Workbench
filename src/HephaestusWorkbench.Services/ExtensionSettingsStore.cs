@@ -26,14 +26,35 @@ public sealed class ExtensionSettingsStore
 
     public async Task<ExtensionSettingsDocument> EnsureAsync(CancellationToken cancellationToken = default)
     {
-        if (!File.Exists(_paths.ExtensionsConfigFile))
+        await _writeGate.WaitAsync(cancellationToken);
+        try
         {
-            var created = new ExtensionSettingsDocument();
-            await WriteAsync(created, cancellationToken);
-            return created;
+            return await EnsureUnderGateAsync(cancellationToken);
         }
+        finally
+        {
+            _writeGate.Release();
+        }
+    }
 
-        return await ReadAndValidateAsync(cancellationToken);
+    /// <summary>
+    /// 获取启用状态的持锁快照。调用方释放租约前，SetEnabledAsync 必须等待，
+    /// 用于把“读取启用状态、选择扩展、取得版本租约、创建生命周期”串成一个明确顺序。
+    /// </summary>
+    public async Task<ExtensionSettingsSnapshotLease> AcquireSnapshotLeaseAsync(
+        CancellationToken cancellationToken = default)
+    {
+        await _writeGate.WaitAsync(cancellationToken);
+        try
+        {
+            var settings = await EnsureUnderGateAsync(cancellationToken);
+            return new ExtensionSettingsSnapshotLease(settings, () => _writeGate.Release());
+        }
+        catch
+        {
+            _writeGate.Release();
+            throw;
+        }
     }
 
     public async Task SetEnabledAsync(
@@ -69,6 +90,18 @@ public sealed class ExtensionSettingsStore
         {
             _writeGate.Release();
         }
+    }
+
+    private async Task<ExtensionSettingsDocument> EnsureUnderGateAsync(CancellationToken cancellationToken)
+    {
+        if (!File.Exists(_paths.ExtensionsConfigFile))
+        {
+            var created = new ExtensionSettingsDocument();
+            await WriteAsync(created, cancellationToken);
+            return created;
+        }
+
+        return await ReadAndValidateAsync(cancellationToken);
     }
 
     private async Task<ExtensionSettingsDocument> ReadAndValidateAsync(CancellationToken cancellationToken)
@@ -137,5 +170,27 @@ public sealed class ExtensionSettingsStore
 
         foreach (var entry in settings.Extensions)
             entry.Id = entry.Id.Trim();
+    }
+}
+
+/// <summary>
+/// 固定一次协调操作读取到的扩展设置，并在释放时归还 Store 的实例 gate。
+/// 租约只负责顺序协调，不允许调用方据此修改或回写配置。
+/// </summary>
+public sealed class ExtensionSettingsSnapshotLease : IDisposable
+{
+    private Action? _release;
+
+    internal ExtensionSettingsSnapshotLease(ExtensionSettingsDocument settings, Action release)
+    {
+        Settings = settings;
+        _release = release;
+    }
+
+    public ExtensionSettingsDocument Settings { get; }
+
+    public void Dispose()
+    {
+        Interlocked.Exchange(ref _release, null)?.Invoke();
     }
 }

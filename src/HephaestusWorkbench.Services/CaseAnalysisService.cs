@@ -9,7 +9,7 @@ namespace HephaestusWorkbench.Services;
 
 /// <summary>
 /// 串起日志、Case、唯一分析扩展和报告的核心业务服务。UI 只调用该服务，不直接操作文件或进程。
-/// 每次真正执行前从 Registry 租用当前 healthy 版本，确保运行中的任务不会被扩展更新清理。
+/// 生命周期创建前从 Registry 租用选定的 healthy 版本，确保任务不会切换版本且运行版本不会被清理。
 /// </summary>
 public sealed class CaseAnalysisService
 {
@@ -18,6 +18,7 @@ public sealed class CaseAnalysisService
     private readonly IAnalysisTaskRepository _tasks;
     private readonly IReportRepository _reports;
     private readonly ExtensionRegistry _extensions;
+    private readonly ExtensionSettingsStore _extensionSettings;
     private readonly AnalysisProcessHost _processHost;
     private readonly TaskCenter _taskCenter;
     private readonly WorkbenchLogger _logger;
@@ -33,6 +34,7 @@ public sealed class CaseAnalysisService
         IAnalysisTaskRepository tasks,
         IReportRepository reports,
         ExtensionRegistry extensions,
+        ExtensionSettingsStore extensionSettings,
         AnalysisProcessHost processHost,
         TaskCenter taskCenter,
         WorkbenchLogger logger,
@@ -44,6 +46,7 @@ public sealed class CaseAnalysisService
         _tasks = tasks;
         _reports = reports;
         _extensions = extensions ?? throw new ArgumentNullException(nameof(extensions));
+        _extensionSettings = extensionSettings ?? throw new ArgumentNullException(nameof(extensionSettings));
         _processHost = processHost ?? throw new ArgumentNullException(nameof(processHost));
         _taskCenter = taskCenter;
         _logger = logger;
@@ -59,8 +62,17 @@ public sealed class CaseAnalysisService
             return null;
         }
 
+        // 启用状态读取到生命周期创建共用 Store 的实例 gate：禁用先完成时这里会读到禁用；
+        // 分析先取得边界时，禁用必须等待选版、租约和初始生命周期落库结束。
+        using var settingsLease = await _extensionSettings.AcquireSnapshotLeaseAsync(cancellationToken);
+        var extensionSettings = settingsLease.Settings;
+        var disabledIds = extensionSettings.Extensions
+            .Where(entry => !entry.Enabled)
+            .Select(entry => entry.Id)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
         var engines = (await _extensions.LoadAsync(cancellationToken))
-            .Where(IsAnalysisEngine)
+            .Where(extension => IsAnalysisEngine(extension, extensionSettings.DefaultAnalysisCapability))
+            .Where(extension => !disabledIds.Contains(extension.Id))
             .ToArray();
         if (engines.Length == 0)
         {
@@ -72,46 +84,83 @@ public sealed class CaseAnalysisService
             _logger.Error($"检测到多个日志分析引擎（{string.Join("、", engines.Select(x => x.Id))}），已拒绝自动选择。正式版只允许一个活动分析引擎。");
             return null;
         }
-        var engine = engines[0];
 
-        var caseId = Guid.NewGuid().ToString("N");
-        var sourcePath = Path.GetFullPath(item.FilePath);
-        var sourceDirectory = Path.GetDirectoryName(sourcePath) ?? throw new InvalidOperationException("原始日志路径没有父目录。");
-        var extractDirectory = Path.Combine(sourceDirectory, FileUtilities.RemoveAllExtensions(Path.GetFileName(sourcePath)));
-        var now = DateTime.Now;
-        var analysisCase = new AnalysisCase
+        var engine = engines[0];
+        ExtensionVersionLease? selectedLease = null;
+        try
         {
-            Id = caseId,
-            DisplayName = FileUtilities.RemoveAllExtensions(item.FileName),
-            OriginalName = item.FileName,
-            DeviceId = item.DeviceId,
-            LogTime = item.LogTime,
-            Status = CaseStatus.Ready,
-            SourcePath = sourcePath,
-            ExtractPath = extractDirectory,
-            ReportPath = null,
-            CreateTime = now,
-            UpdateTime = now
-        };
-        var task = new AnalysisTask
+            try
+            {
+                selectedLease = _extensions.LeaseCurrentVersion(engine.Id);
+            }
+            catch (InvalidOperationException ex)
+            {
+                _logger.Error($"日志分析扩展 {engine.Id} 在选择后已不可租用，已拒绝创建案例。", ex);
+                return null;
+            }
+
+            // LeaseCurrentVersion 可能观察到选择之后切换的新 current；必须核对具体版本并重新验证执行契约，
+            // 不能把未经本次 capability/runtime/protocol 筛选的 manifest 交给后台。
+            if (!IsSameSelectedVersion(engine, selectedLease.Manifest) ||
+                !IsAnalysisEngine(selectedLease.Manifest, extensionSettings.DefaultAnalysisCapability))
+            {
+                _logger.Error(
+                    $"日志分析扩展 {engine.Id} 在选择后已从 {engine.Version} 切换到 {selectedLease.Version}，已拒绝创建案例。");
+                return null;
+            }
+
+            var caseId = Guid.NewGuid().ToString("N");
+            var sourcePath = Path.GetFullPath(item.FilePath);
+            var sourceDirectory = Path.GetDirectoryName(sourcePath) ?? throw new InvalidOperationException("原始日志路径没有父目录。");
+            var extractDirectory = Path.Combine(sourceDirectory, FileUtilities.RemoveAllExtensions(Path.GetFileName(sourcePath)));
+            var now = DateTime.Now;
+            var analysisCase = new AnalysisCase
+            {
+                Id = caseId,
+                DisplayName = FileUtilities.RemoveAllExtensions(item.FileName),
+                OriginalName = item.FileName,
+                DeviceId = item.DeviceId,
+                LogTime = item.LogTime,
+                Status = CaseStatus.Ready,
+                SourcePath = sourcePath,
+                ExtractPath = extractDirectory,
+                ReportPath = null,
+                CreateTime = now,
+                UpdateTime = now
+            };
+            var task = new AnalysisTask
+            {
+                Id = Guid.NewGuid().ToString("N"),
+                CaseId = caseId,
+                PluginId = selectedLease.Id,
+                Status = AnalysisTaskStatus.Waiting
+            };
+            await _lifecycle.CreateAsync(analysisCase, task, cancellationToken);
+            StateChanged?.Invoke(this, EventArgs.Empty);
+
+            // 生命周期创建成功后把同一个具体版本租约移交后台；后台不得再次读取 current。
+            var executionLease = selectedLease;
+            _ = _taskCenter.EnqueueAsync(task, token => RunAsync(analysisCase, task, executionLease, token));
+            selectedLease = null;
+            return task;
+        }
+        finally
         {
-            Id = Guid.NewGuid().ToString("N"),
-            CaseId = caseId,
-            PluginId = engine.Id,
-            Status = AnalysisTaskStatus.Waiting
-        };
-        await _lifecycle.CreateAsync(analysisCase, task, cancellationToken);
-        StateChanged?.Invoke(this, EventArgs.Empty);
-        _ = _taskCenter.EnqueueAsync(task, token => RunAsync(analysisCase, task, token));
-        return task;
+            selectedLease?.Dispose();
+        }
     }
 
     /// <summary>只有严格 v2 的 analysis/process 引擎能进入自动分析链路，Workspace 页面不会被误执行。</summary>
-    private static bool IsAnalysisEngine(ExtensionManifest extension)
+    private static bool IsAnalysisEngine(ExtensionManifest extension, string requiredCapability)
         => extension.Kind == ExtensionKind.Analysis
            && extension.Runtime.Kind == ExtensionRuntimeKind.Process
            && string.Equals(extension.Runtime.Protocol, AnalysisProcessProtocol.Version, StringComparison.Ordinal)
-           && extension.SupportsCapability("analysis.engine");
+           && extension.SupportsCapability(requiredCapability);
+
+    private static bool IsSameSelectedVersion(ExtensionManifest selected, ExtensionManifest leased)
+        => string.Equals(selected.Id, leased.Id, StringComparison.Ordinal)
+           && string.Equals(selected.Version, leased.Version, StringComparison.Ordinal)
+           && string.Equals(selected.DirectoryPath, leased.DirectoryPath, StringComparison.OrdinalIgnoreCase);
 
     /// <summary>
     /// 提交并等待一次分析完成，供需要立即展示新报告的重新分析操作使用。
@@ -256,9 +305,12 @@ public sealed class CaseAnalysisService
         return Path.GetFullPath(path.Trim());
     }
 
-    private async Task RunAsync(AnalysisCase analysisCase, AnalysisTask task, CancellationToken cancellationToken)
+    private async Task RunAsync(
+        AnalysisCase analysisCase,
+        AnalysisTask task,
+        ExtensionVersionLease lease,
+        CancellationToken cancellationToken)
     {
-        ExtensionVersionLease? lease = null;
         try
         {
             task.Status = AnalysisTaskStatus.Running;
@@ -268,9 +320,8 @@ public sealed class CaseAnalysisService
             await _lifecycle.MarkRunningAsync(analysisCase, task);
             StateChanged?.Invoke(this, EventArgs.Empty);
 
-            // 租约从实际运行开始持续到最终状态落库完成。扩展中心可以切换 current，
+            // 租约从生命周期创建前持续到最终状态落库完成。扩展中心可以切换 current，
             // 但正常完成和异常补偿落库都结束前，不能清理这里固定的版本目录。
-            lease = _extensions.LeaseCurrentVersion(task.PluginId);
             var request = new AnalysisProcessRequest
             {
                 Protocol = AnalysisProcessProtocol.Version,
@@ -338,6 +389,6 @@ public sealed class CaseAnalysisService
         }
         finally
         {
-            lease?.Dispose();
+            lease.Dispose();
         }
     }}

@@ -50,6 +50,22 @@ public sealed class CaseAnalysisExtensionRuntimeTests
     }
 
     [Fact]
+    public async Task StartAsync_WhenAnalysisEngineIsDisabled_DoesNotCreateLifecycle()
+    {
+        await using var environment = await TestEnvironment.CreateAsync(
+            AnalysisExtensionTestSupport.Process());
+        await environment.ExtensionSettings.SetEnabledAsync(AnalysisExtensionTestSupport.ExtensionId, false);
+        var log = Path.Combine(environment.Root, "disabled.tgz");
+        await File.WriteAllTextAsync(log, "success");
+
+        var task = await environment.Analysis.StartAsync(ValidItem(log));
+
+        Assert.Null(task);
+        Assert.Empty(await environment.Cases.ListAsync());
+        Assert.Empty(await environment.Tasks.ListAsync());
+    }
+
+    [Fact]
     public async Task StartAsync_WhenMultipleAnalysisEnginesExist_RejectsAmbiguousSelection()
     {
         await using var environment = await TestEnvironment.CreateAsync(
@@ -63,6 +79,61 @@ public sealed class CaseAnalysisExtensionRuntimeTests
         Assert.Null(task);
         Assert.Empty(await environment.Cases.ListAsync());
         Assert.Empty(await environment.Tasks.ListAsync());
+    }
+
+    [Fact]
+    public async Task StartAsync_WhenDisableIsRequestedDuringLifecycleCreation_DisableWaitsForCreate()
+    {
+        BlockingCreateLifecycleRepository? lifecycle = null;
+        await using var environment = await TestEnvironment.CreateAsync(
+            (_, _, inner) => lifecycle = new BlockingCreateLifecycleRepository(inner),
+            AnalysisExtensionTestSupport.Process());
+        var log = Path.Combine(environment.Root, "disable-race.tgz");
+        await File.WriteAllTextAsync(log, "success");
+
+        var start = environment.Analysis.StartAsync(ValidItem(log));
+        await lifecycle!.CreateEntered.Task;
+        var disable = environment.ExtensionSettings.SetEnabledAsync(
+            AnalysisExtensionTestSupport.ExtensionId,
+            false);
+
+        Assert.False(disable.IsCompleted);
+        lifecycle.AllowCreate.SetResult(null);
+        var task = await start;
+        await disable;
+
+        Assert.NotNull(task);
+        Assert.Single(await environment.Cases.ListAsync());
+        Assert.False(Assert.Single((await environment.ExtensionSettings.EnsureAsync()).Extensions).Enabled);
+    }
+
+    [Fact]
+    public async Task StartAndWaitAsync_WhenCurrentSwitchesAfterSelection_ExecutesSelectedFilteredVersion()
+    {
+        BlockingCreateLifecycleRepository? lifecycle = null;
+        await using var environment = await TestEnvironment.CreateAsync(
+            (_, _, inner) => lifecycle = new BlockingCreateLifecycleRepository(inner),
+            AnalysisExtensionTestSupport.Process(version: "3.0.0", capabilities: ["workspace.page"]),
+            AnalysisExtensionTestSupport.Process(version: "2.0.0"));
+        var log = Path.Combine(environment.Root, "version-switch.tgz");
+        await File.WriteAllTextAsync(log, "success");
+
+        var analysis = environment.Analysis.StartAndWaitAsync(ValidItem(log));
+        await lifecycle!.CreateEntered.Task;
+        AnalysisExtensionTestSupport.WriteCurrent(
+            environment.Paths,
+            AnalysisExtensionTestSupport.ExtensionId,
+            "3.0.0");
+        await environment.Registry.LoadAsync();
+        lifecycle.AllowCreate.SetResult(null);
+
+        var task = await analysis;
+
+        Assert.NotNull(task);
+        Assert.Equal(AnalysisTaskStatus.Completed, task.Status);
+        var report = await environment.Reports.GetByCaseIdAsync(task.CaseId);
+        Assert.NotNull(report);
+        Assert.Equal("2.0.0", report.PluginVersion);
     }
 
     [Fact]
@@ -155,6 +226,45 @@ public sealed class CaseAnalysisExtensionRuntimeTests
     }
 
     /// <summary>
+    /// 在生命周期创建边界暂停分析，精确控制 manifest 选中后、后台执行前的版本切换时序。
+    /// </summary>
+    private sealed class BlockingCreateLifecycleRepository(IAnalysisLifecycleRepository inner)
+        : IAnalysisLifecycleRepository
+    {
+        public TaskCompletionSource<object?> CreateEntered { get; } = new(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public TaskCompletionSource<object?> AllowCreate { get; } = new(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public async Task CreateAsync(
+            AnalysisCase analysisCase,
+            AnalysisTask task,
+            CancellationToken cancellationToken = default)
+        {
+            CreateEntered.SetResult(null);
+            await AllowCreate.Task.WaitAsync(cancellationToken);
+            await inner.CreateAsync(analysisCase, task, cancellationToken);
+        }
+
+        public Task MarkRunningAsync(AnalysisCase analysisCase, AnalysisTask task, CancellationToken cancellationToken = default)
+            => inner.MarkRunningAsync(analysisCase, task, cancellationToken);
+
+        public Task CompleteAsync(
+            AnalysisCase analysisCase,
+            AnalysisTask task,
+            Report? report,
+            CancellationToken cancellationToken = default)
+            => inner.CompleteAsync(analysisCase, task, report, cancellationToken);
+
+        public Task DeleteByCaseIdsAsync(IReadOnlyCollection<string> caseIds, CancellationToken cancellationToken = default)
+            => inner.DeleteByCaseIdsAsync(caseIds, cancellationToken);
+
+        public Task<int> RecoverInterruptedAsync(DateTime recoveredAt, CancellationToken cancellationToken = default)
+            => inner.RecoverInterruptedAsync(recoveredAt, cancellationToken);
+    }
+
+    /// <summary>
     /// 首次完成事务失败后记录异常补偿落库期间旧版本是否仍受租约保护，
     /// 用于覆盖“进程结束但最终状态尚未落库”的关键生命周期窗口。
     /// </summary>
@@ -215,6 +325,7 @@ public sealed class CaseAnalysisExtensionRuntimeTests
         public string Root { get; }
         public DataPaths Paths { get; private init; } = null!;
         public ExtensionRegistry Registry { get; private init; } = null!;
+        public ExtensionSettingsStore ExtensionSettings { get; private init; } = null!;
         public SqliteCaseRepository Cases { get; }
         public SqliteTaskRepository Tasks { get; }
         public SqliteReportRepository Reports { get; }
@@ -237,6 +348,7 @@ public sealed class CaseAnalysisExtensionRuntimeTests
             var reports = new SqliteReportRepository(factory);
             var logger = new WorkbenchLogger(root);
             var registry = await AnalysisExtensionTestSupport.CreateRegistryAsync(paths, extensions);
+            var extensionSettings = new ExtensionSettingsStore(paths);
             IAnalysisLifecycleRepository lifecycle = new SqliteAnalysisLifecycleRepository(factory);
             if (decorateLifecycle is not null)
                 lifecycle = decorateLifecycle(paths, registry, lifecycle);
@@ -246,6 +358,7 @@ public sealed class CaseAnalysisExtensionRuntimeTests
                 tasks,
                 reports,
                 registry,
+                extensionSettings,
                 new AnalysisProcessHost(logger),
                 new TaskCenter(tasks),
                 logger,
@@ -254,7 +367,8 @@ public sealed class CaseAnalysisExtensionRuntimeTests
             return new TestEnvironment(root, cases, tasks, reports, analysis)
             {
                 Paths = paths,
-                Registry = registry
+                Registry = registry,
+                ExtensionSettings = extensionSettings
             };
         }
 

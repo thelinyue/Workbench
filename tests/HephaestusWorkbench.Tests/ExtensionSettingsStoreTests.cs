@@ -38,6 +38,41 @@ public sealed class ExtensionSettingsStoreTests
     }
 
     [Fact]
+    public async Task AcquireSnapshotLeaseAsync_BlocksEnablementMutationUntilReleased()
+    {
+        using var environment = new TestEnvironment();
+        await environment.Store.SetEnabledAsync("log-analyzer", true);
+        var leaseAcquired = new TaskCompletionSource<ExtensionSettingsSnapshotLease>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseLease = new TaskCompletionSource<object?>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var holder = Task.Run(async () =>
+        {
+            using var lease = await environment.Store.AcquireSnapshotLeaseAsync();
+            leaseAcquired.SetResult(lease);
+            await releaseLease.Task;
+        });
+        await leaseAcquired.Task;
+
+        using var cancellation = new CancellationTokenSource();
+        var disable = environment.Store.SetEnabledAsync("log-analyzer", false, cancellation.Token);
+        cancellation.Cancel();
+
+        try
+        {
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(() => disable);
+        }
+        finally
+        {
+            releaseLease.TrySetResult(null);
+            await holder;
+        }
+
+        var settings = await environment.Store.EnsureAsync();
+        Assert.True(Assert.Single(settings.Extensions).Enabled);
+    }
+
+    [Fact]
     public async Task EnsureAsync_RejectsUnknownOrLegacyFields()
     {
         using var environment = new TestEnvironment();
