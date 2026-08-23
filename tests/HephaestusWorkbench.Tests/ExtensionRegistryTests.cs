@@ -1,0 +1,239 @@
+using System.Text.Json;
+using HephaestusWorkbench.PluginSDK;
+using HephaestusWorkbench.Services;
+
+namespace HephaestusWorkbench.Tests;
+
+public sealed class ExtensionRegistryTests
+{
+    [Fact]
+    public async Task LoadAsync_LoadsOnlyHealthyCurrentVersion()
+    {
+        using var layout = new ExtensionTestLayout();
+        layout.WriteManifest("sample", "1.0.0");
+        layout.WriteCurrent("sample", "1.0.0", ExtensionTestLayout.HashA, ExtensionActivationState.Healthy);
+        var registry = new ExtensionRegistry(layout.ExtensionsRoot, new StubHealthChecker());
+
+        var active = await registry.LoadAsync();
+
+        var manifest = Assert.Single(active);
+        Assert.Equal("sample", manifest.Id);
+        Assert.Equal("1.0.0", manifest.Version);
+        Assert.Empty(registry.Issues);
+    }
+
+    [Fact]
+    public async Task LoadAsync_DoesNotRecursivelyLoadOrphanManifest()
+    {
+        using var layout = new ExtensionTestLayout();
+        layout.WriteManifest("orphan", "1.0.0");
+        var registry = new ExtensionRegistry(layout.ExtensionsRoot, new StubHealthChecker());
+
+        var active = await registry.LoadAsync();
+
+        Assert.Empty(active);
+        Assert.Empty(registry.Issues);
+    }
+
+    [Fact]
+    public async Task LoadAsync_WhenCurrentIsPending_RestoresValidBackup()
+    {
+        using var layout = new ExtensionTestLayout();
+        layout.WriteManifest("sample", "1.0.0");
+        layout.WriteManifest("sample", "2.0.0");
+        layout.WriteCurrent("sample", "2.0.0", ExtensionTestLayout.HashB, ExtensionActivationState.Pending);
+        layout.WriteBackup("sample", "1.0.0", ExtensionTestLayout.HashA, ExtensionActivationState.Healthy);
+        var registry = new ExtensionRegistry(layout.ExtensionsRoot, new StubHealthChecker());
+
+        var active = await registry.LoadAsync();
+
+        Assert.Equal("1.0.0", Assert.Single(active).Version);
+        var restored = ExtensionCurrentParser.Parse(await File.ReadAllTextAsync(layout.CurrentPath("sample")));
+        Assert.Equal("1.0.0", restored.Version);
+        Assert.Equal(ExtensionActivationState.Healthy, restored.State);
+        Assert.True(Directory.Exists(layout.VersionDirectory("sample", "2.0.0")));
+    }
+
+    [Fact]
+    public async Task LoadAsync_WhenPendingHasNoValidBackup_SkipsExtensionAndReportsChineseIssue()
+    {
+        using var layout = new ExtensionTestLayout();
+        layout.WriteManifest("sample", "2.0.0");
+        layout.WriteCurrent("sample", "2.0.0", ExtensionTestLayout.HashB, ExtensionActivationState.Pending);
+        var registry = new ExtensionRegistry(layout.ExtensionsRoot, new StubHealthChecker());
+
+        var active = await registry.LoadAsync();
+
+        Assert.Empty(active);
+        Assert.Contains(registry.Issues, issue =>
+            issue.Contains("待验证", StringComparison.Ordinal) &&
+            issue.Contains("回滚", StringComparison.Ordinal));
+        Assert.True(Directory.Exists(layout.VersionDirectory("sample", "2.0.0")));
+    }
+
+    [Fact]
+    public async Task ActivateAsync_HealthCheckSucceeds_WritesPendingThenHealthy()
+    {
+        using var layout = new ExtensionTestLayout();
+        layout.WriteManifest("sample", "1.0.0");
+        layout.WriteManifest("sample", "2.0.0");
+        layout.WriteCurrent("sample", "1.0.0", ExtensionTestLayout.HashA, ExtensionActivationState.Healthy);
+        var observedPending = false;
+        var checker = new StubHealthChecker(async (_, _) =>
+        {
+            var pending = ExtensionCurrentParser.Parse(await File.ReadAllTextAsync(layout.CurrentPath("sample")));
+            observedPending = pending.State == ExtensionActivationState.Pending && pending.Version == "2.0.0";
+        });
+        var registry = new ExtensionRegistry(layout.ExtensionsRoot, checker);
+        await registry.LoadAsync();
+
+        var activated = await registry.ActivateAsync("sample", "2.0.0", ExtensionTestLayout.HashB);
+
+        Assert.True(observedPending);
+        Assert.Equal("2.0.0", activated.Version);
+        var current = ExtensionCurrentParser.Parse(await File.ReadAllTextAsync(layout.CurrentPath("sample")));
+        var backup = ExtensionCurrentParser.Parse(await File.ReadAllTextAsync(layout.BackupPath("sample")));
+        Assert.Equal(ExtensionActivationState.Healthy, current.State);
+        Assert.Equal("2.0.0", current.Version);
+        Assert.Equal("1.0.0", backup.Version);
+        Assert.Equal("2.0.0", registry.LeaseCurrentVersion("sample").Version);
+    }
+
+    [Fact]
+    public async Task ActivateAsync_HealthCheckFails_RestoresBackup()
+    {
+        using var layout = new ExtensionTestLayout();
+        layout.WriteManifest("sample", "1.0.0");
+        layout.WriteManifest("sample", "2.0.0");
+        layout.WriteCurrent("sample", "1.0.0", ExtensionTestLayout.HashA, ExtensionActivationState.Healthy);
+        var registry = new ExtensionRegistry(layout.ExtensionsRoot, new StubHealthChecker((_, _) =>
+            throw new InvalidOperationException("正式加载失败")));
+        await registry.LoadAsync();
+
+        var error = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            registry.ActivateAsync("sample", "2.0.0", ExtensionTestLayout.HashB));
+
+        Assert.Contains("激活", error.Message, StringComparison.Ordinal);
+        Assert.Contains("回滚", error.Message, StringComparison.Ordinal);
+        var current = ExtensionCurrentParser.Parse(await File.ReadAllTextAsync(layout.CurrentPath("sample")));
+        Assert.Equal("1.0.0", current.Version);
+        Assert.Equal(ExtensionActivationState.Healthy, current.State);
+        using var lease = registry.LeaseCurrentVersion("sample");
+        Assert.Equal("1.0.0", lease.Version);
+    }
+
+    [Fact]
+    public async Task ActivateAsync_SameIdAndVersionWithDifferentHash_IsRejected()
+    {
+        using var layout = new ExtensionTestLayout();
+        layout.WriteManifest("sample", "1.0.0");
+        layout.WriteCurrent("sample", "1.0.0", ExtensionTestLayout.HashA, ExtensionActivationState.Healthy);
+        var checker = new StubHealthChecker();
+        var registry = new ExtensionRegistry(layout.ExtensionsRoot, checker);
+
+        var error = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            registry.ActivateAsync("sample", "1.0.0", ExtensionTestLayout.HashB));
+
+        Assert.Contains("相同扩展版本", error.Message, StringComparison.Ordinal);
+        Assert.Contains("SHA-256", error.Message, StringComparison.Ordinal);
+        Assert.Equal(0, checker.CallCount);
+        var current = ExtensionCurrentParser.Parse(await File.ReadAllTextAsync(layout.CurrentPath("sample")));
+        Assert.Equal(ExtensionTestLayout.HashA, current.PackageSha256);
+    }
+
+    private sealed class StubHealthChecker : IExtensionHealthChecker
+    {
+        private readonly Func<ExtensionManifest, CancellationToken, Task>? _check;
+
+        public StubHealthChecker(Func<ExtensionManifest, CancellationToken, Task>? check = null)
+        {
+            _check = check;
+        }
+
+        public int CallCount { get; private set; }
+
+        public async Task CheckAsync(ExtensionManifest manifest, CancellationToken cancellationToken = default)
+        {
+            CallCount++;
+            if (_check is not null)
+                await _check(manifest, cancellationToken);
+        }
+    }
+}
+
+internal sealed class ExtensionTestLayout : IDisposable
+{
+    public const string HashA = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+    public const string HashB = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+
+    private readonly string _root = Path.Combine(
+        Path.GetTempPath(),
+        "HephaestusWorkbenchTests",
+        Guid.NewGuid().ToString("N"));
+
+    public ExtensionTestLayout()
+    {
+        ExtensionsRoot = Path.Combine(_root, "Extensions");
+        Directory.CreateDirectory(ExtensionsRoot);
+    }
+
+    public string ExtensionsRoot { get; }
+
+    public string VersionDirectory(string id, string version) => Path.Combine(ExtensionsRoot, id, version);
+
+    public string CurrentPath(string id) => Path.Combine(ExtensionsRoot, id, "current.json");
+
+    public string BackupPath(string id) => Path.Combine(ExtensionsRoot, id, "current.json.bak");
+
+    public void WriteManifest(string id, string version)
+    {
+        var directory = VersionDirectory(id, version);
+        Directory.CreateDirectory(directory);
+        File.WriteAllText(Path.Combine(directory, "manifest.json"), $$"""
+            {
+              "schemaVersion": 2,
+              "id": "{{id}}",
+              "name": "测试扩展",
+              "version": "{{version}}",
+              "kind": "analysis",
+              "publisherId": "thelinyue",
+              "hostApiVersion": "1.0",
+              "minHostVersion": "2.0.0",
+              "runtime": { "kind": "content" },
+              "capabilities": ["analysis.rule-pack"],
+              "permissions": [],
+              "dependencies": []
+            }
+            """);
+    }
+
+    public void WriteCurrent(string id, string version, string hash, ExtensionActivationState state)
+        => WriteCurrentDocument(CurrentPath(id), id, version, hash, state);
+
+    public void WriteBackup(string id, string version, string hash, ExtensionActivationState state)
+        => WriteCurrentDocument(BackupPath(id), id, version, hash, state);
+
+    private static void WriteCurrentDocument(
+        string path,
+        string id,
+        string version,
+        string hash,
+        ExtensionActivationState state)
+    {
+        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        File.WriteAllText(path, JsonSerializer.Serialize(new ExtensionCurrentDocument
+        {
+            SchemaVersion = 2,
+            Id = id,
+            Version = version,
+            PackageSha256 = hash,
+            State = state
+        }));
+    }
+
+    public void Dispose()
+    {
+        if (Directory.Exists(_root))
+            Directory.Delete(_root, recursive: true);
+    }
+}
