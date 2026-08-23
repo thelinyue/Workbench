@@ -43,7 +43,7 @@ public sealed class LegacyLogAnalyzerRunnerTests
 
             Assert.Equal(0, result.ExitCode);
             Assert.Equal(outputDirectory, result.ReportPath);
-            Assert.True(File.Exists(Path.Combine(outputDirectory, "report.html")));
+            Assert.True(File.Exists(Path.Combine(outputDirectory, "index.html")));
             Assert.True(File.Exists(Path.Combine(inputDirectory, "sample.log")));
             Assert.False(Directory.Exists(context.ExtractPath));
         }

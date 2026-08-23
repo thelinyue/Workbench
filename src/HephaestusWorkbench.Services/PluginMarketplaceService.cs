@@ -77,7 +77,6 @@ public sealed partial class PluginMarketplaceService
     private readonly WorkbenchConfigurationService _configuration;
     private readonly TaskCenter _tasks;
     private readonly WorkbenchLogger _logger;
-    private readonly IPluginInfoRepository? _pluginInfo;
     private readonly HttpClient _http;
     private readonly JsonSerializerOptions _jsonOptions = new()
     {
@@ -91,7 +90,6 @@ public sealed partial class PluginMarketplaceService
         WorkbenchConfigurationService configuration,
         TaskCenter tasks,
         WorkbenchLogger logger,
-        IPluginInfoRepository? pluginInfo = null,
         HttpClient? httpClient = null)
     {
         _paths = paths;
@@ -99,7 +97,6 @@ public sealed partial class PluginMarketplaceService
         _configuration = configuration;
         _tasks = tasks;
         _logger = logger;
-        _pluginInfo = pluginInfo;
         _http = httpClient ?? new HttpClient { Timeout = DefaultHttpTimeout };
     }
 
@@ -134,9 +131,9 @@ public sealed partial class PluginMarketplaceService
         var wasManual = existingConfig?.Source == PluginInstallSource.Manual;
 
         var packagePath = Path.Combine(_paths.TempDirectory, $"plugin-{Guid.NewGuid():N}.zip");
-        var staging = Path.Combine(_paths.PluginsDirectory, $".install-{Guid.NewGuid():N}");
-        var target = Path.Combine(_paths.PluginsDirectory, item.Id);
-        var backup = Path.Combine(_paths.PluginsDirectory, $".backup-{item.Id}-{Guid.NewGuid():N}");
+        var staging = Path.Combine(_paths.ExtensionsDirectory, $".install-{Guid.NewGuid():N}");
+        var target = Path.Combine(_paths.ExtensionsDirectory, item.Id);
+        var backup = Path.Combine(_paths.ExtensionsDirectory, $".backup-{item.Id}-{Guid.NewGuid():N}");
         var swapped = false;
         try
         {
@@ -215,7 +212,7 @@ public sealed partial class PluginMarketplaceService
         if (string.Equals(config.DefaultPluginId, pluginId, StringComparison.OrdinalIgnoreCase))
             throw new InvalidOperationException("默认插件不能卸载，请先选择其他默认插件。");
 
-        var directory = Path.Combine(_paths.PluginsDirectory, pluginId);
+        var directory = Path.Combine(_paths.ExtensionsDirectory, pluginId);
         if (Directory.Exists(directory)) Directory.Delete(directory, recursive: true);
         config.Plugins.Remove(entry);
         await _configuration.SavePluginConfigAsync(config, cancellationToken);
@@ -262,19 +259,6 @@ public sealed partial class PluginMarketplaceService
                 config.Plugins.Add(entry);
             }
             else entry.Version = plugin.Version;
-            if (_pluginInfo is not null)
-            {
-                await _pluginInfo.UpsertAsync(new PluginInfo
-                {
-                    Id = plugin.Id,
-                    Name = plugin.Name,
-                    Version = plugin.Version,
-                    Type = plugin.Type.ToString(),
-                    Path = plugin.DirectoryPath,
-                    Entry = plugin.Entry,
-                    Enabled = entry.Enabled
-                }, cancellationToken);
-            }
         }
         var defaultManifest = installed.FirstOrDefault(x => string.Equals(x.Id, config.DefaultPluginId, StringComparison.OrdinalIgnoreCase));
         if (defaultManifest?.Supports("standalone-tool") == true || string.IsNullOrWhiteSpace(config.DefaultPluginId))

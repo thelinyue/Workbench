@@ -97,7 +97,7 @@ public sealed class MarketplacePluginsViewModel : ViewModelBase
         SetDefaultCommand = new DelegateCommand(value => _ = SetDefaultAsync((InstalledPluginItem)value!), value => !IsBusy && value is InstalledPluginItem item && item.CanSetDefault);
         ToggleEnabledCommand = new DelegateCommand(value => _ = ToggleEnabledAsync((InstalledPluginItem)value!), value => !IsBusy && value is InstalledPluginItem item && !(item.IsDefault && item.Enabled));
         UninstallCommand = new DelegateCommand(value => _ = UninstallAsync((InstalledPluginItem)value!), value => !IsBusy && value is InstalledPluginItem item && item.CanUninstall);
-        OpenPluginDirectoryCommand = new DelegateCommand(() => OpenPath(_catalog.PluginsDirectory, true));
+        OpenPluginDirectoryCommand = new DelegateCommand(() => OpenPath(_catalog.ExtensionsDirectory, true));
         OpenDocumentationCommand = new DelegateCommand(() => OpenPath(Path.Combine(AppContext.BaseDirectory, "Documentation", "plugin-development.md"), false));
         UseRuleEditorCommand = new DelegateCommand(value => UseRuleEditor((InstalledPluginItem)value!), value => !IsBusy && value is InstalledPluginItem item && item.IsRuleEditor);
         LaunchToolCommand = new DelegateCommand(value => LaunchTool((InstalledPluginItem)value!), value => !IsBusy && value is InstalledPluginItem item && item.IsStandaloneTool && item.Enabled);

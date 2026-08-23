@@ -10,4 +10,5 @@ public sealed class Report
     public string? PluginName { get; init; }
     public string? PluginVersion { get; init; }
     public DateTime CreateTime { get; init; }
+    public DateTime? LastOpenedAt { get; init; }
 }

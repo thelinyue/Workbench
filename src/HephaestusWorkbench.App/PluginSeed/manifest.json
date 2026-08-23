@@ -5,6 +5,5 @@
   "type": "Exe",
   "entry": "log_analyzer.exe",
   "runner": "legacy-log-analyzer",
-  "reportPath": "report/report.html",
   "capabilities": ["analysis"]
 }

@@ -1,4 +1,3 @@
-using System.Collections.ObjectModel;
 using HephaestusWorkbench.Core.Models;
 using HephaestusWorkbench.Services;
 using System.Windows.Input;
@@ -21,43 +20,23 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
         _inbox = inbox;
         _plugins = plugins;
         _directoryOpen = new DirectoryOpenService(logger);
-        NavigationItems = new ObservableCollection<NavigationItem>
-        {
-            new("dashboard", "首页", "\uE80F"),
-            new("analysis", "分析中心", "\uE896"),
-            new("plugins", "应用中心", "\uECAA"),
-            new("settings", "设置", "\uE713")
-        };
-        var reportWorkspace = new ReportsWorkspaceViewModel(reports, settings, OpenExtractDirectory, logger);
-        AnalysisCenter = new AnalysisCenterViewModel(inbox, analysis, reports, storage, settings, reportWorkspace, OpenExtractDirectory, logger);
-        TaskPanel = new TaskPanelViewModel(analysis, OpenCase);
-        OpenGlobalWarningCommand = new DelegateCommand(() => SelectNavigation("plugins"));
-        Dashboard = new DashboardViewModel(
-            analysis,
-            storage,
-            inbox,
-            () => SelectNavigation("analysis"),
-            () => SelectNavigation("analysis"),
-            OpenSettings,
-            OpenQuickReportAsync,
-            OpenExtractDirectory,
-            logger,
-            () => TaskPanel.ToggleCommand.Execute(null));
-        Settings = new SettingsViewModel(settings, inbox, () => AnalysisCenter.Reports.OpenTabCount, applyTheme);
+        NavigationSections = ShellNavigation.CreateFixed();
+        AnalysisCenter = new AnalysisCenterViewModel(inbox, analysis, reports, OpenExtractDirectory, logger);
+        SshTerminal = new SshTerminalViewModel();
+        OpenGlobalWarningCommand = new DelegateCommand(() => SelectNavigation("extensions"));
+        Settings = new SettingsViewModel(settings, inbox, applyTheme);
         Plugins = new MarketplacePluginsViewModel(plugins, marketplace, settings, logger, rules, ruleDistribution, new HttpRulePublisher(Environment.GetEnvironmentVariable("HEPHAESTUS_RULE_PUBLISH_URL"), Environment.GetEnvironmentVariable("HEPHAESTUS_RULE_PUBLISH_TOKEN"), logger, protectedTokenPath: rules.RulePublisherTokenPath));
-        _selectedNavigationItem = NavigationItems[0];
-        _currentPage = Dashboard;
+        _selectedNavigationItem = FindNavigation("analysis");
+        _currentPage = AnalysisCenter;
         UpdateStatusMessage();
         _inbox.ConfigurationChanged += OnConfigurationChanged;
-        AnalysisCenter.Reports.PropertyChanged += OnReportWorkspacePropertyChanged;
         Plugins.StateChanged += OnPluginStateChanged;
         logger.MessageWritten += OnLogMessage;
     }
 
-    public ObservableCollection<NavigationItem> NavigationItems { get; }
-    public DashboardViewModel Dashboard { get; }
+    public IReadOnlyList<NavigationSection> NavigationSections { get; }
     public AnalysisCenterViewModel AnalysisCenter { get; }
-    public TaskPanelViewModel TaskPanel { get; }
+    public SshTerminalViewModel SshTerminal { get; }
     public SettingsViewModel Settings { get; }
     public MarketplacePluginsViewModel Plugins { get; }
     public string GlobalWarningText { get => _globalWarningText; private set { if (SetProperty(ref _globalWarningText, value)) OnPropertyChanged(nameof(HasGlobalWarning)); } }
@@ -76,10 +55,10 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
             CurrentPage = value.Key switch
             {
                 "analysis" => AnalysisCenter,
-
-                "plugins" => Plugins,
+                "ssh" => SshTerminal,
+                "extensions" => Plugins,
                 "settings" => Settings,
-                _ => Dashboard
+                _ => AnalysisCenter
             };
         }
     }
@@ -95,34 +74,18 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
         }
     }
     public string PageTitle => SelectedNavigationItem?.Title ?? "Hephaestus工作台";
-    public string PageContext => SelectedNavigationItem?.Key is "analysis"
-        && !AnalysisCenter.Reports.IsAnalysisListVisible
-        && AnalysisCenter.Reports.SelectedTab is not null
-        ? $"· {AnalysisCenter.Reports.SelectedTab.Title}"
-        : string.Empty;
+    public string PageContext => string.Empty;
 
     public async Task InitializeAsync()
     {
         await AnalysisCenter.InitializeAsync();
-        await TaskPanel.LoadAsync();
         await RefreshGlobalWarningAsync();
     }
 
-    private async Task<bool> OpenQuickReportAsync(string caseId)
-    {
-        var opened = await AnalysisCenter.OpenCaseReportAsync(caseId);
-        if (opened) SelectNavigation("analysis");
-        return opened;
-    }
-
-    private void OpenCase(string caseId)
-    {
-        SelectedNavigationItem = NavigationItems.First(x => x.Key == "analysis");
-        _ = AnalysisCenter.SelectCaseAsync(caseId);
-    }
-
-    private void OpenSettings() => SelectedNavigationItem = NavigationItems.First(x => x.Key == "settings");
-    private void SelectNavigation(string key) => SelectedNavigationItem = NavigationItems.First(x => x.Key == key);
+    private void OpenSettings() => SelectedNavigationItem = FindNavigation("settings");
+    private void SelectNavigation(string key) => SelectedNavigationItem = FindNavigation(key);
+    private NavigationItem FindNavigation(string key)
+        => NavigationSections.SelectMany(section => section.Items).First(item => item.Key == key);
 
     private void OpenExtractDirectory(string path)
     {
@@ -134,12 +97,6 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
     private void OnConfigurationChanged(object? sender, EventArgs e) => RunOnUi(UpdateStatusMessage);
     private void OnLogMessage(object? sender, string message) => RunOnUi(() => { StatusMessage = message; OnPropertyChanged(nameof(StatusMessage)); });
     private void OnPluginStateChanged(object? sender, EventArgs e) => RunOnUi(() => _ = RefreshGlobalWarningAsync());
-    private void OnReportWorkspacePropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
-    {
-        if (e.PropertyName is not (nameof(ReportsWorkspaceViewModel.SelectedTab) or nameof(ReportsWorkspaceViewModel.IsAnalysisListVisible))) return;
-        RunOnUi(() => OnPropertyChanged(nameof(PageContext)));
-    }
-
     private async Task RefreshGlobalWarningAsync()
     {
         try
@@ -165,10 +122,7 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
     public void Dispose()
     {
         _inbox.ConfigurationChanged -= OnConfigurationChanged;
-        AnalysisCenter.Reports.PropertyChanged -= OnReportWorkspacePropertyChanged;
         Plugins.StateChanged -= OnPluginStateChanged;
-        Dashboard.Dispose();
-        TaskPanel.Dispose();
         AnalysisCenter.Dispose();
     }
 }

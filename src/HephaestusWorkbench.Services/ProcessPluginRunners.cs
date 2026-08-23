@@ -65,10 +65,10 @@ public sealed class StandardExePluginRunner : IPluginRunner
                 cancellationToken);
             if (result.ExitCode != 0)
                 return new PluginExecutionResult(result.ExitCode, null, string.IsNullOrWhiteSpace(result.StandardError) ? "标准分析插件返回失败退出码。" : result.StandardError.Trim());
-            var report = Path.Combine(context.OutputPath, "report.html");
+            var report = Path.Combine(context.OutputPath, "index.html");
             return File.Exists(report)
                 ? new PluginExecutionResult(0, context.OutputPath, null)
-                : new PluginExecutionResult(0, null, "插件执行成功，但没有生成 report.html。");
+                : new PluginExecutionResult(0, null, "插件执行成功，但没有生成 Report/index.html。");
         }
         catch (OperationCanceledException)
         {
@@ -104,9 +104,9 @@ public sealed class LegacyLogAnalyzerRunner : IPluginRunner
             if (result.ExitCode != 0)
                 return new PluginExecutionResult(result.ExitCode, null, string.IsNullOrWhiteSpace(result.StandardError) ? "日志分析插件执行失败。" : result.StandardError.Trim());
 
-            var generatedReport = Path.Combine(context.OutputPath, "report.html");
+            var generatedReport = Path.Combine(context.OutputPath, "index.html");
             if (!File.Exists(generatedReport))
-                return new PluginExecutionResult(result.ExitCode, null, "日志分析完成，但未找到指定输出目录中的 report.html。");
+                return new PluginExecutionResult(result.ExitCode, null, "日志分析完成，但未找到指定输出目录中的 Report/index.html。");
 
             _logger.Info($"日志分析插件完成：{context.CaseId}");
             return new PluginExecutionResult(0, context.OutputPath, null);

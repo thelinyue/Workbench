@@ -41,6 +41,32 @@ public sealed class DelegateCommand : ICommand
 
 public sealed record NavigationItem(string Key, string Title, string Icon);
 
+/// <summary>Shell 左侧导航的固定分组，扩展不能向该集合动态注册页面。</summary>
+public sealed record NavigationSection(string Title, IReadOnlyList<NavigationItem> Items);
+
+/// <summary>
+/// 创建 v2.0.0 固定导航。导航由 Host 编译期定义，manifest 不参与位置、顺序或默认页面决策。
+/// </summary>
+public static class ShellNavigation
+{
+    public static IReadOnlyList<NavigationSection> CreateFixed() =>
+    [
+        new("工作",
+        [
+            new NavigationItem("analysis", "分析中心", "\uE896"),
+            new NavigationItem("ssh", "SSH 终端", "\uE756")
+        ]),
+        new("扩展",
+        [
+            new NavigationItem("extensions", "扩展中心", "\uECAA")
+        ]),
+        new("系统",
+        [
+            new NavigationItem("settings", "设置", "\uE713")
+        ])
+    ];
+}
+
 public static class ViewModelFormatting
 {
     public static string Size(long bytes)

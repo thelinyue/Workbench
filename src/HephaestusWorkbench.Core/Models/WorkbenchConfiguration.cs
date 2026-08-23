@@ -1,3 +1,5 @@
+using System.Text.Json.Serialization;
+
 namespace HephaestusWorkbench.Core.Models;
 
 /// <summary>
@@ -6,6 +8,9 @@ namespace HephaestusWorkbench.Core.Models;
 /// </summary>
 public sealed class WorkspaceConfig
 {
+    [JsonPropertyName("schemaVersion")]
+    public int SchemaVersion { get; set; } = 2;
+
     public string DataPath { get; set; } = string.Empty;
     public List<string> MonitorPaths { get; set; } = new();
 }
@@ -13,12 +18,13 @@ public sealed class WorkspaceConfig
 /// <summary>应用级偏好配置，不保存案例、报告等业务数据。</summary>
 public sealed class AppSettingsConfig
 {
+    [JsonPropertyName("schemaVersion")]
+    public int SchemaVersion { get; set; } = 2;
+
     public const string LightTheme = "Light";
     public const string DarkTheme = "Dark";
 
     public string Theme { get; set; } = LightTheme;
-    public int MaxReportTabs { get; set; } = 10;
-    public bool ManualCleanupEnabled { get; set; }
     public int CleanupRetentionDays { get; set; } = 7;
 
     /// <summary>
@@ -31,6 +37,9 @@ public sealed class AppSettingsConfig
 /// <summary>插件配置仅记录已登记插件和启用状态，插件文件仍由插件目录管理。</summary>
 public sealed class PluginConfig
 {
+    [JsonPropertyName("schemaVersion")]
+    public int SchemaVersion { get; set; } = 2;
+
     public string? DefaultPluginId { get; set; }
     public List<PluginConfigEntry> Plugins { get; set; } = new();
 }

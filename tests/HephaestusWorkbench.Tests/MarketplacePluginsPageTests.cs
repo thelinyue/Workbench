@@ -124,14 +124,7 @@ public sealed class MarketplacePluginsPageTests
                 analysisPage.Arrange(new Rect(0, 0, 1200, 720));
                 analysisPage.UpdateLayout();
 
-                var analysisList = Assert.IsAssignableFrom<FrameworkElement>(analysisPage.FindName("AnalysisListHost"));
-                // 报告查看器内嵌于分析中心，列表宿主仍由分析中心承载。
-                Assert.Null(analysisPage.FindName("ReportWorkspaceHost"));
-                Assert.Equal(Visibility.Visible, analysisList.Visibility);
-
-                analysisData.Reports.IsAnalysisListVisible = false;
-                analysisPage.UpdateLayout();
-                Assert.Equal(Visibility.Collapsed, analysisList.Visibility);
+                Assert.Null(analysisPage.FindName("ViewerHost"));
             }
             catch (Exception ex)
             {

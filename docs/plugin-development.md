@@ -57,7 +57,6 @@ v1.1.1 同时支持本地插件目录和官方在线目录：
 | `type` | 是 | 当前可执行插件填写 `Exe`。`Dll` 目前不会被运行。 |
 | `entry` | 是 | 相对于 `manifest.json` 所在目录的入口文件路径，例如 `bin/analyzer.exe`。不要填写绝对路径。 |
 | `runner` | 否 | 仅现有旧版插件使用 `legacy-log-analyzer`。标准 EXE 插件不要填写。 |
-| `reportPath` | 否 | 旧版清单兼容字段。标准 EXE 当前固定检查输出目录中的 `report.html`。 |
 | `capabilities` | 否 | 插件能力列表；规则编辑器需声明 `rule-editor`，否则工作台不会显示“使用规则编辑器”。 |
 
 ### ID 和路径约定
@@ -65,7 +64,7 @@ v1.1.1 同时支持本地插件目录和官方在线目录：
 - `id` 建议使用小写字母、数字和短横线，例如 `sample-analyzer`。
 - 不要让不同插件使用相同的 `id`。
 - `entry` 必须使用相对路径，不能通过 `..` 指向插件目录之外。
-- 插件附带的 CSS、JavaScript、图片等报告资源，应与 `report.html` 一起放在输出目录中，并使用相对路径引用。
+- 插件附带的 CSS、JavaScript、图片等报告资源，应与 `index.html` 一起放在输出目录中，并使用相对路径引用。
 
 ## 4. EXE 标准运行协议
 
@@ -87,15 +86,15 @@ sample-analyzer.exe --case <case-id> --input <source-path> --output <output-path
 插件必须遵守以下约定：
 
 1. 成功时退出码为 `0`。
-2. 成功时在 `--output` 目录直接生成 `report.html`。
+2. 成功时在 `--output` 目录直接生成 `index.html`。
 3. 报告引用的静态资源放在 `--output` 目录内，并使用相对路径。
 4. 失败时返回非零退出码，并将可供工程师理解的原因写到标准错误输出。
 5. 不要依赖工作台的当前进程目录；入口进程的工作目录是插件自身目录。
 6. 不要修改其他案例、工作台数据库或用户配置文件。
 
-工作台会检查 `report.html` 是否存在。即使 EXE 返回 `0`，如果报告文件缺失，任务也会标记为失败。
+工作台会检查 `index.html` 是否存在。即使 EXE 返回 `0`，如果报告文件缺失，任务也会标记为失败。
 
-一个最简单的兼容实现可以是：读取 `--input`，分析后创建 `--output`，写入 `report.html`，最后返回 `0`。报告可以是静态 HTML，也可以引用同一输出目录中的资源。
+一个最简单的兼容实现可以是：读取 `--input`，分析后创建 `--output`，写入 `index.html`，最后返回 `0`。报告可以是静态 HTML，也可以引用同一输出目录中的资源。
 
 ## 5. 现有旧版插件协议
 
@@ -109,7 +108,6 @@ sample-analyzer.exe --case <case-id> --input <source-path> --output <output-path
   "type": "Exe",
   "entry": "log_analyzer.exe",
   "runner": "legacy-log-analyzer",
-  "reportPath": "report/report.html"
 }
 ```
 
@@ -119,7 +117,7 @@ sample-analyzer.exe --case <case-id> --input <source-path> --output <output-path
 log_analyzer.exe -d <source-path> -o <report-output-directory>
 ```
 
-`-d` 保留原有输入参数；插件继续在原始输入文件同名目录下生成解压内容，`-o` 用于指定工作台报告目录。插件必须在输出目录中生成 `report.html` 以及它引用的 `static`、`structured` 等资源。未传入 `-o` 时，仍使用原始的 `report/report.html` 默认位置。该协议用于适配当前日志分析插件；新插件应使用第 4 节的标准协议。
+`-d` 保留原有输入参数；插件继续在原始输入文件同名目录下生成解压内容，`-o` 用于指定工作台报告目录。插件必须在输出目录中生成 `index.html` 以及它引用的 `static`、`structured` 等资源。未传入 `-o` 时，仍使用原始的 `Report/index.html` 默认位置。该协议用于适配当前日志分析插件；新插件应使用第 4 节的标准协议。
 
 当前日志分析插件还接受 `--rules <path>`。传入有效规则文件时使用外部规则；未传入时继续使用嵌入式 `config.json`。外部 JSON 无效时必须直接失败，不能静默回退。
 
@@ -142,8 +140,8 @@ log_analyzer.exe -d <source-path> -o <report-output-directory>
 建议按以下顺序验收：
 
 1. 创建独立插件目录，并放入 EXE 和 `manifest.json`。
-2. 使用命令行单独运行 EXE，确认参数解析、退出码和 `report.html` 输出。
-3. 将插件目录复制到 `<数据目录>/Plugins/`。
+2. 使用命令行单独运行 EXE，确认参数解析、退出码和 `index.html` 输出。
+3. 将插件目录复制到 `<数据目录>/Extensions/`。
 4. 在插件中心点击“刷新插件”，确认名称、版本、类型和入口路径正确。
 5. 将一个有效的 `.tgz` 日志放入收件目录，创建案例并执行分析。
 6. 在报告中心打开生成的报告，确认 HTML 及其静态资源均可加载。
@@ -153,8 +151,8 @@ log_analyzer.exe -d <source-path> -o <report-output-directory>
 
 - 不要把插件输出写到程序安装目录；所有案例结果应只写入 `--output` 或插件自己的临时目录。
 - 不要依赖未记录的命令行参数、环境变量或工作台内部数据库表。
-- 清单字段属于跨版本边界，新增字段应保持旧字段可用。
-- `report.html` 是工作台报告查看器的稳定入口；修改入口文件名需要同时修改工作台运行器和测试。
+- v2 清单不保留旧字段；新增字段必须先更新宿主契约和验证器。
+- `index.html` 是工作台电脑默认浏览器的稳定入口；修改入口文件名需要同时修改工作台运行器和测试。
 - 插件异常信息应明确说明原因，避免只返回“失败”。
 
 ## 9. Web 独立工具插件

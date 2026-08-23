@@ -34,7 +34,7 @@ public sealed class PluginsViewModel : ViewModelBase
     public ICommand RefreshCommand { get; }
     public ICommand OpenPluginDirectoryCommand { get; }
     public ICommand OpenDocumentationCommand { get; }
-    public string PluginDirectory => _catalog.PluginsDirectory;
+    public string PluginDirectory => _catalog.ExtensionsDirectory;
     public string DocumentationPath => Path.Combine(AppContext.BaseDirectory, "Documentation", "plugin-development.md");
     public bool IsBusy { get => _isBusy; private set { if (SetProperty(ref _isBusy, value)) ((DelegateCommand)RefreshCommand).RaiseCanExecuteChanged(); } }
     public string Message { get => _message; private set => SetProperty(ref _message, value); }

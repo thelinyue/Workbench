@@ -24,16 +24,16 @@ public sealed class PluginCatalog : IPluginCatalog
         _jsonOptions.Converters.Add(new JsonStringEnumConverter());
     }
 
-    public string PluginsDirectory => _paths.PluginsDirectory;
+    public string ExtensionsDirectory => _paths.ExtensionsDirectory;
     public IReadOnlyList<string> Issues => _issues;
 
     public async Task<IReadOnlyList<PluginManifest>> ScanAsync(CancellationToken cancellationToken = default)
     {
-        Directory.CreateDirectory(_paths.PluginsDirectory);
+        Directory.CreateDirectory(_paths.ExtensionsDirectory);
         _issues.Clear();
         _cache.Clear();
         var found = new List<PluginManifest>();
-        foreach (var manifestPath in Directory.EnumerateFiles(_paths.PluginsDirectory, "manifest.json", SearchOption.AllDirectories))
+        foreach (var manifestPath in Directory.EnumerateFiles(_paths.ExtensionsDirectory, "manifest.json", SearchOption.AllDirectories))
         {
             cancellationToken.ThrowIfCancellationRequested();
             try

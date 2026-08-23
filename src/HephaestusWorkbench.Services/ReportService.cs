@@ -1,5 +1,6 @@
 using HephaestusWorkbench.Core.Models;
 using HephaestusWorkbench.Core.Repositories;
+using HephaestusWorkbench.Core.Services;
 
 namespace HephaestusWorkbench.Services;
 
@@ -15,6 +16,10 @@ public sealed class ReportService
         _analysis = analysis;
     }
 
+
+    /// <summary>为分析中心创建统一的默认浏览器报告打开服务。</summary>
+    public IReportOpenService CreateOpenService(WorkbenchLogger logger, IReportProcessLauncher? launcher = null, TimeProvider? timeProvider = null)
+        => new ReportOpenService(_analysis, _reports, launcher ?? new WindowsReportProcessLauncher(), logger, timeProvider);
     public Task<IReadOnlyList<ReportSummary>> ListAsync(ReportQuery query, CancellationToken cancellationToken = default)
         => _reports.ListAsync(query, cancellationToken);
 

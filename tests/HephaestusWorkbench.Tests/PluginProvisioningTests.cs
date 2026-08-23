@@ -11,7 +11,7 @@ public sealed class PluginProvisioningTests
         var root = Path.Combine(Path.GetTempPath(), "HephaestusWorkbenchTests", Guid.NewGuid().ToString("N"));
         var seed = Path.Combine(root, "Seed");
         var paths = new DataPaths(Path.Combine(root, "Data"));
-        var installed = Path.Combine(paths.PluginsDirectory, "log-analyzer");
+        var installed = Path.Combine(paths.ExtensionsDirectory, "log-analyzer");
         Directory.CreateDirectory(seed);
         Directory.CreateDirectory(installed);
         try
@@ -49,7 +49,7 @@ public sealed class PluginProvisioningTests
             await File.WriteAllTextAsync(Path.Combine(seed, "manifest.json"), "{\"version\":\"1.50\"}");
             await service.ProvisionAsync();
 
-            var destination = Path.Combine(paths.PluginsDirectory, "log-analyzer");
+            var destination = Path.Combine(paths.ExtensionsDirectory, "log-analyzer");
             Assert.Equal("new", await File.ReadAllTextAsync(Path.Combine(destination, "log_analyzer.exe")));
             Assert.Contains("1.50", await File.ReadAllTextAsync(Path.Combine(destination, "manifest.json")));
         }
@@ -78,7 +78,7 @@ public sealed class PluginProvisioningTests
             await File.WriteAllTextAsync(Path.Combine(seed, "log_analyzer.exe"), "new-report-template");
             await service.ProvisionAsync();
 
-            var destination = Path.Combine(paths.PluginsDirectory, "log-analyzer");
+            var destination = Path.Combine(paths.ExtensionsDirectory, "log-analyzer");
             Assert.Equal("new-report-template", await File.ReadAllTextAsync(Path.Combine(destination, "log_analyzer.exe")));
         }
         finally

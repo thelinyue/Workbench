@@ -1,4 +1,3 @@
-using System.Diagnostics;
 using System.IO;
 using System.Windows;
 using HephaestusWorkbench.App.ViewModels;
@@ -20,8 +19,7 @@ public partial class FirstRunWizard : Window
             defaultDataPath,
             initializeAsync,
             BrowseDataPath,
-            BrowseMonitorPath,
-            OpenPluginDirectory);
+            BrowseMonitorPath);
         _viewModel.Finished += OnFinished;
         DataContext = _viewModel;
     }
@@ -36,19 +34,6 @@ public partial class FirstRunWizard : Window
     {
         using var dialog = CreateFolderDialog("请选择日志监控目录", _viewModel.DataPath);
         if (dialog.ShowDialog() == Forms.DialogResult.OK) _viewModel.NewMonitorPath = dialog.SelectedPath;
-    }
-
-    private void OpenPluginDirectory()
-    {
-        try
-        {
-            Directory.CreateDirectory(_viewModel.PluginDirectory);
-            Process.Start(new ProcessStartInfo { FileName = _viewModel.PluginDirectory, UseShellExecute = true });
-        }
-        catch (Exception ex)
-        {
-            System.Windows.MessageBox.Show($"无法打开插件目录：{ex.Message}", "Hephaestus工作台", MessageBoxButton.OK, MessageBoxImage.Error);
-        }
     }
 
     private void OnFinished(object? sender, EventArgs e)

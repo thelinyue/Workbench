@@ -11,7 +11,7 @@ public sealed class PluginCatalogTests
     public async Task ScanAsync_FindsManifestAndExecutable()
     {
         var root = Path.Combine(Path.GetTempPath(), "HephaestusWorkbenchTests", Guid.NewGuid().ToString("N"));
-        var pluginDirectory = Path.Combine(root, "Plugins", "sample");
+        var pluginDirectory = Path.Combine(root, "Extensions", "sample");
         Directory.CreateDirectory(pluginDirectory);
         try
         {
@@ -43,7 +43,7 @@ public sealed class PluginCatalogTests
     public async Task ScanAsync_FindsStaticWebToolAndPreservesCapability()
     {
         var root = Path.Combine(Path.GetTempPath(), "HephaestusWorkbenchTests", Guid.NewGuid().ToString("N"));
-        var pluginDirectory = Path.Combine(root, "Plugins", "web-tool");
+        var pluginDirectory = Path.Combine(root, "Extensions", "web-tool");
         Directory.CreateDirectory(pluginDirectory);
         try
         {
@@ -69,7 +69,7 @@ public sealed class PluginCatalogTests
     public async Task ScanAsync_IsolatesInvalidPluginAndReportsIssue()
     {
         var root = Path.Combine(Path.GetTempPath(), "HephaestusWorkbenchTests", Guid.NewGuid().ToString("N"));
-        var pluginDirectory = Path.Combine(root, "Plugins", "broken");
+        var pluginDirectory = Path.Combine(root, "Extensions", "broken");
         Directory.CreateDirectory(pluginDirectory);
         try
         {
@@ -93,11 +93,11 @@ public sealed class PluginCatalogTests
     public async Task ScanAsync_RejectsEntryOutsidePluginDirectory()
     {
         var root = Path.Combine(Path.GetTempPath(), "HephaestusWorkbenchTests", Guid.NewGuid().ToString("N"));
-        var pluginDirectory = Path.Combine(root, "Plugins", "sample");
+        var pluginDirectory = Path.Combine(root, "Extensions", "sample");
         Directory.CreateDirectory(pluginDirectory);
         try
         {
-            File.WriteAllText(Path.Combine(root, "Plugins", "outside.exe"), "test");
+            File.WriteAllText(Path.Combine(root, "Extensions", "outside.exe"), "test");
             await File.WriteAllTextAsync(Path.Combine(pluginDirectory, "manifest.json"), """
                 { "id":"sample", "name":"越界插件", "version":"1.0", "type":"Exe", "entry":"../outside.exe" }
                 """);

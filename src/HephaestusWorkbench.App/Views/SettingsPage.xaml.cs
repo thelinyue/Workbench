@@ -1,5 +1,4 @@
 using System.Windows.Controls;
-using System.Globalization;
 using HephaestusWorkbench.App.ViewModels;
 using Forms = System.Windows.Forms;
 
@@ -70,20 +69,5 @@ public partial class SettingsPage : System.Windows.Controls.UserControl
             SelectedPath = viewModel.NewWatchDirectory
         };
         if (dialog.ShowDialog() == Forms.DialogResult.OK) viewModel.NewWatchDirectory = dialog.SelectedPath;
-    }
-}
-
-/// <summary>
-/// 报告数量在输入阶段即时校验，避免用户保存后才发现范围错误。
-/// 使用原始文本校验，既能拦截非数字，也能提示 1 到 10 之外的数值。
-/// </summary>
-public sealed class MaxOpenReportsValidationRule : ValidationRule
-{
-    public override ValidationResult Validate(object value, CultureInfo cultureInfo)
-    {
-        var text = Convert.ToString(value, cultureInfo)?.Trim();
-        return int.TryParse(text, out var count) && count is >= 1 and <= 10
-            ? ValidationResult.ValidResult
-            : new ValidationResult(false, "请输入 1 到 10 之间的整数。");
     }
 }

@@ -72,22 +72,6 @@
                         <ComboBox ItemsSource="{Binding ThemeOptions}" DisplayMemberPath="DisplayName" SelectedValuePath="Value" SelectedValue="{Binding SelectedTheme, UpdateSourceTrigger=PropertyChanged}" Width="160" HorizontalAlignment="Left"/>
                     </StackPanel>
                 </Border>
-                <Border Style="{StaticResource CardStyle}" Margin="0,10,0,0">
-                    <StackPanel>
-                        <TextBlock Text="报告" Style="{StaticResource SectionTitleStyle}"/>
-                        <TextBlock Text="报告仅在当前运行期间保留，程序重启后不恢复报告标签。" Style="{StaticResource MutedTextStyle}" TextWrapping="Wrap" Margin="0,0,0,12"/>
-                        <TextBlock Text="同时打开的报告标签上限（1–10）" Style="{StaticResource MutedTextStyle}" Margin="0,0,0,5"/>
-                        <TextBox Width="100" HorizontalAlignment="Left" ToolTip="请输入 1 到 10">
-                            <TextBox.Text>
-                                <Binding Path="MaxOpenReports" UpdateSourceTrigger="PropertyChanged" ValidatesOnExceptions="True">
-                                    <Binding.ValidationRules>
-                                        <local:MaxOpenReportsValidationRule ValidationStep="RawProposedValue"/>
-                                    </Binding.ValidationRules>
-                                </Binding>
-                            </TextBox.Text>
-                        </TextBox>
-                    </StackPanel>
-                </Border>
             </StackPanel>
 
             <Border x:Name="SettingsActionsPanel" Grid.Row="1" Grid.ColumnSpan="2" Style="{StaticResource CommandStripStyle}" Margin="0,2,0,0">

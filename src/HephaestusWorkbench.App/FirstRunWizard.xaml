@@ -71,8 +71,7 @@
                 <StackPanel Visibility="{Binding CurrentStep, Converter={StaticResource StepVisibilityConverter}, ConverterParameter=3}">
                     <TextBlock Text="插件目录" Style="{StaticResource SectionTitleStyle}" />
                     <TextBlock Text="内置日志分析插件会登记到以下目录；规则编辑器可在应用中心安装和更新。" Style="{StaticResource MutedTextStyle}" TextWrapping="Wrap" Margin="0,0,0,10" />
-                    <TextBlock Text="{Binding PluginDirectory}" TextWrapping="Wrap" />
-                    <Button Content="打开插件目录" Command="{Binding OpenPluginDirectoryCommand}" HorizontalAlignment="Left" Margin="0,14,0,0" />
+                    <TextBlock Text="{Binding ExtensionDirectory}" TextWrapping="Wrap" />
                 </StackPanel>
 
                 <StackPanel Visibility="{Binding CurrentStep, Converter={StaticResource StepVisibilityConverter}, ConverterParameter=4}">

@@ -18,19 +18,19 @@ public sealed class SettingsInformationArchitectureTests
 
         Assert.Contains(bindings, value => value.Contains("WatchDirectories", StringComparison.Ordinal));
         Assert.Contains(bindings, value => value.Contains("SelectedTheme", StringComparison.Ordinal));
-        Assert.Contains(bindings, value => value.Contains("MaxOpenReports", StringComparison.Ordinal));
+        Assert.DoesNotContain(bindings, value => value.Contains("MaxOpenReports", StringComparison.Ordinal));
         Assert.Contains(bindings, value => value.Contains("SaveCommand", StringComparison.Ordinal));
         Assert.DoesNotContain(bindings, value => value.Contains("CleanupEnabled", StringComparison.Ordinal));
         Assert.DoesNotContain(bindings, value => value.Contains("CleanupRetentionDays", StringComparison.Ordinal));
         Assert.DoesNotContain(bindings, value => value.Contains("GitHubDownloadMirror", StringComparison.Ordinal));
         Assert.Contains(document.Descendants(), element => (string?)element.Attribute("VerticalAlignment") == "Top");
         Assert.Contains(document.Descendants(), element => (string?)element.Attribute("Text") == "外观");
-        Assert.Contains(document.Descendants(), element => (string?)element.Attribute("Text") == "报告");
+        Assert.DoesNotContain(document.Descendants(), element => (string?)element.Attribute("Text") == "报告");
         Assert.Contains(bindings, value => value.Contains("HasWatchDirectories", StringComparison.Ordinal));
         Assert.Contains(bindings, value => value.Contains("HasDirectoryFeedback", StringComparison.Ordinal));
         Assert.Contains(bindings, value => value.Contains("MessageIsError", StringComparison.Ordinal));
         Assert.Contains(document.Descendants(), element => (string?)element.Attribute("Text") == "尚未添加监控目录");
-        Assert.Contains(document.Descendants(), element => (string?)element.Attribute("Text") == "同时打开的报告标签上限（1–10）");
+        Assert.DoesNotContain(document.Descendants(), element => (string?)element.Attribute("Text") == "同时打开的报告标签上限（1–10）");
         Assert.Contains(document.Descendants(), element => (string?)element.Attribute("LastChildFill") == "False");
     }
 
@@ -51,9 +51,9 @@ public sealed class SettingsInformationArchitectureTests
             .Attributes()
             .Select(attribute => attribute.Value)
             .ToArray();
-        Assert.Contains(analysisBindings, value => value.Contains("CleanupEnabled", StringComparison.Ordinal));
-        Assert.Contains(analysisBindings, value => value.Contains("CleanupRetentionDays", StringComparison.Ordinal));
-        Assert.Contains(analysisBindings, value => value.Contains("SaveCleanupSettingsCommand", StringComparison.Ordinal));
+        Assert.DoesNotContain(analysisBindings, value => value.Contains("CleanupEnabled", StringComparison.Ordinal));
+        Assert.DoesNotContain(analysisBindings, value => value.Contains("CleanupRetentionDays", StringComparison.Ordinal));
+        Assert.DoesNotContain(analysisBindings, value => value.Contains("SaveCleanupSettingsCommand", StringComparison.Ordinal));
     }
 
     private static XDocument LoadXaml(string fileName)

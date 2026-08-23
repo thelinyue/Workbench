@@ -1,4 +1,3 @@
-using HephaestusWorkbench.Core.Repositories;
 using HephaestusWorkbench.Core.Models;
 using HephaestusWorkbench.Data;
 using HephaestusWorkbench.Services;
@@ -27,9 +26,10 @@ public sealed class WorkbenchConfigurationTests
             var withMirror = await configuration.EnsureAppSettingsAsync();
             Assert.Equal("https://mirror.example/{url}", withMirror.GitHubDownloadMirrorTemplate);
 
-            await File.WriteAllTextAsync(paths.AppSettingsFile, "{\"Theme\":\"unknown\",\"MaxReportTabs\":10}");
+            await File.WriteAllTextAsync(paths.AppSettingsFile, "{\"schemaVersion\":2,\"theme\":\"unknown\",\"cleanupRetentionDays\":30}");
             var normalized = await configuration.EnsureAppSettingsAsync();
             Assert.Equal("Light", normalized.Theme);
+            Assert.Equal(7, normalized.CleanupRetentionDays);
         }
         finally
         {
@@ -38,35 +38,65 @@ public sealed class WorkbenchConfigurationTests
     }
 
     [Fact]
-    public async Task EnsureConfigFiles_MigratesLegacyWatchDirectoryAndIsIdempotent()
+    public async Task EnsureConfigFiles_CreatesSchemaV2FilesAndIsIdempotent()
     {
         var root = Path.Combine(Path.GetTempPath(), "HephaestusWorkbenchTests", Guid.NewGuid().ToString("N"));
         var paths = new DataPaths(root);
-        paths.EnsureCreated();
-        var legacy = new MemorySettingsStore();
         var external = Path.Combine(root, "CustomerLogs");
-        await legacy.SetAsync("watch_directory", external);
-        await legacy.SetAsync("report_max_tabs", "7");
+        var configuration = new WorkbenchConfigurationService(paths);
 
         try
         {
-            var factory = new SqliteConnectionFactory(paths);
-            await new DatabaseInitializer(factory).InitializeAsync();
-            var configuration = new WorkbenchConfigurationService(paths);
+            var workspace = await configuration.EnsureWorkspaceAsync(new[] { external });
+            var appSettings = await configuration.EnsureAppSettingsAsync();
+            var extensions = await configuration.EnsurePluginConfigAsync();
+            var workspaceJson = await File.ReadAllTextAsync(paths.WorkspaceConfigFile);
+            var appSettingsJson = await File.ReadAllTextAsync(paths.AppSettingsFile);
+            var extensionsJson = await File.ReadAllTextAsync(paths.ExtensionsConfigFile);
 
-            var workspace = await configuration.EnsureWorkspaceAsync(legacyStore: legacy);
-            var appSettings = await configuration.EnsureAppSettingsAsync(legacy);
-            var plugins = await configuration.EnsurePluginConfigAsync();
-
+            Assert.Equal(2, workspace.SchemaVersion);
+            Assert.Equal(2, appSettings.SchemaVersion);
+            Assert.Equal(2, extensions.SchemaVersion);
             Assert.Equal(Path.GetFullPath(external), Assert.Single(workspace.MonitorPaths));
-            Assert.Equal(7, appSettings.MaxReportTabs);
-            Assert.Empty(plugins.Plugins);
-            Assert.True(File.Exists(paths.WorkspaceConfigFile));
-            Assert.True(File.Exists(paths.AppSettingsFile));
-            Assert.True(File.Exists(paths.PluginsConfigFile));
+            Assert.Empty(extensions.Plugins);
 
-            var second = await configuration.EnsureWorkspaceAsync(legacyStore: legacy);
-            Assert.Equal(workspace.MonitorPaths, second.MonitorPaths);
+            var secondWorkspace = await configuration.EnsureWorkspaceAsync();
+            var secondAppSettings = await configuration.EnsureAppSettingsAsync();
+            var secondExtensions = await configuration.EnsurePluginConfigAsync();
+
+            Assert.Equal(workspace.MonitorPaths, secondWorkspace.MonitorPaths);
+            Assert.Equal(appSettings.Theme, secondAppSettings.Theme);
+            Assert.Equal(extensions.Plugins.Count, secondExtensions.Plugins.Count);
+            Assert.Equal(workspaceJson, await File.ReadAllTextAsync(paths.WorkspaceConfigFile));
+            Assert.Equal(appSettingsJson, await File.ReadAllTextAsync(paths.AppSettingsFile));
+            Assert.Equal(extensionsJson, await File.ReadAllTextAsync(paths.ExtensionsConfigFile));
+        }
+        finally
+        {
+            if (Directory.Exists(root)) Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task InitializationService_RejectsNonEmptyLegacyDirectoryWithoutWriting()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "HephaestusWorkbenchTests", Guid.NewGuid().ToString("N"));
+        var seed = Path.Combine(root, "Seed");
+        var data = Path.Combine(root, "LegacyData");
+        Directory.CreateDirectory(seed);
+        Directory.CreateDirectory(data);
+        var marker = Path.Combine(data, "legacy.marker");
+        await File.WriteAllTextAsync(marker, "legacy");
+
+        try
+        {
+            var error = await Assert.ThrowsAsync<InvalidOperationException>(
+                () => new WorkbenchInitializationService(seed).InitializeAsync(data));
+
+            Assert.Contains(Path.GetFullPath(data), error.Message);
+            Assert.Equal("legacy", await File.ReadAllTextAsync(marker));
+            Assert.Equal(new[] { marker }, Directory.EnumerateFiles(data, "*", SearchOption.AllDirectories));
+            Assert.Empty(Directory.EnumerateDirectories(data));
         }
         finally
         {
@@ -96,8 +126,8 @@ public sealed class WorkbenchConfigurationTests
             Assert.True(File.Exists(paths.DatabaseFile));
             Assert.True(File.Exists(paths.AppSettingsFile));
             Assert.True(File.Exists(paths.WorkspaceConfigFile));
-            Assert.True(File.Exists(paths.PluginsConfigFile));
-            Assert.True(File.Exists(Path.Combine(paths.PluginsDirectory, "log-analyzer", "log_analyzer.exe")));
+            Assert.True(File.Exists(paths.ExtensionsConfigFile));
+            Assert.True(File.Exists(Path.Combine(paths.ExtensionsDirectory, "log-analyzer", "log_analyzer.exe")));
         }
         finally
         {
@@ -105,17 +135,4 @@ public sealed class WorkbenchConfigurationTests
         }
     }
 
-    private sealed class MemorySettingsStore : ISettingsStore
-    {
-        private readonly Dictionary<string, string> _values = new(StringComparer.OrdinalIgnoreCase);
-
-        public Task<string?> GetAsync(string key, CancellationToken cancellationToken = default)
-            => Task.FromResult(_values.GetValueOrDefault(key));
-
-        public Task SetAsync(string key, string value, CancellationToken cancellationToken = default)
-        {
-            _values[key] = value;
-            return Task.CompletedTask;
-        }
-    }
 }

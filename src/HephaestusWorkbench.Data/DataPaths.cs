@@ -2,8 +2,8 @@ namespace HephaestusWorkbench.Data;
 
 /// <summary>
 /// 统一管理程序目录和用户数据目录，避免分析插件把输出写回程序安装目录。
-/// 案例文件的实际位置由监控目录和分析插件决定：源 tgz 与同名解压目录位于监控目录，
-/// 报告位于解压目录下的 report；Cases 目录仅作为旧布局兼容和删除安全校验边界保留。
+/// 案例文件的实际位置由监控目录和分析插件决定：源日志与同名解压目录位于监控目录，
+/// 报告固定写入解压目录下的 Report；Cases 目录仅保存宿主管理的案例数据。
 /// </summary>
 public sealed class DataPaths
 {
@@ -13,7 +13,7 @@ public sealed class DataPaths
         DatabaseDirectory = Path.Combine(Root, "Database");
         CasesDirectory = Path.Combine(Root, "Cases");
         InboxDirectory = Path.Combine(Root, "Inbox");
-        PluginsDirectory = Path.Combine(Root, "Plugins");
+        ExtensionsDirectory = Path.Combine(Root, "Extensions");
         RulesDirectory = Path.Combine(Root, "Rules");
         OfficialRulesDirectory = Path.Combine(RulesDirectory, "Official");
         OfficialRulesFile = Path.Combine(OfficialRulesDirectory, "main.json");
@@ -31,7 +31,7 @@ public sealed class DataPaths
         DatabaseFile = Path.Combine(DatabaseDirectory, "workbench.db");
         AppSettingsFile = Path.Combine(ConfigDirectory, "appsettings.json");
         RulePublisherTokenFile = Path.Combine(ConfigDirectory, "rule-publisher.token");
-        PluginsConfigFile = Path.Combine(ConfigDirectory, "plugins.json");
+        ExtensionsConfigFile = Path.Combine(ConfigDirectory, "extensions.json");
         WorkspaceConfigFile = Path.Combine(ConfigDirectory, "workspace.json");
         MarketplaceCatalogCacheFile = Path.Combine(CacheDirectory, "marketplace-catalog.json");
     }
@@ -41,7 +41,7 @@ public sealed class DataPaths
     public string DatabaseFile { get; }
     public string CasesDirectory { get; }
     public string InboxDirectory { get; }
-    public string PluginsDirectory { get; }
+    public string ExtensionsDirectory { get; }
     public string RulesDirectory { get; }
     public string OfficialRulesDirectory { get; }
     public string OfficialRulesFile { get; }
@@ -58,7 +58,7 @@ public sealed class DataPaths
     public string ConfigDirectory { get; }
     public string AppSettingsFile { get; }
     public string RulePublisherTokenFile { get; }
-    public string PluginsConfigFile { get; }
+    public string ExtensionsConfigFile { get; }
     public string WorkspaceConfigFile { get; }
     public string MarketplaceCatalogCacheFile { get; }
 
@@ -66,14 +66,14 @@ public sealed class DataPaths
     public string GetCaseSourceDirectory(string caseId) => Path.Combine(GetCaseDirectory(caseId), "Source");
     public string GetCaseExtractDirectory(string caseId) => Path.Combine(GetCaseDirectory(caseId), "Extract");
     /// <summary>报告统一放在实际解压目录下，便于工程师用一个目录管理原始内容和分析结果。</summary>
-    public string GetReportDirectory(string extractPath) => Path.Combine(Path.GetFullPath(extractPath), "report");
+    public string GetReportDirectory(string extractPath) => Path.Combine(Path.GetFullPath(extractPath), "Report");
 
     public void EnsureCreated()
     {
         Directory.CreateDirectory(DatabaseDirectory);
         Directory.CreateDirectory(CasesDirectory);
         Directory.CreateDirectory(InboxDirectory);
-        Directory.CreateDirectory(PluginsDirectory);
+        Directory.CreateDirectory(ExtensionsDirectory);
         Directory.CreateDirectory(RulesDirectory);
         Directory.CreateDirectory(OfficialRulesDirectory);
         Directory.CreateDirectory(LocalRulesDirectory);

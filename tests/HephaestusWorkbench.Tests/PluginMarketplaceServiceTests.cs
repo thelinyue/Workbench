@@ -64,7 +64,7 @@ public sealed class PluginMarketplaceServiceTests
 
             await context.Service.InstallOrUpdateAsync(item);
 
-            Assert.True(File.Exists(Path.Combine(context.Paths.PluginsDirectory, "sample", "sample.exe")));
+            Assert.True(File.Exists(Path.Combine(context.Paths.ExtensionsDirectory, "sample", "sample.exe")));
             var config = await context.Configuration.EnsurePluginConfigAsync();
             var registered = Assert.Single(config.Plugins);
             Assert.Equal(PluginInstallSource.Marketplace, registered.Source);
@@ -77,7 +77,7 @@ public sealed class PluginMarketplaceServiceTests
     {
         await WithServiceAsync(async context =>
         {
-            var oldDirectory = Path.Combine(context.Paths.PluginsDirectory, "sample");
+            var oldDirectory = Path.Combine(context.Paths.ExtensionsDirectory, "sample");
             Directory.CreateDirectory(oldDirectory);
             await File.WriteAllTextAsync(Path.Combine(oldDirectory, "sample.exe"), "old plugin");
             await File.WriteAllTextAsync(Path.Combine(oldDirectory, "manifest.json"),
@@ -114,7 +114,7 @@ public sealed class PluginMarketplaceServiceTests
     {
         await WithServiceAsync(async context =>
         {
-            var oldDirectory = Path.Combine(context.Paths.PluginsDirectory, "sample");
+            var oldDirectory = Path.Combine(context.Paths.ExtensionsDirectory, "sample");
             Directory.CreateDirectory(oldDirectory);
             await File.WriteAllTextAsync(Path.Combine(oldDirectory, "sample.exe"), "old plugin");
             await File.WriteAllTextAsync(Path.Combine(oldDirectory, "manifest.json"),
@@ -163,7 +163,7 @@ public sealed class PluginMarketplaceServiceTests
             Assert.Equal(2, context.Handler.RequestUris.Count);
             Assert.Equal("https://github.com/example/plugin.zip", context.Handler.RequestUris[0].AbsoluteUri);
             Assert.Equal("https://mirror.example/https://github.com/example/plugin.zip", context.Handler.RequestUris[1].AbsoluteUri);
-            Assert.True(File.Exists(Path.Combine(context.Paths.PluginsDirectory, "sample", "sample.exe")));
+            Assert.True(File.Exists(Path.Combine(context.Paths.ExtensionsDirectory, "sample", "sample.exe")));
         });
     }
 
@@ -180,7 +180,7 @@ public sealed class PluginMarketplaceServiceTests
             await context.Service.InstallOrUpdateAsync(Item("sample", "1.0", package));
 
             Assert.Equal(2, context.Handler.RequestUris.Count);
-            Assert.True(File.Exists(Path.Combine(context.Paths.PluginsDirectory, "sample", "sample.exe")));
+            Assert.True(File.Exists(Path.Combine(context.Paths.ExtensionsDirectory, "sample", "sample.exe")));
         });
     }
 
@@ -196,7 +196,7 @@ public sealed class PluginMarketplaceServiceTests
             var error = await Assert.ThrowsAsync<InvalidDataException>(() => context.Service.InstallOrUpdateAsync(item));
 
             Assert.Contains("SHA-256", error.Message);
-            Assert.False(Directory.Exists(Path.Combine(context.Paths.PluginsDirectory, "sample")));
+            Assert.False(Directory.Exists(Path.Combine(context.Paths.ExtensionsDirectory, "sample")));
         });
     }
 
@@ -221,7 +221,7 @@ public sealed class PluginMarketplaceServiceTests
             var error = await Assert.ThrowsAsync<InvalidDataException>(() => context.Service.InstallOrUpdateAsync(Item("sample", "1.0", package)));
 
             Assert.Contains("越界路径", error.Message);
-            Assert.False(File.Exists(Path.Combine(context.Paths.PluginsDirectory, "outside.txt")));
+            Assert.False(File.Exists(Path.Combine(context.Paths.ExtensionsDirectory, "outside.txt")));
         });
     }
 

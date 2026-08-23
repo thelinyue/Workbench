@@ -13,7 +13,7 @@ public sealed class ReportSummary
     public string PluginName { get; init; } = "未知插件";
     public DateTime CreateTime { get; init; }
     public bool IsAvailable { get; init; }
-    public string ReportFile => System.IO.Path.Combine(Path, "report.html");
+    public string ReportFile => System.IO.Path.Combine(Path, "index.html");
 }
 
 /// <summary>报告中心查询条件；结束日期由仓储按次日零点前处理。</summary>

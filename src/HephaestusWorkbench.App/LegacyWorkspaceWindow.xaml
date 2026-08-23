@@ -1,0 +1,31 @@
+<Window x:Class="HephaestusWorkbench.App.LegacyWorkspaceWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="无法使用当前工作区" Width="640" Height="410" ResizeMode="NoResize"
+        WindowStartupLocation="CenterScreen" ShowInTaskbar="True" Icon="Assets/AppIcon/app-icon.ico">
+    <Grid Background="{DynamicResource WorkbenchBackgroundBrush}" Margin="32">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+        <TextBlock Text="无法使用当前工作区" FontSize="24" FontWeight="SemiBold" />
+        <TextBlock Grid.Row="1" Margin="0,14,0,0" TextWrapping="Wrap"
+                   Text="Hephaestus Workbench v2.0.0 使用全新的工作区结构。当前目录中检测到了旧版本或无法确认版本的数据。为避免损坏原有内容，工作台不会修改这些文件。" />
+        <StackPanel Grid.Row="2" Margin="0,22,0,0">
+            <TextBlock Text="工作区位置" FontWeight="SemiBold" />
+            <TextBox Text="{Binding DataRoot}" IsReadOnly="True" Margin="0,8,0,0" Padding="10"
+                     AutomationProperties.Name="旧工作区绝对路径" />
+        </StackPanel>
+        <TextBlock Grid.Row="3" Margin="0,18,0,0" TextWrapping="Wrap"
+                   Text="请手工清理该目录，或将启动配置指向一个空目录，然后重新启动工作台。" />
+        <StackPanel Grid.Row="4" Orientation="Horizontal" HorizontalAlignment="Right">
+            <Button Content="打开目录" Click="OpenDirectory_Click" MinWidth="96" Margin="0,0,10,0"
+                    AutomationProperties.Name="打开旧工作区目录" />
+            <Button Content="退出" IsDefault="True" Click="Exit_Click" MinWidth="96"
+                    AutomationProperties.Name="退出工作台" />
+        </StackPanel>
+    </Grid>
+</Window>

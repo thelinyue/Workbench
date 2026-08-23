@@ -27,7 +27,7 @@ public sealed class StorageServiceTests
             Directory.CreateDirectory(reportPath);
             await File.WriteAllTextAsync(sourcePath, "archive");
             await File.WriteAllTextAsync(Path.Combine(extractPath, "system.log"), "extracted");
-            await File.WriteAllTextAsync(Path.Combine(reportPath, "report.html"), "<html></html>");
+            await File.WriteAllTextAsync(Path.Combine(reportPath, "index.html"), "<html></html>");
             await cases.InsertAsync(new AnalysisCase
             {
                 Id = "case-1",
@@ -46,7 +46,7 @@ public sealed class StorageServiceTests
             var summary = await new StorageService(paths, cases).GetSummaryAsync();
             Assert.Equal(new FileInfo(sourcePath).Length, summary.LogBytes);
             Assert.Equal(new FileInfo(Path.Combine(extractPath, "system.log")).Length, summary.ExtractBytes);
-            Assert.Equal(new FileInfo(Path.Combine(reportPath, "report.html")).Length, summary.ReportBytes);
+            Assert.Equal(new FileInfo(Path.Combine(reportPath, "index.html")).Length, summary.ReportBytes);
             Assert.Equal(summary.LogBytes + summary.ExtractBytes + summary.ReportBytes, summary.ReleasableBytes);
         }
         finally

@@ -14,7 +14,6 @@ public sealed class SettingsViewModel : ViewModelBase
 {
     private readonly SettingsService _settings;
     private readonly LogInboxService _inbox;
-    private readonly Func<int> _getOpenReportCount;
     private readonly Func<string, string?> _applyTheme;
     private readonly List<string> _savedWatchDirectories = new();
     private string _newWatchDirectory = string.Empty;
@@ -25,16 +24,14 @@ public sealed class SettingsViewModel : ViewModelBase
     private bool _directoryFeedbackIsError;
     private bool _isLoading;
     private bool _hasUnsavedChanges;
-    private int _maxOpenReports = 10;
     private string _selectedTheme = AppSettingsConfig.LightTheme;
     private string _persistedTheme = AppSettingsConfig.LightTheme;
     private string? _themePreviewError;
 
-    public SettingsViewModel(SettingsService settings, LogInboxService inbox, Func<int> getOpenReportCount, Func<string, string?> applyTheme)
+    public SettingsViewModel(SettingsService settings, LogInboxService inbox, Func<string, string?> applyTheme)
     {
         _settings = settings;
         _inbox = inbox;
-        _getOpenReportCount = getOpenReportCount;
         _applyTheme = applyTheme;
         SaveCommand = new DelegateCommand(() => _ = SaveAsync(), CanSave);
         AddWatchDirectoryCommand = new DelegateCommand(AddWatchDirectory);
@@ -82,6 +79,16 @@ public sealed class SettingsViewModel : ViewModelBase
         private set => SetProperty(ref _messageIsError, value);
     }
 
+    public bool IsLoading
+    {
+        get => _isLoading;
+        private set
+        {
+            if (!SetProperty(ref _isLoading, value)) return;
+            (SaveCommand as DelegateCommand)?.RaiseCanExecuteChanged();
+        }
+    }
+
     public bool HasUnsavedChanges
     {
         get => _hasUnsavedChanges;
@@ -125,15 +132,6 @@ public sealed class SettingsViewModel : ViewModelBase
     public ICommand SaveCommand { get; }
     public ICommand AddWatchDirectoryCommand { get; }
     public ICommand RemoveWatchDirectoryCommand { get; }
-
-    public int MaxOpenReports
-    {
-        get => _maxOpenReports;
-        set
-        {
-            if (SetProperty(ref _maxOpenReports, value)) MarkUnsaved();
-        }
-    }
 
     public string SelectedTheme
     {
@@ -195,7 +193,7 @@ public sealed class SettingsViewModel : ViewModelBase
     private bool CanRemoveWatchDirectory()
         => SelectedWatchDirectory is not null && WatchDirectories.Count > 1;
 
-    private bool CanSave() => HasUnsavedChanges && !_isLoading;
+    private bool CanSave() => HasUnsavedChanges && !IsLoading;
 
     private void SetDirectoryFeedback(string message, bool isError)
     {
@@ -218,7 +216,7 @@ public sealed class SettingsViewModel : ViewModelBase
 
     private async Task LoadAsync()
     {
-        _isLoading = true;
+        IsLoading = true;
         try
         {
             WatchDirectories.Clear();
@@ -230,7 +228,6 @@ public sealed class SettingsViewModel : ViewModelBase
             SelectedWatchDirectory = WatchDirectories.FirstOrDefault();
             NotifyDirectoryCollectionChanged();
 
-            MaxOpenReports = await _settings.GetReportMaxTabsAsync();
             SelectedTheme = await _settings.GetThemeAsync();
             _persistedTheme = SelectedTheme;
             _themePreviewError = null;
@@ -242,7 +239,7 @@ public sealed class SettingsViewModel : ViewModelBase
         }
         finally
         {
-            _isLoading = false;
+            IsLoading = false;
             (SaveCommand as DelegateCommand)?.RaiseCanExecuteChanged();
         }
     }
@@ -254,19 +251,9 @@ public sealed class SettingsViewModel : ViewModelBase
         var themeChanged = !string.Equals(SelectedTheme, _persistedTheme, StringComparison.OrdinalIgnoreCase);
         try
         {
-            if (MaxOpenReports is < 1 or > 10)
-            {
-                SetMessage("最大打开报告数量必须在 1 到 10 之间。", isError: true);
-                return;
-            }
             if (WatchDirectories.Count == 0)
             {
                 SetMessage("至少需要一个日志监控目录。", isError: true);
-                return;
-            }
-            if (MaxOpenReports < _getOpenReportCount())
-            {
-                SetMessage($"当前已打开 {_getOpenReportCount()} 个报告，请先关闭多余报告。", isError: true);
                 return;
             }
             if (_themePreviewError is not null)
@@ -276,7 +263,6 @@ public sealed class SettingsViewModel : ViewModelBase
             }
 
             await _inbox.SetWatchDirectoriesAsync(CurrentWatchDirectories());
-            await _settings.SetReportMaxTabsAsync(MaxOpenReports);
             await _settings.SetThemeAsync(SelectedTheme);
 
             foreach (var directory in WatchDirectories) directory.RefreshAvailability();

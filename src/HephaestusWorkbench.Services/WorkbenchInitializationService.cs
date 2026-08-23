@@ -4,8 +4,8 @@ using HephaestusWorkbench.Data;
 namespace HephaestusWorkbench.Services;
 
 /// <summary>
-/// 执行首次初始化和旧版本配置迁移。
-/// 所有步骤都设计为可重复执行，向导中途失败后可以安全重试。
+/// 创建全新的 v2 工作区。
+/// 初始化前再次执行版本门禁，防止用户在向导中改选旧目录后绕过启动检查。
 /// </summary>
 public sealed class WorkbenchInitializationService
 {
@@ -26,7 +26,12 @@ public sealed class WorkbenchInitializationService
         if (normalizedRoot.StartsWith(programRoot, StringComparison.OrdinalIgnoreCase))
             throw new InvalidOperationException("数据目录不能位于程序安装目录中。");
 
-        var paths = new DataPaths(dataRoot);
+        // 向导允许用户改选目录，因此必须在任何目录、日志或数据库写入前再次执行 v2 门禁。
+        var inspection = await new WorkspaceVersionGate().InspectAsync(dataRoot, cancellationToken);
+        if (inspection.Status == WorkspaceVersionStatus.Legacy)
+            throw new InvalidOperationException($"所选数据目录包含旧版本或无法确认版本的数据，请手工清理后重试：{inspection.DataRoot}");
+
+        var paths = new DataPaths(inspection.DataRoot);
         paths.EnsureCreated();
         var logger = new WorkbenchLogger(paths.Root);
         try
@@ -38,11 +43,10 @@ public sealed class WorkbenchInitializationService
             progress?.Report("正在初始化数据库…");
             await new DatabaseInitializer(factory).InitializeAsync(cancellationToken);
 
-            var legacyStore = new SqliteSettingsStore(factory);
             var configuration = new WorkbenchConfigurationService(paths);
             progress?.Report("正在写入工作区配置…");
-            await configuration.EnsureWorkspaceAsync(monitorPaths, legacyStore, cancellationToken);
-            await configuration.EnsureAppSettingsAsync(legacyStore, cancellationToken);
+            await configuration.EnsureWorkspaceAsync(monitorPaths, cancellationToken);
+            await configuration.EnsureAppSettingsAsync(cancellationToken);
             await configuration.EnsurePluginConfigAsync(cancellationToken);
 
             progress?.Report("正在登记内置分析插件…");

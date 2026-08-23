@@ -1,4 +1,3 @@
-using System.Text.Json;
 using System.IO;
 using System.Windows;
 using HephaestusWorkbench.App.ViewModels;
@@ -6,7 +5,6 @@ using HephaestusWorkbench.Core.Models;
 using HephaestusWorkbench.Core.Repositories;
 using HephaestusWorkbench.Data;
 using HephaestusWorkbench.Services;
-using Microsoft.Data.Sqlite;
 
 namespace HephaestusWorkbench.App;
 
@@ -77,8 +75,6 @@ internal sealed class WorkbenchHost : IDisposable
         CasesRepository = new SqliteCaseRepository(_factory);
         TasksRepository = new SqliteTaskRepository(_factory);
         ReportsRepository = new SqliteReportRepository(_factory);
-        PluginsRepository = new SqlitePluginInfoRepository(_factory);
-        SettingsStore = new SqliteSettingsStore(_factory);
         LifecycleRepository = new SqliteAnalysisLifecycleRepository(_factory);
         Configuration = new WorkbenchConfigurationService(Paths);
         PluginCatalog = new PluginCatalog(Paths, Logger);
@@ -91,11 +87,11 @@ internal sealed class WorkbenchHost : IDisposable
         var legacyRunner = new LegacyLogAnalyzerRunner(Logger);
         var standardRunner = new StandardExePluginRunner(Logger);
         Analysis = new CaseAnalysisService(Paths, CasesRepository, TasksRepository, ReportsRepository, PluginCatalog, legacyRunner, standardRunner, TaskCenter, Logger, LifecycleRepository, Configuration, Rules);
-        PluginMarketplace = new PluginMarketplaceService(Paths, PluginCatalog, Configuration, TaskCenter, Logger, PluginsRepository);
+        PluginMarketplace = new PluginMarketplaceService(Paths, PluginCatalog, Configuration, TaskCenter, Logger);
         Reports = new ReportService(ReportsRepository, Analysis);
         Inbox = new LogInboxService(new LogFileParser(), new ArchiveValidator(), Configuration, Logger, Paths.InboxDirectory);
         Storage = new StorageService(Paths, CasesRepository, Logger);
-        Settings = new SettingsService(Configuration, SettingsStore, Paths.InboxDirectory);
+        Settings = new SettingsService(Configuration, Paths.InboxDirectory);
     }
 
     public DataPaths Paths { get; }
@@ -103,8 +99,6 @@ internal sealed class WorkbenchHost : IDisposable
     public IAnalysisCaseRepository CasesRepository { get; }
     public IAnalysisTaskRepository TasksRepository { get; }
     public IReportRepository ReportsRepository { get; }
-    public IPluginInfoRepository PluginsRepository { get; }
-    public ISettingsStore SettingsStore { get; }
     public IAnalysisLifecycleRepository LifecycleRepository { get; }
     public WorkbenchConfigurationService Configuration { get; }
     public RuleSetService Rules { get; }
@@ -125,29 +119,40 @@ internal sealed class WorkbenchHost : IDisposable
     {
         var bootstrapDirectory = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "HephaestusWorkbench");
         Directory.CreateDirectory(bootstrapDirectory);
-        var bootstrapFile = Path.Combine(bootstrapDirectory, "bootstrap.json");
-        var dataRoot = LoadDataRoot(bootstrapFile);
-        var seedDirectory = Path.Combine(AppContext.BaseDirectory, "PluginSeed");
-        var databaseExists = !string.IsNullOrWhiteSpace(dataRoot)
-            && File.Exists(Path.Combine(dataRoot!, "Database", "workbench.db"));
-        if (!databaseExists)
+        var bootstrapStore = new BootstrapConfigurationStore(Path.Combine(bootstrapDirectory, "bootstrap.json"));
+        var bootstrap = await bootstrapStore.ReadAsync();
+        var selectedRoot = bootstrap.DataRoot
+                           ?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments), "HephaestusWorkbenchData");
+        var gate = new WorkspaceVersionGate();
+        var inspection = bootstrap.Status == BootstrapReadStatus.Legacy
+            ? new WorkspaceVersionResult(WorkspaceVersionStatus.Legacy, Path.GetFullPath(selectedRoot))
+            : await gate.InspectAsync(selectedRoot);
+
+        // 旧工作区必须在向导或数据库初始化之前被阻断，保证启动检查不会写入任何旧文件。
+        if (inspection.Status == WorkspaceVersionStatus.Legacy)
         {
-            var selectedRoot = dataRoot ?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments), "HephaestusWorkbenchData");
-            var wizardDataRoot = selectedRoot;
+            new LegacyWorkspaceWindow(inspection.DataRoot).ShowDialog();
+            return null;
+        }
+
+        var dataRoot = inspection.DataRoot;
+        if (inspection.Status == WorkspaceVersionStatus.Empty)
+        {
+            var seedDirectory = Path.Combine(AppContext.BaseDirectory, "PluginSeed");
+            var wizardDataRoot = dataRoot;
             var wizard = new FirstRunWizard(
-                selectedRoot,
+                dataRoot,
                 (root, monitorPaths, progress) =>
                 {
                     wizardDataRoot = root;
                     return new WorkbenchInitializationService(seedDirectory).InitializeAsync(root, monitorPaths, progress);
                 });
             if (wizard.ShowDialog() != true) return null;
-            // 向导初始化完成后写入引导指针，后续启动无需再次询问数据目录。
             dataRoot = wizardDataRoot;
-            WriteBootstrap(bootstrapFile, dataRoot);
+            await bootstrapStore.WriteAsync(dataRoot);
         }
 
-        var host = new WorkbenchHost(dataRoot!);
+        var host = new WorkbenchHost(dataRoot);
         try
         {
             await host.InitializeAsync();
@@ -161,52 +166,18 @@ internal sealed class WorkbenchHost : IDisposable
         }
     }
 
-    private static void WriteBootstrap(string file, string dataRoot)
-    {
-        var temporary = file + $".{Guid.NewGuid():N}.tmp";
-        try
-        {
-            File.WriteAllText(temporary, JsonSerializer.Serialize(new BootstrapSettings(dataRoot), new JsonSerializerOptions { WriteIndented = true }));
-            if (File.Exists(file)) File.Replace(temporary, file, null);
-            else File.Move(temporary, file);
-        }
-        finally
-        {
-            if (File.Exists(temporary)) File.Delete(temporary);
-        }
-    }
-
     private async Task InitializeAsync()
     {
         // 所有可能产生异步 IO 的启动步骤集中在这里，并由 OnStartup 使用 await 调用。
         Logger.Info("开始初始化工作台数据库。");
-        try
-        {
-            await new DatabaseInitializer(_factory).InitializeAsync();
-        }
-        catch (SqliteException ex) when (File.Exists(Paths.DatabaseFile))
-        {
-            var backup = Paths.DatabaseFile + $".corrupt-{DateTime.Now:yyyyMMddHHmmss}";
-            File.Copy(Paths.DatabaseFile, backup, overwrite: true);
-            Logger.Error($"检测到数据库损坏，旧数据库已备份到：{backup}", ex);
-            var choice = System.Windows.MessageBox.Show(
-                $"数据库无法打开，已备份旧文件。\n\n是否创建新的数据库继续运行？\n\n备份：{backup}",
-                "Hephaestus工作台数据恢复",
-                MessageBoxButton.YesNo,
-                MessageBoxImage.Warning,
-                MessageBoxResult.No);
-            if (choice != MessageBoxResult.Yes) throw new InvalidOperationException("用户取消数据库恢复。", ex);
-            File.Delete(Paths.DatabaseFile);
-            await new DatabaseInitializer(_factory).InitializeAsync();
-            Logger.Info("已创建新的工作台数据库。");
-        }
+        await new DatabaseInitializer(_factory).InitializeAsync();
         Logger.Info("工作台数据库初始化完成。");
         var recoveredTasks = await LifecycleRepository.RecoverInterruptedAsync(DateTime.Now);
         if (recoveredTasks > 0)
             Logger.Info($"已恢复上次未完成的分析任务：{recoveredTasks} 个。");
 
-        await Configuration.EnsureWorkspaceAsync(legacyStore: SettingsStore);
-        AppSettings = await Configuration.EnsureAppSettingsAsync(SettingsStore);
+        await Configuration.EnsureWorkspaceAsync();
+        AppSettings = await Configuration.EnsureAppSettingsAsync();
         await Configuration.EnsurePluginConfigAsync();
 
         Logger.Info("开始登记内置日志分析插件。");
@@ -222,7 +193,6 @@ internal sealed class WorkbenchHost : IDisposable
                 Source = HephaestusWorkbench.Core.Models.PluginInstallSource.Bundled
             });
         }
-        await PluginMarketplace.SynchronizePluginInfoAsync();
         Logger.Info("内置日志分析插件登记完成。");
 
         Logger.Info("开始启动日志收件箱监控。");
@@ -236,21 +206,10 @@ internal sealed class WorkbenchHost : IDisposable
         Logger.Info("工作台初始化完成。");
     }
 
-    private static string? LoadDataRoot(string file)
-    {
-        try
-        {
-            if (!File.Exists(file)) return null;
-            return JsonSerializer.Deserialize<BootstrapSettings>(File.ReadAllText(file))?.DataRoot;
-        }
-        catch { return null; }
-    }
-
     public void Dispose()
     {
         MainViewModel?.Dispose();
         Inbox.Dispose();
     }
 
-    private sealed record BootstrapSettings(string DataRoot);
 }

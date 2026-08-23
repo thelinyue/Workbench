@@ -29,7 +29,7 @@ public sealed class PluginProvisioningService
             return Task.CompletedTask;
         }
 
-        var destination = Path.Combine(_paths.PluginsDirectory, "log-analyzer");
+        var destination = Path.Combine(_paths.ExtensionsDirectory, "log-analyzer");
         Directory.CreateDirectory(destination);
         var destinationExe = Path.Combine(destination, "log_analyzer.exe");
         var destinationManifest = Path.Combine(destination, "manifest.json");
