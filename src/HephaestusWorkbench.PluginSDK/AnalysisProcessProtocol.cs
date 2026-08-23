@@ -36,6 +36,11 @@ public sealed class AnalysisProcessRequest
     [JsonPropertyName("extractDirectory")]
     public required string ExtractDirectory { get; init; }
 
+    /// <summary>宿主生成的当前激活规则文件；未配置用户规则时省略并由扩展使用内置规则。</summary>
+    [JsonPropertyName("rulesPath")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? RulesPath { get; init; }
+
     [JsonPropertyName("scope")]
     public required AnalysisScope Scope { get; init; }
 }
@@ -81,6 +86,8 @@ public static class AnalysisProcessProtocol
         var request = Deserialize<AnalysisProcessRequest>(json, "分析请求");
         ValidateProtocol(request.Protocol, "分析请求");
         ValidateRequiredStrings("分析请求", request.RequestId, request.CaseId, request.SourcePath, request.OutputDirectory, request.ExtractDirectory);
+        if (request.RulesPath is not null && string.IsNullOrWhiteSpace(request.RulesPath))
+            throw new ExtensionContractException("分析请求的 rulesPath 不能是空白字符串。");
         return request;
     }
 

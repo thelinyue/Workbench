@@ -11,6 +11,7 @@ if (args is ["child", var childMarkerPath])
 var input = await Console.In.ReadToEndAsync();
 var request = AnalysisProcessProtocol.ParseRequest(input);
 Directory.CreateDirectory(request.ExtractDirectory);
+await File.WriteAllTextAsync(Path.Combine(request.ExtractDirectory, "fixture.request.json"), input);
 await WriteMarkerAsync(Path.Combine(request.ExtractDirectory, "fixture.started"));
 
 var mode = File.Exists(request.SourcePath)

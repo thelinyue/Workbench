@@ -65,6 +65,26 @@ public sealed class CaseAnalysisExtensionRuntimeTests
     }
 
     [Fact]
+    public async Task StartAndWaitAsync_WhenActiveRulesExist_ForwardsHostManagedRulesPath()
+    {
+        await using var environment = await TestEnvironment.CreateAsync(
+            AnalysisExtensionTestSupport.Process());
+        var log = Path.Combine(environment.Root, "rules.tgz");
+        await File.WriteAllTextAsync(log, "success");
+        Directory.CreateDirectory(Path.GetDirectoryName(environment.Paths.ActiveRulesFile)!);
+        await File.WriteAllTextAsync(environment.Paths.ActiveRulesFile, """
+            {"version":"test","files":[{"name":"messages","category":"系统","keywords":[{"term":"error","result":"错误"}]}]}
+            """);
+
+        var task = await environment.Analysis.StartAndWaitAsync(ValidItem(log));
+
+        Assert.NotNull(task);
+        var requestJson = await File.ReadAllTextAsync(Path.Combine(environment.Root, "rules", "fixture.request.json"));
+        using var request = System.Text.Json.JsonDocument.Parse(requestJson);
+        Assert.Equal(environment.Paths.ActiveRulesFile, request.RootElement.GetProperty("rulesPath").GetString());
+    }
+
+    [Fact]
     public async Task RunningTask_HoldsOriginalVersionLeaseUntilCancellationCompletes()
     {
         await using var environment = await TestEnvironment.CreateAsync(
@@ -153,6 +173,7 @@ public sealed class CaseAnalysisExtensionRuntimeTests
                 new AnalysisProcessHost(logger),
                 new TaskCenter(tasks),
                 logger,
+                new RuleSetService(paths, logger),
                 new SqliteAnalysisLifecycleRepository(factory));
             return new TestEnvironment(root, cases, tasks, reports, analysis)
             {

@@ -29,6 +29,45 @@ public sealed class AnalysisProcessProtocolTests
         Assert.DoesNotContain("reportPath", json, StringComparison.OrdinalIgnoreCase);
     }
 
+    [Fact]
+    public void Request_UsesOptionalHostManagedRulesPath()
+    {
+        var request = new AnalysisProcessRequest
+        {
+            Protocol = AnalysisProcessProtocol.Version,
+            RequestId = "request-rules",
+            CaseId = "case-rules",
+            SourcePath = @"C:\Logs\device.tgz",
+            OutputDirectory = @"C:\Logs\device\Report",
+            ExtractDirectory = @"C:\Logs\device",
+            RulesPath = @"C:\Workbench\Rules\Active\active.json",
+            Scope = AnalysisScope.Comprehensive
+        };
+
+        var parsed = AnalysisProcessProtocol.ParseRequest(JsonSerializer.Serialize(request));
+
+        Assert.Equal(request.RulesPath, parsed.RulesPath);
+    }
+
+    [Fact]
+    public void ParseRequest_RejectsBlankRulesPath()
+    {
+        var json = """
+            {
+              "protocol": "analysis-process-v1",
+              "requestId": "request-1",
+              "caseId": "case-1",
+              "sourcePath": "C:/Logs/device.tgz",
+              "outputDirectory": "C:/Logs/device/Report",
+              "extractDirectory": "C:/Logs/device",
+              "rulesPath": "   ",
+              "scope": "comprehensive"
+            }
+            """;
+
+        Assert.Throws<ExtensionContractException>(() => AnalysisProcessProtocol.ParseRequest(json));
+    }
+
     [Theory]
     [InlineData("legacy-v1", "comprehensive")]
     [InlineData("analysis-process-v1", "custom")]

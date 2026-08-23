@@ -21,6 +21,7 @@ public sealed class CaseAnalysisService
     private readonly AnalysisProcessHost _processHost;
     private readonly TaskCenter _taskCenter;
     private readonly WorkbenchLogger _logger;
+    private readonly RuleSetService _rules;
     private readonly IAnalysisLifecycleRepository _lifecycle;
     public event EventHandler? StateChanged;
 
@@ -35,6 +36,7 @@ public sealed class CaseAnalysisService
         AnalysisProcessHost processHost,
         TaskCenter taskCenter,
         WorkbenchLogger logger,
+        RuleSetService rules,
         IAnalysisLifecycleRepository lifecycle)
     {
         _paths = paths;
@@ -45,6 +47,7 @@ public sealed class CaseAnalysisService
         _processHost = processHost ?? throw new ArgumentNullException(nameof(processHost));
         _taskCenter = taskCenter;
         _logger = logger;
+        _rules = rules ?? throw new ArgumentNullException(nameof(rules));
         _lifecycle = lifecycle ?? throw new ArgumentNullException(nameof(lifecycle));
     }
 
@@ -275,6 +278,7 @@ public sealed class CaseAnalysisService
                 SourcePath = analysisCase.SourcePath,
                 OutputDirectory = FileUtilities.GetReportDirectory(analysisCase.ExtractPath),
                 ExtractDirectory = analysisCase.ExtractPath,
+                RulesPath = _rules.HasActiveRules ? _rules.ActiveRulesPath : null,
                 Scope = task.AnalysisScope switch
                 {
                     HephaestusWorkbench.Core.Models.AnalysisScope.Comprehensive => ProtocolAnalysisScope.Comprehensive,

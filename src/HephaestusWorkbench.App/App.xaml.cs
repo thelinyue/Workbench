@@ -86,7 +86,7 @@ internal sealed class WorkbenchHost : IDisposable
 
         _seedDirectory = Path.Combine(AppContext.BaseDirectory, "PluginSeed");
         TaskCenter = new TaskCenter(TasksRepository);
-        Analysis = new CaseAnalysisService(Paths, CasesRepository, TasksRepository, ReportsRepository, ExtensionRegistry, AnalysisProcessHost, TaskCenter, Logger, LifecycleRepository);
+        Analysis = new CaseAnalysisService(Paths, CasesRepository, TasksRepository, ReportsRepository, ExtensionRegistry, AnalysisProcessHost, TaskCenter, Logger, Rules, LifecycleRepository);
         PluginMarketplace = new PluginMarketplaceService(Paths, PluginCatalog, Configuration, TaskCenter, Logger);
         Reports = new ReportService(ReportsRepository, Analysis);
         Inbox = new LogInboxService(new LogFileParser(), new ArchiveValidator(), Configuration, Logger, Paths.InboxDirectory);
