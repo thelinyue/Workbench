@@ -14,6 +14,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "HephaestusWorkbench.PluginS
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "HephaestusWorkbench.Tests", "tests\HephaestusWorkbench.Tests\HephaestusWorkbench.Tests.csproj", "{DBB8FC9A-7D6E-4E7F-9E1A-32D5CB8CFD93}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "HephaestusWorkbench.AnalysisProcessFixture", "tests\HephaestusWorkbench.AnalysisProcessFixture\HephaestusWorkbench.AnalysisProcessFixture.csproj", "{E1988ED0-2C49-4006-AFA3-C6FAF093CF42}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -44,6 +46,10 @@ Global
 		{DBB8FC9A-7D6E-4E7F-9E1A-32D5CB8CFD93}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{DBB8FC9A-7D6E-4E7F-9E1A-32D5CB8CFD93}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{DBB8FC9A-7D6E-4E7F-9E1A-32D5CB8CFD93}.Release|Any CPU.Build.0 = Release|Any CPU
+		{E1988ED0-2C49-4006-AFA3-C6FAF093CF42}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{E1988ED0-2C49-4006-AFA3-C6FAF093CF42}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{E1988ED0-2C49-4006-AFA3-C6FAF093CF42}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{E1988ED0-2C49-4006-AFA3-C6FAF093CF42}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
