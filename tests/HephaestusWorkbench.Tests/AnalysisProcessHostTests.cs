@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using HephaestusWorkbench.PluginSDK;
 using HephaestusWorkbench.Services;
 
@@ -56,6 +57,64 @@ public sealed class AnalysisProcessHostTests
         Assert.False(result.Succeeded);
         Assert.Contains("未生成", result.ErrorMessage, StringComparison.Ordinal);
         Assert.Equal("<html>previous</html>", await File.ReadAllTextAsync(previousReport));
+    }
+
+    [Fact]
+    public async Task RunAsync_WhenNewRunFails_RestoresTheCompletePreviousReport()
+    {
+        using var environment = await TestEnvironment.CreateAsync("overwrite-then-fail");
+        var reportDirectory = Path.Combine(environment.ExtractDirectory, "Report");
+        Directory.CreateDirectory(reportDirectory);
+        await File.WriteAllTextAsync(Path.Combine(reportDirectory, "index.html"), "<html>previous</html>");
+        await File.WriteAllTextAsync(Path.Combine(reportDirectory, "asset.txt"), "old asset");
+
+        var result = await environment.Host.RunAsync(environment.Manifest, environment.Request);
+
+        Assert.False(result.Succeeded);
+        Assert.Equal("<html>previous</html>", await File.ReadAllTextAsync(Path.Combine(reportDirectory, "index.html")));
+        Assert.Equal("old asset", await File.ReadAllTextAsync(Path.Combine(reportDirectory, "asset.txt")));
+    }
+
+    [Fact]
+    public async Task RunAsync_SerializesRunsThatTargetTheSameReportDirectory()
+    {
+        using var environment = await TestEnvironment.CreateAsync("delayed-failure");
+        var failedTask = environment.Host.RunAsync(environment.Manifest, environment.Request);
+        await WaitForFileAsync(Path.Combine(environment.ExtractDirectory, "fixture.started"));
+        var successRequest = await environment.CreateRequestAsync("success", "request-success");
+
+        var successTask = environment.Host.RunAsync(environment.Manifest, successRequest);
+        var failed = await failedTask;
+        var succeeded = await successTask;
+
+        Assert.False(failed.Succeeded);
+        Assert.True(succeeded.Succeeded, succeeded.ErrorMessage);
+        Assert.True(File.Exists(Path.Combine(environment.ExtractDirectory, "Report", "index.html")));
+    }
+
+    [Fact]
+    public async Task RunAsync_RejectsReportDirectoryJunctionBeforeChangingExternalFiles()
+    {
+        using var environment = await TestEnvironment.CreateAsync("success");
+        var outside = Path.Combine(environment.Root, "OutsideReport");
+        var reportDirectory = Path.Combine(environment.ExtractDirectory, "Report");
+        Directory.CreateDirectory(environment.ExtractDirectory);
+        Directory.CreateDirectory(outside);
+        var outsideEntry = Path.Combine(outside, "index.html");
+        await File.WriteAllTextAsync(outsideEntry, "outside");
+        CreateJunction(reportDirectory, outside);
+        try
+        {
+            var result = await environment.Host.RunAsync(environment.Manifest, environment.Request);
+
+            Assert.False(result.Succeeded);
+            Assert.Contains("文件系统链接", result.ErrorMessage, StringComparison.Ordinal);
+            Assert.Equal("outside", await File.ReadAllTextAsync(outsideEntry));
+        }
+        finally
+        {
+            if (Directory.Exists(reportDirectory)) Directory.Delete(reportDirectory);
+        }
     }
 
     [Fact]
@@ -127,6 +186,21 @@ public sealed class AnalysisProcessHostTests
         AssertProcessExited(childProcessId);
     }
 
+    private static void CreateJunction(string linkDirectory, string targetDirectory)
+    {
+        using var junction = Process.Start(new ProcessStartInfo
+        {
+            FileName = "cmd.exe",
+            Arguments = $"/d /c mklink /J \"{linkDirectory}\" \"{targetDirectory}\"",
+            UseShellExecute = false,
+            CreateNoWindow = true,
+            RedirectStandardError = true,
+            RedirectStandardOutput = true
+        }) ?? throw new InvalidOperationException("无法启动 junction 测试进程。");
+        junction.WaitForExit();
+        Assert.True(junction.ExitCode == 0, junction.StandardError.ReadToEnd() + junction.StandardOutput.ReadToEnd());
+    }
+
     private static async Task WaitForFileAsync(string path)
     {
         for (var attempt = 0; attempt < 100 && !File.Exists(path); attempt++)
@@ -168,6 +242,22 @@ public sealed class AnalysisProcessHostTests
         public AnalysisProcessHost Host { get; }
         public ExtensionManifest Manifest { get; }
         public AnalysisProcessRequest Request { get; }
+
+        public async Task<AnalysisProcessRequest> CreateRequestAsync(string mode, string requestId)
+        {
+            var sourcePath = Path.Combine(Root, $"source-{requestId}.txt");
+            await File.WriteAllTextAsync(sourcePath, mode);
+            return new AnalysisProcessRequest
+            {
+                Protocol = AnalysisProcessProtocol.Version,
+                RequestId = requestId,
+                CaseId = Request.CaseId,
+                SourcePath = sourcePath,
+                OutputDirectory = Request.OutputDirectory,
+                ExtractDirectory = Request.ExtractDirectory,
+                Scope = AnalysisScope.Comprehensive
+            };
+        }
 
         public static async Task<TestEnvironment> CreateAsync(string mode)
         {

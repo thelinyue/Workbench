@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Text;
 using System.Text.Json;
@@ -24,6 +25,8 @@ public sealed class AnalysisProcessHost
 {
     private const int MaximumCapturedCharacters = 1024 * 1024;
     private readonly WorkbenchLogger _logger;
+    private readonly ConcurrentDictionary<string, SemaphoreSlim> _reportGates =
+        new(StringComparer.OrdinalIgnoreCase);
 
     public AnalysisProcessHost(WorkbenchLogger logger)
     {
@@ -36,17 +39,29 @@ public sealed class AnalysisProcessHost
         CancellationToken cancellationToken = default)
     {
         Process? process = null;
-        string? reportEntry = null;
-        string? previousReportEntry = null;
+        SemaphoreSlim? reportGate = null;
+        string? reportDirectory = null;
+        string? previousReportDirectory = null;
+        var reportGateHeld = false;
+        var reportTransactionStarted = false;
         var succeeded = false;
         try
         {
             ValidateManifest(manifest);
             var normalizedRequest = ValidateRequest(request);
-            var reportDirectory = ResolveReportDirectory(normalizedRequest);
-            reportEntry = Path.Combine(reportDirectory, "index.html");
-            previousReportEntry = BackupPreviousReportEntry(reportEntry, normalizedRequest.ExtractDirectory);
+            var extractDirectory = Path.TrimEndingDirectorySeparator(Path.GetFullPath(normalizedRequest.ExtractDirectory));
+            reportDirectory = ResolveReportDirectory(normalizedRequest);
+            ValidateReportPath(extractDirectory, reportDirectory);
+
+            reportGate = _reportGates.GetOrAdd(reportDirectory, _ => new SemaphoreSlim(1, 1));
+            await reportGate.WaitAsync(cancellationToken);
+            reportGateHeld = true;
+
+            // 等待期间目录可能被其他任务或外部程序改变，开始事务前必须再次验证。
+            ValidateReportPath(extractDirectory, reportDirectory);
+            previousReportDirectory = BackupPreviousReportDirectory(reportDirectory, extractDirectory);
             Directory.CreateDirectory(reportDirectory);
+            reportTransactionStarted = true;
 
             process = CreateProcess(manifest.EntryPath!, manifest.DirectoryPath);
             if (!process.Start())
@@ -82,6 +97,8 @@ public sealed class AnalysisProcessHost
             if (!response.Succeeded)
                 return Failure($"日志分析扩展执行失败：{response.ErrorMessage}", exitCode);
 
+            var reportEntry = Path.Combine(reportDirectory, "index.html");
+            ValidateReportPath(extractDirectory, reportDirectory, reportEntry);
             if (!File.Exists(reportEntry))
                 return Failure("日志分析完成，但未生成固定入口 Report/index.html。", exitCode);
 
@@ -110,7 +127,10 @@ public sealed class AnalysisProcessHost
         finally
         {
             process?.Dispose();
-            FinalizeReportEntry(reportEntry, previousReportEntry, succeeded, _logger);
+            if (reportTransactionStarted)
+                FinalizeReportDirectory(reportDirectory!, previousReportDirectory, succeeded, _logger);
+            if (reportGateHeld)
+                reportGate!.Release();
         }
     }
 
@@ -138,9 +158,9 @@ public sealed class AnalysisProcessHost
 
     private static string ResolveReportDirectory(AnalysisProcessRequest request)
     {
-        var extractDirectory = Path.GetFullPath(request.ExtractDirectory);
+        var extractDirectory = Path.TrimEndingDirectorySeparator(Path.GetFullPath(request.ExtractDirectory));
         var reportDirectory = Path.Combine(extractDirectory, "Report");
-        var declaredOutputDirectory = Path.GetFullPath(request.OutputDirectory);
+        var declaredOutputDirectory = Path.TrimEndingDirectorySeparator(Path.GetFullPath(request.OutputDirectory));
         if (!string.Equals(reportDirectory, declaredOutputDirectory, StringComparison.OrdinalIgnoreCase))
             throw new ExtensionContractException("分析请求的输出目录必须是解压目录下的 Report 目录。");
         return reportDirectory;
@@ -184,46 +204,84 @@ public sealed class AnalysisProcessHost
         }
     }
 
-    private static string? BackupPreviousReportEntry(string reportEntry, string extractDirectory)
+    private static string? BackupPreviousReportDirectory(string reportDirectory, string extractDirectory)
     {
-        if (!File.Exists(reportEntry)) return null;
+        if (!Directory.Exists(reportDirectory)) return null;
 
         var backupPath = Path.Combine(
-            Path.GetFullPath(extractDirectory),
-            $".report-index.previous.{Guid.NewGuid():N}.html");
-        File.Move(reportEntry, backupPath);
+            extractDirectory,
+            $".Report.previous.{Guid.NewGuid():N}");
+        Directory.Move(reportDirectory, backupPath);
         return backupPath;
     }
 
-    private static void FinalizeReportEntry(
-        string? reportEntry,
-        string? previousReportEntry,
+    private static void FinalizeReportDirectory(
+        string reportDirectory,
+        string? previousReportDirectory,
         bool succeeded,
         WorkbenchLogger logger)
     {
-        if (reportEntry is null) return;
-
         try
         {
             if (succeeded)
             {
-                if (previousReportEntry is not null && File.Exists(previousReportEntry))
-                    File.Delete(previousReportEntry);
+                if (previousReportDirectory is not null)
+                    DeleteDirectoryWithoutFollowingLinks(previousReportDirectory);
                 return;
             }
 
-            if (File.Exists(reportEntry)) File.Delete(reportEntry);
-            if (previousReportEntry is not null && File.Exists(previousReportEntry))
-            {
-                Directory.CreateDirectory(Path.GetDirectoryName(reportEntry)!);
-                File.Move(previousReportEntry, reportEntry);
-            }
+            DeleteDirectoryWithoutFollowingLinks(reportDirectory);
+            if (previousReportDirectory is not null && Directory.Exists(previousReportDirectory))
+                Directory.Move(previousReportDirectory, reportDirectory);
         }
         catch (Exception exception)
         {
-            // 失败时保留备份文件，不再继续删除，确保原报告仍可由用户手工恢复。
-            logger.Error("收敛日志分析报告入口失败，原报告备份已保留", exception);
+            // 恢复失败时不再继续删除，完整旧报告仍保留在同一解压目录的备份路径中。
+            logger.Error("收敛日志分析报告目录失败，原报告备份已保留", exception);
         }
+    }
+
+    private static void ValidateReportPath(string extractDirectory, string reportDirectory, string? reportEntry = null)
+    {
+        RejectReparsePointIfExists(extractDirectory, "案例解压目录");
+        RejectReparsePointIfExists(reportDirectory, "报告目录");
+        if (reportEntry is not null) RejectReparsePointIfExists(reportEntry, "报告入口");
+    }
+
+    private static void RejectReparsePointIfExists(string path, string description)
+    {
+        if ((File.Exists(path) || Directory.Exists(path)) &&
+            File.GetAttributes(path).HasFlag(FileAttributes.ReparsePoint))
+        {
+            throw new InvalidOperationException($"{description}包含文件系统链接，已拒绝分析：{path}");
+        }
+    }
+
+    private static void DeleteDirectoryWithoutFollowingLinks(string path)
+    {
+        if (!Directory.Exists(path)) return;
+        if (File.GetAttributes(path).HasFlag(FileAttributes.ReparsePoint))
+        {
+            Directory.Delete(path);
+            return;
+        }
+
+        foreach (var entry in Directory.EnumerateFileSystemEntries(path))
+        {
+            var attributes = File.GetAttributes(entry);
+            if (attributes.HasFlag(FileAttributes.Directory))
+            {
+                if (attributes.HasFlag(FileAttributes.ReparsePoint))
+                    Directory.Delete(entry);
+                else
+                    DeleteDirectoryWithoutFollowingLinks(entry);
+            }
+            else
+            {
+                File.Delete(entry);
+            }
+        }
+        Directory.Delete(path);
     }
 
     private static string ShortenDiagnostic(string value)

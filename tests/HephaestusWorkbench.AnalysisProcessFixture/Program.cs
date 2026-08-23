@@ -47,6 +47,9 @@ if (mode == "large-stdout")
     return;
 }
 
+if (mode == "delayed-failure")
+    await Task.Delay(TimeSpan.FromMilliseconds(500));
+
 if (mode == "dual-output")
 {
     await Console.Error.WriteAsync(new string('e', 256 * 1024));
@@ -58,6 +61,8 @@ if (mode != "missing-report")
     var reportDirectory = Path.Combine(request.ExtractDirectory, "Report");
     Directory.CreateDirectory(reportDirectory);
     await File.WriteAllTextAsync(Path.Combine(reportDirectory, "index.html"), "<html>fixture</html>");
+    if (mode == "overwrite-then-fail")
+        await File.WriteAllTextAsync(Path.Combine(reportDirectory, "asset.txt"), "new asset");
 }
 
 if (mode == "report-path")
@@ -74,7 +79,7 @@ var response = mode switch
         RequestId = "another-request",
         Succeeded = true
     },
-    "failure" => new AnalysisProcessResponse
+    "failure" or "delayed-failure" or "overwrite-then-fail" => new AnalysisProcessResponse
     {
         Protocol = AnalysisProcessProtocol.Version,
         RequestId = request.RequestId,
@@ -98,5 +103,5 @@ static async Task WriteMarkerAsync(string path)
 {
     var temporaryPath = path + ".tmp";
     await File.WriteAllTextAsync(temporaryPath, Environment.ProcessId.ToString());
-    File.Move(temporaryPath, path);
+    File.Move(temporaryPath, path, overwrite: true);
 }
