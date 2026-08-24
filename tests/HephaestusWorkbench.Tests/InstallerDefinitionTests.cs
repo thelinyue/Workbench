@@ -1,10 +1,12 @@
 using System.Diagnostics;
+using System.IO.Compression;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Text.RegularExpressions;
 using NSec.Cryptography;
+using HephaestusWorkbench.Services;
 
 namespace HephaestusWorkbench.Tests;
 
@@ -361,6 +363,160 @@ public sealed class InstallerDefinitionTests
         Assert.DoesNotContain("HephaestusWorkbenchData", script, StringComparison.OrdinalIgnoreCase);
     }
 
+    [Fact]
+    public async Task ReleaseMetadataImport_WritesBundledLockFromFinalZipManifestAndExplicitDescription()
+    {
+        const string reviewedDescription = "人工审核：支持本地日志筛选、归档和分析。";
+        var result = await RunReleaseMetadataImportAsync(reviewedDescription: reviewedDescription);
+
+        Assert.True(result.ExitCode == 0, result.Output);
+        Assert.True(result.OutputExists, result.Output);
+        var outputJson = Assert.IsType<string>(result.OutputJson);
+        var document = BundledExtensionManifestParser.Parse(outputJson);
+        var extension = Assert.Single(document.Extensions);
+        Assert.Equal(2, document.SchemaVersion);
+        Assert.Equal("log-analyzer", extension.Id);
+        Assert.Equal("日志分析", extension.Name);
+        Assert.Equal(reviewedDescription, extension.Description);
+        Assert.Equal("thelinyue", extension.PublisherId);
+        Assert.Equal("analysis", extension.Kind.ToString().ToLowerInvariant());
+        Assert.Equal("log-analyzer-v2.0.0.zip", extension.Asset);
+        Assert.Equal("2.0.0", extension.Release.Version);
+        Assert.Equal("2.0.0", extension.Release.MinHostVersion);
+        Assert.Equal("https://example.invalid/releases/log-analyzer-v2.0.0.zip", extension.Release.Url);
+        Assert.NotEqual(0, extension.Release.Size);
+        Assert.Equal(64, extension.Release.Sha256.Length);
+        Assert.Equal("test-key", extension.Release.Signature.KeyId);
+        Assert.Equal(Convert.ToBase64String(new byte[64]), extension.Release.Signature.Signature);
+        Assert.DoesNotContain("publicKey", outputJson, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task ReleaseMetadataImport_RejectsMetadataSchemaOtherThanV2OrMissingCompleteManifest()
+    {
+        var invalidSchema = await RunReleaseMetadataImportAsync(metadata => metadata["schemaVersion"] = 1);
+        var missingManifest = await RunReleaseMetadataImportAsync(metadata => GetReleaseMetadataPackage(metadata).Remove("manifest"));
+
+        Assert.NotEqual(0, invalidSchema.ExitCode);
+        Assert.Contains("schemaVersion", invalidSchema.Output, StringComparison.OrdinalIgnoreCase);
+        Assert.False(invalidSchema.OutputExists);
+        Assert.NotEqual(0, missingManifest.ExitCode);
+        Assert.Contains("manifest", missingManifest.Output, StringComparison.OrdinalIgnoreCase);
+        Assert.False(missingManifest.OutputExists);
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(2)]
+    public async Task ReleaseMetadataImport_RejectsMissingOrMultipleRootManifestJson(int rootManifestCopies)
+    {
+        var result = await RunReleaseMetadataImportAsync(rootManifestCopies: rootManifestCopies);
+
+        Assert.NotEqual(0, result.ExitCode);
+        Assert.Contains("根级 manifest.json", result.Output, StringComparison.Ordinal);
+        Assert.False(result.OutputExists);
+    }
+
+    [Fact]
+    public async Task ReleaseMetadataImport_RejectsZipManifestThatDiffersFromSelectedMetadataPackage()
+    {
+        var result = await RunReleaseMetadataImportAsync(
+            mutateZipManifest: manifest => manifest["version"] = "2.0.1");
+
+        Assert.NotEqual(0, result.ExitCode);
+        Assert.Contains("ZIP manifest", result.Output, StringComparison.Ordinal);
+        Assert.False(result.OutputExists);
+    }
+
+    [Fact]
+    public async Task ReleaseMetadataImport_RejectsMetadataFileSizeOrSha256ThatDoesNotMatchFinalZip()
+    {
+        var wrongFile = await RunReleaseMetadataImportAsync(metadata =>
+        {
+            var package = GetReleaseMetadataPackage(metadata);
+            package["file"] = "other.zip";
+            package["url"] = "https://example.invalid/releases/other.zip";
+        });
+        var wrongSize = await RunReleaseMetadataImportAsync(metadata => GetReleaseMetadataPackage(metadata)["size"] = 1);
+        var wrongHash = await RunReleaseMetadataImportAsync(metadata => GetReleaseMetadataPackage(metadata)["sha256"] = new string('0', 64));
+
+        Assert.NotEqual(0, wrongFile.ExitCode);
+        Assert.Contains("file", wrongFile.Output, StringComparison.OrdinalIgnoreCase);
+        Assert.False(wrongFile.OutputExists);
+        Assert.NotEqual(0, wrongSize.ExitCode);
+        Assert.Contains("size", wrongSize.Output, StringComparison.OrdinalIgnoreCase);
+        Assert.False(wrongSize.OutputExists);
+        Assert.NotEqual(0, wrongHash.ExitCode);
+        Assert.Contains("SHA-256", wrongHash.Output, StringComparison.Ordinal);
+        Assert.False(wrongHash.OutputExists);
+    }
+
+    [Fact]
+    public async Task ReleaseMetadataImport_RejectsUnknownOrDuplicateSelectedExtensionId()
+    {
+        var unknown = await RunReleaseMetadataImportAsync(extensionId: "missing-extension");
+        var duplicate = await RunReleaseMetadataImportAsync(metadata =>
+        {
+            var packages = Assert.IsType<JsonArray>(metadata["packages"]);
+            var second = Assert.IsType<JsonObject>(GetReleaseMetadataPackage(metadata).DeepClone());
+            var manifest = Assert.IsType<JsonObject>(second["manifest"]);
+            manifest["version"] = "2.0.1";
+            packages.Add(second);
+        });
+
+        Assert.NotEqual(0, unknown.ExitCode);
+        Assert.Contains("未找到", unknown.Output, StringComparison.Ordinal);
+        Assert.False(unknown.OutputExists);
+        Assert.NotEqual(0, duplicate.ExitCode);
+        Assert.Contains("重复", duplicate.Output, StringComparison.Ordinal);
+        Assert.False(duplicate.OutputExists);
+    }
+
+    [Theory]
+    [InlineData("runtime")]
+    [InlineData("capabilities")]
+    [InlineData("dependencies")]
+    public async Task ReleaseMetadataImport_RejectsDeepZipManifestDifferences(string field)
+    {
+        var result = await RunReleaseMetadataImportAsync(mutateZipManifest: manifest =>
+        {
+            switch (field)
+            {
+                case "runtime":
+                    Assert.IsType<JsonObject>(manifest["runtime"])["entry"] = "updated-tool.exe";
+                    break;
+                case "capabilities":
+                    manifest["capabilities"] = new JsonArray("analysis.engine", "analysis.scope.storage");
+                    break;
+                case "dependencies":
+                    manifest["dependencies"] = new JsonArray
+                    {
+                        new JsonObject
+                        {
+                            ["id"] = "shared-rules",
+                            ["version"] = "1.0.0"
+                        }
+                    };
+                    break;
+                default:
+                    throw new ArgumentOutOfRangeException(nameof(field), field, "未知的 manifest 深层字段。");
+            }
+        });
+
+        Assert.NotEqual(0, result.ExitCode);
+        Assert.Contains("ZIP manifest", result.Output, StringComparison.Ordinal);
+        Assert.False(result.OutputExists);
+    }
+    [Fact]
+    public async Task ReleaseMetadataImport_RejectsBlankReviewedDescriptionInsteadOfDerivingItFromMetadata()
+    {
+        var result = await RunReleaseMetadataImportAsync(reviewedDescription: " \t ");
+
+        Assert.NotEqual(0, result.ExitCode);
+        Assert.Contains("ReviewedDescription", result.Output, StringComparison.Ordinal);
+        Assert.False(result.OutputExists);
+    }
+
     /// <summary>
     /// 按 YAML 缩进提取映射块，只在目标 job/step 的结构范围内做发布安全断言。
     /// </summary>
@@ -445,6 +601,139 @@ public sealed class InstallerDefinitionTests
         Assert.NotNull(directory);
         return directory!.FullName;
     }
+
+    /// <summary>
+    /// 以真实 pwsh 进程执行离线 handoff；ZIP 与 metadata 都只在系统临时目录创建，避免任何测试资产进入仓库。
+    /// </summary>
+    private static async Task<ReleaseMetadataImportResult> RunReleaseMetadataImportAsync(
+        Action<JsonObject>? mutateMetadata = null,
+        Action<JsonObject>? mutateZipManifest = null,
+        int rootManifestCopies = 1,
+        string extensionId = "log-analyzer",
+        string reviewedDescription = "人工审核：日志分析扩展。")
+    {
+        var sandbox = Path.Combine(Path.GetTempPath(), $"hephaestus-release-metadata-import-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(sandbox);
+        try
+        {
+            var metadataPath = Path.Combine(sandbox, "release-metadata.json");
+            var packagePath = Path.Combine(sandbox, "log-analyzer-v2.0.0.zip");
+            var outputPath = Path.Combine(sandbox, "bundled-extensions.json");
+            var metadata = CreateReleaseMetadata();
+            var zipManifest = Assert.IsType<JsonObject>(GetReleaseMetadataPackage(metadata)["manifest"]).DeepClone().AsObject();
+            mutateZipManifest?.Invoke(zipManifest);
+            await WriteTemporaryExtensionZipAsync(packagePath, zipManifest, rootManifestCopies);
+
+            var package = GetReleaseMetadataPackage(metadata);
+            package["size"] = new FileInfo(packagePath).Length;
+            package["sha256"] = Convert.ToHexString(SHA256.HashData(await File.ReadAllBytesAsync(packagePath))).ToLowerInvariant();
+            mutateMetadata?.Invoke(metadata);
+            await File.WriteAllTextAsync(
+                metadataPath,
+                metadata.ToJsonString(new JsonSerializerOptions { WriteIndented = true }),
+                new UTF8Encoding(false));
+
+            var startInfo = new ProcessStartInfo
+            {
+                FileName = "pwsh",
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                UseShellExecute = false,
+                CreateNoWindow = true
+            };
+            startInfo.ArgumentList.Add("-NoLogo");
+            startInfo.ArgumentList.Add("-NoProfile");
+            startInfo.ArgumentList.Add("-NonInteractive");
+            startInfo.ArgumentList.Add("-File");
+            startInfo.ArgumentList.Add(Path.Combine(FindRepositoryRoot(), "installer", "import-release-metadata.ps1"));
+            startInfo.ArgumentList.Add("-ReleaseMetadataPath");
+            startInfo.ArgumentList.Add(metadataPath);
+            startInfo.ArgumentList.Add("-PackagePath");
+            startInfo.ArgumentList.Add(packagePath);
+            startInfo.ArgumentList.Add("-ExtensionId");
+            startInfo.ArgumentList.Add(extensionId);
+            startInfo.ArgumentList.Add("-ReviewedDescription");
+            startInfo.ArgumentList.Add(reviewedDescription);
+            startInfo.ArgumentList.Add("-OutputPath");
+            startInfo.ArgumentList.Add(outputPath);
+
+            using var process = Process.Start(startInfo);
+            Assert.NotNull(process);
+            var standardOutput = process!.StandardOutput.ReadToEndAsync();
+            var standardError = process.StandardError.ReadToEndAsync();
+            await process.WaitForExitAsync();
+            var output = await standardOutput + await standardError;
+            return new ReleaseMetadataImportResult(
+                process.ExitCode,
+                output,
+                File.Exists(outputPath),
+                File.Exists(outputPath) ? await File.ReadAllTextAsync(outputPath) : null);
+        }
+        finally
+        {
+            DeleteValidationSandbox(sandbox);
+        }
+    }
+
+    /// <summary>创建只用于进程级测试的最终 ZIP；其中根级 manifest.json 是脚本必须读取的唯一身份源。</summary>
+    private static async Task WriteTemporaryExtensionZipAsync(string packagePath, JsonObject manifest, int rootManifestCopies)
+    {
+        using var archive = ZipFile.Open(packagePath, ZipArchiveMode.Create);
+        for (var index = 0; index < rootManifestCopies; index++)
+        {
+            var entry = archive.CreateEntry("manifest.json", CompressionLevel.NoCompression);
+            await using var stream = entry.Open();
+            await using var writer = new StreamWriter(stream, new UTF8Encoding(false));
+            await writer.WriteAsync(manifest.ToJsonString());
+        }
+
+        var payload = archive.CreateEntry("tool.exe", CompressionLevel.NoCompression);
+        await using var payloadStream = payload.Open();
+        await payloadStream.WriteAsync(RandomNumberGenerator.GetBytes(32).AsMemory());
+    }
+
+    /// <summary>构造符合既有 metadata v2 基础契约的临时交接记录；测试值不含私钥或公钥，也不会写入仓库。</summary>
+    private static JsonObject CreateReleaseMetadata()
+        => new()
+        {
+            ["schemaVersion"] = 2,
+            ["generatedAtUtc"] = "2026-08-24T00:00:00Z",
+            ["packages"] = new JsonArray
+            {
+                new JsonObject
+                {
+                    ["manifest"] = new JsonObject
+                    {
+                        ["schemaVersion"] = 2,
+                        ["id"] = "log-analyzer",
+                        ["name"] = "日志分析",
+                        ["version"] = "2.0.0",
+                        ["kind"] = "analysis",
+                        ["publisherId"] = "thelinyue",
+                        ["hostApiVersion"] = "1.0",
+                        ["minHostVersion"] = "2.0.0",
+                        ["runtime"] = new JsonObject
+                        {
+                            ["kind"] = "process",
+                            ["protocol"] = "analysis-process-v1",
+                            ["entry"] = "tool.exe"
+                        },
+                        ["capabilities"] = new JsonArray("analysis.engine"),
+                        ["permissions"] = new JsonArray(),
+                        ["dependencies"] = new JsonArray()
+                    },
+                    ["file"] = "log-analyzer-v2.0.0.zip",
+                    ["url"] = "https://example.invalid/releases/log-analyzer-v2.0.0.zip",
+                    ["size"] = 1,
+                    ["sha256"] = new string('0', 64),
+                    ["keyId"] = "test-key",
+                    ["signature"] = Convert.ToBase64String(new byte[64])
+                }
+            }
+        };
+
+    private static JsonObject GetReleaseMetadataPackage(JsonObject metadata)
+        => Assert.IsType<JsonObject>(Assert.IsType<JsonArray>(metadata["packages"])[0]);
 
     /// <summary>
     /// 在临时仓库布局中启动真实 pwsh 进程，确保脚本仍只从自身仓库的 distribution 目录读取清单。
@@ -649,6 +938,12 @@ public sealed class InstallerDefinitionTests
             }
         };
     }
+    private sealed record ReleaseMetadataImportResult(
+        int ExitCode,
+        string Output,
+        bool OutputExists,
+        string? OutputJson);
+
     private sealed record InstallerValidationResult(
         int ExitCode,
         string Output,
