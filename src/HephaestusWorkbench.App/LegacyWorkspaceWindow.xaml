@@ -16,7 +16,7 @@
                    Text="Hephaestus Workbench v2.0.0 使用全新的工作区结构。当前目录中检测到了旧版本或无法确认版本的数据。为避免损坏原有内容，工作台不会修改这些文件。" />
         <StackPanel Grid.Row="2" Margin="0,22,0,0">
             <TextBlock Text="工作区位置" FontWeight="SemiBold" />
-            <TextBox Text="{Binding DataRoot}" IsReadOnly="True" Margin="0,8,0,0" Padding="10"
+            <TextBox Text="{Binding DataRoot, Mode=OneWay}" IsReadOnly="True" Margin="0,8,0,0" Padding="10"
                      AutomationProperties.Name="旧工作区绝对路径" />
         </StackPanel>
         <TextBlock Grid.Row="3" Margin="0,18,0,0" TextWrapping="Wrap"

@@ -109,6 +109,7 @@ public sealed class V2WorkspaceGateTests
         Assert.DoesNotContain("迁移", text);
         Assert.DoesNotContain("删除", text);
         Assert.DoesNotContain("备份", text);
+        Assert.Contains("Text=\"{Binding DataRoot, Mode=OneWay}\"", text);
     }
 
     [Fact]
