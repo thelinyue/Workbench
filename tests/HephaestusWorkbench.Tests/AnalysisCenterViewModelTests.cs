@@ -4,6 +4,7 @@ using System.Text;
 using HephaestusWorkbench.App.ViewModels;
 using HephaestusWorkbench.Core.Models;
 using HephaestusWorkbench.Core.Repositories;
+using HephaestusWorkbench.Core.Services;
 using HephaestusWorkbench.Data;
 using HephaestusWorkbench.PluginSDK;
 using HephaestusWorkbench.Services;
@@ -29,7 +30,7 @@ public sealed class AnalysisCenterViewModelTests
         await environment.Tasks.InsertAsync(CreateTask("task-current", current.Id, AnalysisTaskStatus.Completed));
         var reportPath = environment.Paths.GetReportDirectory(extractPath);
         Directory.CreateDirectory(reportPath);
-        await File.WriteAllTextAsync(Path.Combine(reportPath, "report.html"), "<html>ok</html>");
+        await File.WriteAllTextAsync(Path.Combine(reportPath, "index.html"), "<html>ok</html>");
         await environment.Reports.InsertAsync(new Report { Id = "report-current", CaseId = current.Id, Path = reportPath, PluginId = "test-plugin", CreateTime = DateTime.Now });
 
         using var center = environment.CreateAnalysisCenter();
@@ -43,6 +44,25 @@ public sealed class AnalysisCenterViewModelTests
         Assert.Equal("case-current", group.CurrentAttempt?.Case.Id);
 
         Assert.Single(center.Items);
+    }
+
+    [Fact]
+    public async Task LoadAsync_ExposesEveryAnalysisAttemptAsOneHistoryRow()
+    {
+        await using var environment = await TestEnvironment.CreateAsync();
+        var source = Path.Combine(environment.Root, "diag_DEVICE01_2608111530.tgz");
+        var older = CreateCase("case-old", source, Path.Combine(environment.Root, "extract-old"), CaseStatus.Failed, DateTime.Now.AddMinutes(-2));
+        var newer = CreateCase("case-new", source, Path.Combine(environment.Root, "extract-new"), CaseStatus.Completed, DateTime.Now.AddMinutes(-1));
+        await environment.Cases.InsertAsync(older);
+        await environment.Cases.InsertAsync(newer);
+        await environment.Tasks.InsertAsync(CreateTask("task-old", older.Id, AnalysisTaskStatus.Failed));
+        await environment.Tasks.InsertAsync(CreateTask("task-new", newer.Id, AnalysisTaskStatus.Completed));
+
+        using var center = environment.CreateAnalysisCenter();
+        await center.InitializeAsync();
+
+        Assert.Single(center.Items);
+        Assert.Equal(2, center.HistoryItems.Count());
     }
 
     [Fact]
@@ -74,6 +94,7 @@ public sealed class AnalysisCenterViewModelTests
         Assert.Contains(created, item => string.Equals(Path.GetFullPath(first), item.SourcePath, StringComparison.OrdinalIgnoreCase));
         Assert.Contains(created, item => string.Equals(Path.GetFullPath(second), item.SourcePath, StringComparison.OrdinalIgnoreCase));
         Assert.Contains("成功 2 个", center.Message);
+        Assert.Empty(environment.ReportLauncher.OpenedPaths);
     }
 
     [Fact]
@@ -92,7 +113,7 @@ public sealed class AnalysisCenterViewModelTests
         await environment.Cases.InsertAsync(residualCase);
         var reportPath = environment.Paths.GetReportDirectory(residualCase.ExtractPath);
         Directory.CreateDirectory(reportPath);
-        await File.WriteAllTextAsync(Path.Combine(reportPath, "report.html"), "<html>old</html>");
+        await File.WriteAllTextAsync(Path.Combine(reportPath, "index.html"), "<html>old</html>");
         await environment.Reports.InsertAsync(new Report { Id = "report-invalid", CaseId = residualCase.Id, Path = reportPath, PluginId = "test-plugin", CreateTime = DateTime.Now });
 
         using var center = environment.CreateAnalysisCenter();
@@ -109,6 +130,7 @@ public sealed class AnalysisCenterViewModelTests
         Assert.Null(await environment.Cases.GetAsync(residualCase.Id));
         Assert.False(File.Exists(otherInvalid));
         Assert.Contains("成功 2 个", center.Message);
+        Assert.Empty(environment.ReportLauncher.OpenedPaths);
     }
 
     [Fact]
@@ -152,7 +174,7 @@ public sealed class AnalysisCenterViewModelTests
     }
 
     [Fact]
-    public async Task OpenRowReportCommand_OpensLatestReportAndDeduplicatesTab()
+    public async Task OpenRowReportCommand_OpensLatestReportInDefaultBrowser()
     {
         await using var environment = await TestEnvironment.CreateAsync();
         var source = Path.Combine(environment.Root, "diag_DEVICE01_2608111530.tgz");
@@ -160,7 +182,7 @@ public sealed class AnalysisCenterViewModelTests
         await environment.Cases.InsertAsync(reportCase);
         var reportPath = environment.Paths.GetReportDirectory(reportCase.ExtractPath);
         Directory.CreateDirectory(reportPath);
-        await File.WriteAllTextAsync(Path.Combine(reportPath, "report.html"), "<html>ok</html>");
+        await File.WriteAllTextAsync(Path.Combine(reportPath, "index.html"), "<html>ok</html>");
         await environment.Reports.InsertAsync(new Report { Id = "report-row", CaseId = reportCase.Id, Path = reportPath, PluginId = "test-plugin", CreateTime = DateTime.Now });
 
         using var center = environment.CreateAnalysisCenter();
@@ -168,16 +190,97 @@ public sealed class AnalysisCenterViewModelTests
         var row = Assert.Single(center.Items);
 
         center.OpenRowReportCommand.Execute(row);
-        center.OpenRowReportCommand.Execute(row);
-        await WaitUntilAsync(() => Task.FromResult(center.Reports.OpenTabs.Count == 1));
+        await WaitUntilAsync(() => Task.FromResult(environment.ReportLauncher.OpenedPaths.Count == 1));
 
-        Assert.Equal("report-row", Assert.Single(center.Reports.OpenTabs).Report.Id);
+        Assert.Equal(Path.Combine(reportPath, "index.html"), Assert.Single(environment.ReportLauncher.OpenedPaths));
     }
 
     [Fact]
-    public async Task AnalyzeSingleCommand_ReanalyzesAndOpensNewReport()
+    public async Task OpenRowReportCommand_WhenOpenSucceedsWithWarning_ShowsChineseWarning()
     {
-        await using var environment = await TestEnvironment.CreateAsync(new SuccessfulRunner());
+        const string warning = "报告已打开，但无法记录最后打开时间。";
+        await using var environment = await TestEnvironment.CreateAsync();
+        var source = Path.Combine(environment.Root, "diag_DEVICE01_2608111530.tgz");
+        var reportCase = CreateCase("case-report-warning", source, Path.Combine(environment.Root, "extract-warning"), CaseStatus.Completed, DateTime.Now);
+        await environment.Cases.InsertAsync(reportCase);
+        var reportPath = environment.Paths.GetReportDirectory(reportCase.ExtractPath);
+        Directory.CreateDirectory(reportPath);
+        await File.WriteAllTextAsync(Path.Combine(reportPath, "index.html"), "<html>ok</html>");
+        await environment.Reports.InsertAsync(new Report { Id = "report-row-warning", CaseId = reportCase.Id, Path = reportPath, PluginId = "test-plugin", CreateTime = DateTime.Now });
+        var reportOpenService = new FixedReportOpenService(new ReportOpenResult(true, Path.Combine(reportPath, "index.html"), warning));
+
+        using var center = environment.CreateAnalysisCenter(reportOpenService: reportOpenService);
+        await center.InitializeAsync();
+        center.OpenRowReportCommand.Execute(Assert.Single(center.Items));
+        await WaitUntilAsync(() => Task.FromResult(center.Message.Contains(warning, StringComparison.Ordinal)));
+
+        Assert.Equal(warning, center.Message);
+    }
+
+    [Fact]
+    public async Task OpenCaseReportAsync_WhenOpenSucceedsWithWarning_ShowsChineseWarning()
+    {
+        const string warning = "报告已打开，但无法记录最后打开时间。";
+        await using var environment = await TestEnvironment.CreateAsync();
+        var source = Path.Combine(environment.Root, "diag_DEVICE01_2608111530.tgz");
+        var reportCase = CreateCase("case-open-warning", source, Path.Combine(environment.Root, "extract-open-warning"), CaseStatus.Completed, DateTime.Now);
+        await environment.Cases.InsertAsync(reportCase);
+        var reportPath = environment.Paths.GetReportDirectory(reportCase.ExtractPath);
+        Directory.CreateDirectory(reportPath);
+        await File.WriteAllTextAsync(Path.Combine(reportPath, "index.html"), "<html>ok</html>");
+        await environment.Reports.InsertAsync(new Report { Id = "report-case-warning", CaseId = reportCase.Id, Path = reportPath, PluginId = "test-plugin", CreateTime = DateTime.Now });
+        var reportOpenService = new FixedReportOpenService(new ReportOpenResult(true, Path.Combine(reportPath, "index.html"), warning));
+
+        using var center = environment.CreateAnalysisCenter(reportOpenService: reportOpenService);
+        Assert.True(await center.OpenCaseReportAsync(reportCase.Id));
+
+        Assert.Equal(warning, center.Message);
+    }
+
+    [Fact]
+    public async Task MonitoredRowSingleAnalysis_DoesNotOpenBrowserAutomatically()
+    {
+        await using var environment = await TestEnvironment.CreateAsync();
+        var source = Path.Combine(environment.Paths.InboxDirectory, "diag_DEVICE01_2608111530.tgz");
+        await WriteValidArchiveAsync(source);
+        await environment.Inbox.StartAsync();
+
+        using var center = environment.CreateAnalysisCenter();
+        await center.InitializeAsync();
+        center.AnalyzeSingleCommand.Execute(Assert.Single(center.Items));
+
+        await WaitUntilAsync(async () =>
+        {
+            var tasks = await environment.Tasks.ListAsync();
+            return tasks.Count == 1
+                && tasks[0].Status is not AnalysisTaskStatus.Waiting and not AnalysisTaskStatus.Running
+                && !center.IsBulkOperationActive;
+        });
+
+        Assert.Empty(environment.ReportLauncher.OpenedPaths);
+    }
+
+    [Fact]
+    public async Task QuickSingleAnalysis_WhenOpenSucceedsWithWarning_ShowsChineseWarning()
+    {
+        const string warning = "报告已打开，但无法记录最后打开时间。";
+        await using var environment = await TestEnvironment.CreateAsync();
+        var source = Path.Combine(environment.Paths.InboxDirectory, "diag_DEVICE01_2608111530.tgz");
+        await WriteValidArchiveAsync(source);
+        await environment.Inbox.StartAsync();
+        var reportOpenService = new FixedReportOpenService(new ReportOpenResult(true, "index.html", warning));
+
+        using var center = environment.CreateAnalysisCenter(reportOpenService: reportOpenService);
+        await center.InitializeAsync();
+        await center.AnalyzeFileAsync(source);
+
+        Assert.Contains(warning, center.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task QuickSingleAnalysis_OpensNewReportInDefaultBrowser()
+    {
+        await using var environment = await TestEnvironment.CreateAsync();
         var source = Path.Combine(environment.Paths.InboxDirectory, "diag_DEVICE01_2608111530.tgz");
         await WriteValidArchiveAsync(source);
         await environment.Inbox.StartAsync();
@@ -187,7 +290,7 @@ public sealed class AnalysisCenterViewModelTests
         await environment.Tasks.InsertAsync(CreateTask("task-old-report", oldCase.Id, AnalysisTaskStatus.Completed));
         var oldReportPath = environment.Paths.GetReportDirectory(oldCase.ExtractPath);
         Directory.CreateDirectory(oldReportPath);
-        await File.WriteAllTextAsync(Path.Combine(oldReportPath, "report.html"), "<html>old-report</html>");
+        await File.WriteAllTextAsync(Path.Combine(oldReportPath, "index.html"), "<html>old-report</html>");
         await environment.Reports.InsertAsync(new Report
         {
             Id = "report-old",
@@ -199,10 +302,7 @@ public sealed class AnalysisCenterViewModelTests
 
         using var center = environment.CreateAnalysisCenter();
         await center.InitializeAsync();
-        var row = Assert.Single(center.Items);
-        Assert.True(row.CanAnalyzeSingle);
-        Assert.Equal("重新分析", row.SingleAnalysisText);
-        center.AnalyzeSingleCommand.Execute(row);
+        await center.AnalyzeFileAsync(source);
 
         await WaitUntilAsync(async () =>
         {
@@ -215,42 +315,31 @@ public sealed class AnalysisCenterViewModelTests
 
         var latest = (await environment.Reports.ListAsync(new ReportQuery())).OrderByDescending(x => x.CreateTime).First();
         Assert.NotEqual("report-old", latest.Id);
-        Assert.Equal("<html>new-report</html>", await File.ReadAllTextAsync(latest.ReportFile));
-        Assert.Equal(latest.Id, center.Reports.OpenTabs.Last().Report.Id);
+        Assert.Equal("<html>fixture</html>", await File.ReadAllTextAsync(latest.ReportFile));
+        Assert.Equal(latest.ReportFile, Assert.Single(environment.ReportLauncher.OpenedPaths));
     }
 
+
     [Fact]
-    public async Task TaskPanel_ShowsAllActiveAndOnlyTenRecentTasksThenNavigatesToCase()
+    public async Task DeleteInvalidCommand_ConfirmationDoesNotMentionRemovedReportSessions()
     {
         await using var environment = await TestEnvironment.CreateAsync();
-        for (var index = 0; index < 14; index++)
+        var invalid = Path.Combine(environment.Paths.InboxDirectory, "diag_BAD01_2608111530.tgz");
+        await File.WriteAllTextAsync(invalid, "不是压缩包");
+        await environment.Inbox.StartAsync();
+        string? confirmation = null;
+
+        using var center = environment.CreateAnalysisCenter(message =>
         {
-            var source = Path.Combine(environment.Root, $"diag_DEVICE{index}_26081115{index:D2}.tgz");
-            var item = CreateCase($"case-{index}", source, Path.Combine(environment.Root, $"diag_DEVICE{index}_26081115{index:D2}"), CaseStatus.Completed, DateTime.Now.AddMinutes(-index));
-            await environment.Cases.InsertAsync(item);
-            var status = index < 2 ? (index == 0 ? AnalysisTaskStatus.Running : AnalysisTaskStatus.Waiting) : AnalysisTaskStatus.Completed;
-            await environment.Tasks.InsertAsync(new AnalysisTask
-            {
-                Id = $"task-{index}",
-                CaseId = item.Id,
-                PluginId = "test-plugin",
-                Status = status,
-                StartTime = DateTime.Now.AddMinutes(-index - 1),
-                EndTime = status == AnalysisTaskStatus.Completed ? DateTime.Now.AddMinutes(-index) : null
-            });
-        }
+            confirmation = message;
+            return false;
+        });
+        await center.InitializeAsync();
+        center.DeleteInvalidCommand.Execute(null);
 
-        string? openedCase = null;
-        using var panel = new TaskPanelViewModel(environment.Analysis, caseId => openedCase = caseId, _ => true);
-        await panel.LoadAsync();
-
-        Assert.Equal(2, panel.ActiveTaskCount);
-        Assert.Equal(12, panel.Items.Count);
-        Assert.All(panel.Items.Take(2), x => Assert.True(x.IsActive));
-        panel.IsOpen = true;
-        panel.OpenTaskCommand.Execute(panel.Items[0]);
-        Assert.Equal(panel.Items[0].Task.CaseId, openedCase);
-        Assert.False(panel.IsOpen);
+        Assert.NotNull(confirmation);
+        Assert.DoesNotContain("报告会话", confirmation, StringComparison.Ordinal);
+        Assert.Contains("案例、任务、报告", confirmation, StringComparison.Ordinal);
     }
 
     private static AnalysisCase CreateCase(string id, string source, string extractPath, CaseStatus status, DateTime updateTime) => new()
@@ -304,17 +393,17 @@ public sealed class AnalysisCenterViewModelTests
 
     private sealed class TestEnvironment : IAsyncDisposable
     {
-        private TestEnvironment(string root, DataPaths paths, SqliteCaseRepository cases, SqliteTaskRepository tasks, SqliteReportRepository reports, SqliteSettingsStore settingsStore, LogInboxService inbox, CaseAnalysisService analysis, WorkbenchLogger logger)
+        private TestEnvironment(string root, DataPaths paths, SqliteCaseRepository cases, SqliteTaskRepository tasks, SqliteReportRepository reports, LogInboxService inbox, CaseAnalysisService analysis, WorkbenchLogger logger, RecordingReportProcessLauncher reportLauncher)
         {
             Root = root;
             Paths = paths;
             Cases = cases;
             Tasks = tasks;
             Reports = reports;
-            SettingsStore = settingsStore;
             Inbox = inbox;
             Analysis = analysis;
             Logger = logger;
+            ReportLauncher = reportLauncher;
         }
 
         public string Root { get; }
@@ -322,12 +411,12 @@ public sealed class AnalysisCenterViewModelTests
         public SqliteCaseRepository Cases { get; }
         public SqliteTaskRepository Tasks { get; }
         public SqliteReportRepository Reports { get; }
-        public SqliteSettingsStore SettingsStore { get; }
         public LogInboxService Inbox { get; }
         public CaseAnalysisService Analysis { get; }
         public WorkbenchLogger Logger { get; }
+        public RecordingReportProcessLauncher ReportLauncher { get; }
 
-        public static async Task<TestEnvironment> CreateAsync(IPluginRunner? runner = null)
+        public static async Task<TestEnvironment> CreateAsync()
         {
             var root = Path.Combine(Path.GetTempPath(), "HephaestusWorkbenchTests", Guid.NewGuid().ToString("N"));
             var paths = new DataPaths(root);
@@ -336,21 +425,21 @@ public sealed class AnalysisCenterViewModelTests
             var cases = new SqliteCaseRepository(factory);
             var tasks = new SqliteTaskRepository(factory);
             var reports = new SqliteReportRepository(factory);
-            var settingsStore = new SqliteSettingsStore(factory);
             var logger = new WorkbenchLogger(root);
-            runner ??= new FailedRunner();
-            var analysis = new CaseAnalysisService(paths, cases, tasks, reports, new TestPluginCatalog(), runner, runner, new TaskCenter(tasks), logger, new SqliteAnalysisLifecycleRepository(factory));
-            var inbox = new LogInboxService(new LogFileParser(), new ArchiveValidator(), new MemorySettingsStore(), logger, paths.InboxDirectory);
-            return new TestEnvironment(root, paths, cases, tasks, reports, settingsStore, inbox, analysis, logger);
+            var registry = await AnalysisExtensionTestSupport.CreateRegistryAsync(paths, AnalysisExtensionTestSupport.Process("test-plugin"));
+            var analysis = new CaseAnalysisService(paths, cases, tasks, reports, registry, new ExtensionSettingsStore(paths), new AnalysisProcessHost(logger), new TaskCenter(tasks), logger, new RuleSetService(paths, logger), new SqliteAnalysisLifecycleRepository(factory), "2.0.0");
+            var configuration = new WorkbenchConfigurationService(paths);
+            var inbox = new LogInboxService(new LogFileParser(), new ArchiveValidator(), configuration, logger, paths.InboxDirectory);
+            return new TestEnvironment(root, paths, cases, tasks, reports, inbox, analysis, logger, new RecordingReportProcessLauncher());
         }
 
-        public AnalysisCenterViewModel CreateAnalysisCenter(Func<string, bool>? confirmDeleteLifecycle = null)
+        public AnalysisCenterViewModel CreateAnalysisCenter(
+            Func<string, bool>? confirmDeleteLifecycle = null,
+            IReportOpenService? reportOpenService = null)
         {
             var reportService = new ReportService(Reports, Analysis);
-            var settings = new SettingsService(SettingsStore, Paths.InboxDirectory);
-            var workspace = new ReportsWorkspaceViewModel(reportService, settings, _ => { }, Logger, _ => true);
-            var storage = new StorageService(Paths, Cases, Logger);
-            return new AnalysisCenterViewModel(Inbox, Analysis, reportService, storage, settings, workspace, _ => { }, Logger, confirmDeleteLifecycle ?? (_ => true));
+            reportOpenService ??= new ReportOpenService(Cases, Reports, ReportLauncher, Logger);
+            return new AnalysisCenterViewModel(Inbox, Analysis, reportService, _ => { }, Logger, confirmDeleteLifecycle ?? (_ => true), reportOpenService);
         }
 
         public ValueTask DisposeAsync()
@@ -361,44 +450,15 @@ public sealed class AnalysisCenterViewModelTests
         }
     }
 
-    private sealed class TestPluginCatalog : IPluginCatalog
+    private sealed class FixedReportOpenService(ReportOpenResult result) : IReportOpenService
     {
-        private static readonly PluginManifest Manifest = new()
-        {
-            Id = "test-plugin",
-            Name = "测试插件",
-            Version = "1.0.0",
-            Type = PluginType.Exe,
-            Entry = "test.exe"
-        };
-
-        public Task<IReadOnlyList<PluginManifest>> ScanAsync(CancellationToken cancellationToken = default)
-            => Task.FromResult<IReadOnlyList<PluginManifest>>(new[] { Manifest });
-
-        public Task<PluginManifest?> GetAsync(string pluginId, CancellationToken cancellationToken = default)
-            => Task.FromResult<PluginManifest?>(string.Equals(pluginId, Manifest.Id, StringComparison.OrdinalIgnoreCase) ? Manifest : null);
+        public Task<ReportOpenResult> OpenAsync(ReportOpenRequest request, CancellationToken cancellationToken = default)
+            => Task.FromResult(result);
     }
 
-    private sealed class FailedRunner : IPluginRunner
+    private sealed class RecordingReportProcessLauncher : IReportProcessLauncher
     {
-        public Task<PluginExecutionResult> RunAsync(PluginManifest manifest, PluginExecutionContext context, CancellationToken cancellationToken = default)
-            => Task.FromResult(new PluginExecutionResult(1, null, "测试结束"));
-    }
-
-    private sealed class SuccessfulRunner : IPluginRunner
-    {
-        public Task<PluginExecutionResult> RunAsync(PluginManifest manifest, PluginExecutionContext context, CancellationToken cancellationToken = default)
-        {
-            Directory.CreateDirectory(context.OutputPath);
-            File.WriteAllText(Path.Combine(context.OutputPath, "report.html"), "<html>new-report</html>");
-            return Task.FromResult(new PluginExecutionResult(0, context.OutputPath, null));
-        }
-    }
-
-    private sealed class MemorySettingsStore : ISettingsStore
-    {
-        private readonly Dictionary<string, string> _values = new(StringComparer.OrdinalIgnoreCase);
-        public Task<string?> GetAsync(string key, CancellationToken cancellationToken = default) => Task.FromResult(_values.GetValueOrDefault(key));
-        public Task SetAsync(string key, string value, CancellationToken cancellationToken = default) { _values[key] = value; return Task.CompletedTask; }
+        public List<string> OpenedPaths { get; } = new();
+        public void Open(string reportEntryPath) => OpenedPaths.Add(reportEntryPath);
     }
 }

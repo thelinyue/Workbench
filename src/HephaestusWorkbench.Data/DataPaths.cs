@@ -2,19 +2,29 @@ namespace HephaestusWorkbench.Data;
 
 /// <summary>
 /// 统一管理程序目录和用户数据目录，避免分析插件把输出写回程序安装目录。
-/// 案例文件的实际位置由监控目录和分析插件决定：源 tgz 与同名解压目录位于监控目录，
-/// 报告位于解压目录下的 report；Cases 目录仅作为旧布局兼容和删除安全校验边界保留。
+/// 案例文件的实际位置由监控目录和分析插件决定：源日志与同名解压目录位于监控目录，
+/// 报告固定写入解压目录下的 Report；Cases 目录仅保存宿主管理的案例数据。
 /// </summary>
 public sealed class DataPaths
 {
-    public DataPaths(string root)
+    public DataPaths(string root) : this(root, root)
+    {
+    }
+
+    /// <summary>
+    /// 初始化事务可把文件写入同盘临时目录，同时让配置中的数据根目录保持为最终目标。
+    /// 常规运行时 root 与 storageRoot 相同，不改变既有路径语义。
+    /// </summary>
+    public DataPaths(string root, string storageRoot)
     {
         Root = Path.GetFullPath(root);
-        DatabaseDirectory = Path.Combine(Root, "Database");
-        CasesDirectory = Path.Combine(Root, "Cases");
-        InboxDirectory = Path.Combine(Root, "Inbox");
-        PluginsDirectory = Path.Combine(Root, "Plugins");
-        RulesDirectory = Path.Combine(Root, "Rules");
+        StorageRoot = Path.GetFullPath(storageRoot);
+        DatabaseDirectory = Path.Combine(StorageRoot, "Database");
+        CasesDirectory = Path.Combine(StorageRoot, "Cases");
+        InboxDirectory = Path.Combine(StorageRoot, "Inbox");
+        ExtensionsDirectory = Path.Combine(StorageRoot, "Extensions");
+        OperationsDirectory = Path.Combine(StorageRoot, "Operations");
+        RulesDirectory = Path.Combine(StorageRoot, "Rules");
         OfficialRulesDirectory = Path.Combine(RulesDirectory, "Official");
         OfficialRulesFile = Path.Combine(OfficialRulesDirectory, "main.json");
         LocalRulesDirectory = Path.Combine(RulesDirectory, "Local");
@@ -24,24 +34,27 @@ public sealed class DataPaths
         RulesHistoryDirectory = Path.Combine(RulesDirectory, "History");
         RulesStateDirectory = Path.Combine(RulesDirectory, "State");
         RulesStateFile = Path.Combine(RulesStateDirectory, "rules-state.json");
-        LogsDirectory = Path.Combine(Root, "Logs");
-        TempDirectory = Path.Combine(Root, "Temp");
-        CacheDirectory = Path.Combine(Root, "Cache");
-        ConfigDirectory = Path.Combine(Root, "Config");
+        LogsDirectory = Path.Combine(StorageRoot, "Logs");
+        TempDirectory = Path.Combine(StorageRoot, "Temp");
+        CacheDirectory = Path.Combine(StorageRoot, "Cache");
+        ConfigDirectory = Path.Combine(StorageRoot, "Config");
         DatabaseFile = Path.Combine(DatabaseDirectory, "workbench.db");
         AppSettingsFile = Path.Combine(ConfigDirectory, "appsettings.json");
-        RulePublisherTokenFile = Path.Combine(ConfigDirectory, "rule-publisher.token");
-        PluginsConfigFile = Path.Combine(ConfigDirectory, "plugins.json");
+        ExtensionsConfigFile = Path.Combine(ConfigDirectory, "extensions.json");
         WorkspaceConfigFile = Path.Combine(ConfigDirectory, "workspace.json");
-        MarketplaceCatalogCacheFile = Path.Combine(CacheDirectory, "marketplace-catalog.json");
+        ExtensionCatalogCacheFile = Path.Combine(CacheDirectory, "extension-catalog.json");
     }
 
     public string Root { get; }
+    /// <summary>文件实际写入位置；首次初始化期间可指向同盘 staging，提交后与 Root 一致。</summary>
+    public string StorageRoot { get; }
     public string DatabaseDirectory { get; }
     public string DatabaseFile { get; }
     public string CasesDirectory { get; }
     public string InboxDirectory { get; }
-    public string PluginsDirectory { get; }
+    public string ExtensionsDirectory { get; }
+    /// <summary>维护操作的 stdout/stderr 文件根目录；数据库仅保存相对于数据根目录的路径。</summary>
+    public string OperationsDirectory { get; }
     public string RulesDirectory { get; }
     public string OfficialRulesDirectory { get; }
     public string OfficialRulesFile { get; }
@@ -57,23 +70,23 @@ public sealed class DataPaths
     public string CacheDirectory { get; }
     public string ConfigDirectory { get; }
     public string AppSettingsFile { get; }
-    public string RulePublisherTokenFile { get; }
-    public string PluginsConfigFile { get; }
+    public string ExtensionsConfigFile { get; }
     public string WorkspaceConfigFile { get; }
-    public string MarketplaceCatalogCacheFile { get; }
+    public string ExtensionCatalogCacheFile { get; }
 
     public string GetCaseDirectory(string caseId) => Path.Combine(CasesDirectory, caseId);
     public string GetCaseSourceDirectory(string caseId) => Path.Combine(GetCaseDirectory(caseId), "Source");
     public string GetCaseExtractDirectory(string caseId) => Path.Combine(GetCaseDirectory(caseId), "Extract");
     /// <summary>报告统一放在实际解压目录下，便于工程师用一个目录管理原始内容和分析结果。</summary>
-    public string GetReportDirectory(string extractPath) => Path.Combine(Path.GetFullPath(extractPath), "report");
+    public string GetReportDirectory(string extractPath) => Path.Combine(Path.GetFullPath(extractPath), "Report");
 
     public void EnsureCreated()
     {
         Directory.CreateDirectory(DatabaseDirectory);
         Directory.CreateDirectory(CasesDirectory);
         Directory.CreateDirectory(InboxDirectory);
-        Directory.CreateDirectory(PluginsDirectory);
+        Directory.CreateDirectory(ExtensionsDirectory);
+        Directory.CreateDirectory(OperationsDirectory);
         Directory.CreateDirectory(RulesDirectory);
         Directory.CreateDirectory(OfficialRulesDirectory);
         Directory.CreateDirectory(LocalRulesDirectory);

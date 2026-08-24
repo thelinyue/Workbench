@@ -53,7 +53,7 @@ public sealed class SqliteRepositoryTests
     }
 
     [Fact]
-    public async Task ReportQuery_PersistsFilterAndCascadeWithCase()
+    public async Task ReportQuery_UsesStoredPluginNameAndCascadesWithCase()
     {
         var root = Path.Combine(Path.GetTempPath(), "HephaestusWorkbenchTests", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(root);
@@ -64,22 +64,28 @@ public sealed class SqliteRepositoryTests
             await new DatabaseInitializer(factory).InitializeAsync();
             var cases = new SqliteCaseRepository(factory);
             var reports = new SqliteReportRepository(factory);
-            var plugins = new SqlitePluginInfoRepository(factory);
             var now = DateTime.Now;
             var extractDirectory = Path.Combine(root, "Extract");
-            var reportDirectory = Path.Combine(extractDirectory, "report");
+            var reportDirectory = Path.Combine(extractDirectory, "Report");
             Directory.CreateDirectory(reportDirectory);
-            await File.WriteAllTextAsync(Path.Combine(reportDirectory, "report.html"), "<html></html>");
+            await File.WriteAllTextAsync(Path.Combine(reportDirectory, "index.html"), "<html></html>");
             await cases.InsertAsync(new AnalysisCase
             {
                 Id = "case-report", DisplayName = "客户A网络异常", OriginalName = "diag_A.tgz", DeviceId = "EC661JJ",
                 LogTime = now, Status = CaseStatus.Completed, SourcePath = Path.Combine(root, "source.tgz"), ExtractPath = extractDirectory,
                 ReportPath = reportDirectory, CreateTime = now, UpdateTime = now
             });
-            await plugins.UpsertAsync(new PluginInfo { Id = "network", Name = "Network Analyzer", Version = "1", Type = "exe", Path = "plugin", Entry = "run.exe" });
-            await reports.InsertAsync(new Report { Id = "report-1", CaseId = "case-report", Path = reportDirectory, PluginId = "network", CreateTime = now });
+            await reports.InsertAsync(new Report
+            {
+                Id = "report-1",
+                CaseId = "case-report",
+                Path = reportDirectory,
+                PluginId = "network",
+                PluginName = "Network Analyzer",
+                CreateTime = now
+            });
 
-            var filtered = await reports.ListAsync(new ReportQuery("客户A", "EC661", "network", now.Date, now.Date));
+            var filtered = await reports.ListAsync(new ReportQuery("Network Analyzer", "EC661", "network", now.Date, now.Date));
             Assert.Single(filtered);
             Assert.True(filtered[0].IsAvailable);
             Assert.Equal(extractDirectory, filtered[0].ExtractPath);
@@ -95,30 +101,44 @@ public sealed class SqliteRepositoryTests
     }
 
     [Fact]
-    public async Task DatabaseInitializer_UpgradesOldReportsTableAndBackfillsPlugin()
+    public async Task ReportQuery_FallsBackToPluginIdWhenStoredNameIsMissing()
     {
         var root = Path.Combine(Path.GetTempPath(), "HephaestusWorkbenchTests", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(root);
         try
         {
-            var factory = new SqliteConnectionFactory(new DataPaths(root));
-            await using (var connection = await factory.OpenAsync())
-            await using (var command = connection.CreateCommand())
-            {
-                command.CommandText = """
-                    CREATE TABLE analysis_cases (id TEXT PRIMARY KEY, display_name TEXT NOT NULL, original_name TEXT NOT NULL, device_id TEXT NOT NULL, log_time TEXT NOT NULL, status TEXT NOT NULL, source_path TEXT NOT NULL, extract_path TEXT NOT NULL, report_path TEXT NULL, error_message TEXT NULL, create_time TEXT NOT NULL, update_time TEXT NOT NULL);
-                    CREATE TABLE analysis_tasks (id TEXT PRIMARY KEY, case_id TEXT NOT NULL, plugin_id TEXT NOT NULL, status TEXT NOT NULL, start_time TEXT NULL, end_time TEXT NULL, report_path TEXT NULL, error_message TEXT NULL);
-                    CREATE TABLE reports (id TEXT PRIMARY KEY, case_id TEXT NOT NULL, path TEXT NOT NULL, create_time TEXT NOT NULL);
-                    INSERT INTO analysis_cases VALUES ('case-1','旧案例','diag.tgz','A','2026-08-11T00:00:00','Completed','s','e','r',NULL,'2026-08-11T00:00:00','2026-08-11T00:00:00');
-                    INSERT INTO analysis_tasks VALUES ('task-1','case-1','legacy-plugin','Completed','2026-08-11T00:00:00','2026-08-11T00:01:00','r',NULL);
-                    INSERT INTO reports VALUES ('report-1','case-1','r','2026-08-11T00:01:00');
-                    """;
-                await command.ExecuteNonQueryAsync();
-            }
-
+            var paths = new DataPaths(root);
+            var factory = new SqliteConnectionFactory(paths);
             await new DatabaseInitializer(factory).InitializeAsync();
-            var report = await new SqliteReportRepository(factory).GetAsync("report-1");
-            Assert.Equal("legacy-plugin", report?.PluginId);
+            var cases = new SqliteCaseRepository(factory);
+            var reports = new SqliteReportRepository(factory);
+            var now = DateTime.Now;
+            await cases.InsertAsync(new AnalysisCase
+            {
+                Id = "case-plugin-fallback",
+                DisplayName = "插件名称回退",
+                OriginalName = "diag_A.tgz",
+                DeviceId = "A",
+                LogTime = now,
+                Status = CaseStatus.Completed,
+                SourcePath = Path.Combine(root, "source.tgz"),
+                ExtractPath = Path.Combine(root, "Extract"),
+                CreateTime = now,
+                UpdateTime = now
+            });
+            await reports.InsertAsync(new Report
+            {
+                Id = "report-plugin-fallback",
+                CaseId = "case-plugin-fallback",
+                Path = Path.Combine(root, "Extract", "report"),
+                PluginId = "storage-analyzer",
+                CreateTime = now
+            });
+
+            var filtered = await reports.ListAsync(new ReportQuery(Keyword: "storage-analyzer"));
+
+            var summary = Assert.Single(filtered);
+            Assert.Equal("storage-analyzer", summary.PluginName);
         }
         finally
         {

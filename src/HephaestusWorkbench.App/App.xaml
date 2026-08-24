@@ -12,10 +12,10 @@
         <local:InverseBooleanToVisibilityConverter x:Key="InverseBooleanToVisibilityConverter" xmlns:local="clr-namespace:HephaestusWorkbench.App" />
         <local:StatusTextConverter x:Key="StatusTextConverter" xmlns:local="clr-namespace:HephaestusWorkbench.App" />
         <local:StatusBrushConverter x:Key="StatusBrushConverter" xmlns:local="clr-namespace:HephaestusWorkbench.App" />
-        <DataTemplate DataType="{x:Type vm:DashboardViewModel}"><views:DashboardPage /></DataTemplate>
         <DataTemplate DataType="{x:Type vm:AnalysisCenterViewModel}"><views:AnalysisCenterPage /></DataTemplate>
+        <DataTemplate DataType="{x:Type vm:SshTerminalViewModel}"><views:SshTerminalPage /></DataTemplate>
         <DataTemplate DataType="{x:Type vm:SettingsViewModel}"><views:SettingsPage /></DataTemplate>
-        <DataTemplate DataType="{x:Type vm:MarketplacePluginsViewModel}"><views:MarketplacePluginsPage /></DataTemplate>
+        <DataTemplate DataType="{x:Type vm:ExtensionCenterViewModel}"><views:ExtensionCenterPage /></DataTemplate>
         </ResourceDictionary>
     </Application.Resources>
 </Application>

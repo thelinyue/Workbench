@@ -1,13 +1,12 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using HephaestusWorkbench.Core.Models;
-using HephaestusWorkbench.Core.Repositories;
 using HephaestusWorkbench.Data;
 
 namespace HephaestusWorkbench.Services;
 
 /// <summary>
-/// 管理工作台的三个 JSON 配置文件。
+/// 管理 workspace.json 与 appsettings.json 两份基础配置；extensions.json 由 ExtensionSettingsStore 独立管理。
 /// 写入先落临时文件，再替换目标文件，避免进程中断时留下半份配置。
 /// </summary>
 public sealed class WorkbenchConfigurationService
@@ -17,6 +16,7 @@ public sealed class WorkbenchConfigurationService
     {
         WriteIndented = true,
         PropertyNameCaseInsensitive = true,
+        PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
         Converters = { new JsonStringEnumConverter() }
     };
 
@@ -26,28 +26,24 @@ public sealed class WorkbenchConfigurationService
 
     public async Task<WorkspaceConfig> EnsureWorkspaceAsync(
         IEnumerable<string>? monitorPaths = null,
-        ISettingsStore? legacyStore = null,
         CancellationToken cancellationToken = default)
     {
         _paths.EnsureCreated();
         var existing = await ReadAsync<WorkspaceConfig>(_paths.WorkspaceConfigFile, cancellationToken);
         if (existing is not null)
         {
+            ValidateSchema(existing.SchemaVersion, _paths.WorkspaceConfigFile);
             existing.DataPath = _paths.Root;
             existing.MonitorPaths = NormalizeMonitorPaths(existing.MonitorPaths);
             await SaveWorkspaceAsync(existing, cancellationToken);
             return existing;
         }
 
-        var legacyWatchDirectory = legacyStore is null
-            ? null
-            : await legacyStore.GetAsync("watch_directory", cancellationToken);
+        // v2.0.0 是全新正式版工作区，不读取或迁移旧版 SQLite 设置。
         var configuredPaths = monitorPaths?.ToArray() ?? Array.Empty<string>();
         var selectedPaths = configuredPaths.Length > 0
             ? configuredPaths
-            : string.IsNullOrWhiteSpace(legacyWatchDirectory)
-                ? new[] { _paths.InboxDirectory }
-                : new[] { legacyWatchDirectory! };
+            : new[] { _paths.InboxDirectory };
 
         var created = new WorkspaceConfig
         {
@@ -58,45 +54,22 @@ public sealed class WorkbenchConfigurationService
         return created;
     }
 
-    public async Task<AppSettingsConfig> EnsureAppSettingsAsync(
-        ISettingsStore? legacyStore = null,
-        CancellationToken cancellationToken = default)
+    public async Task<AppSettingsConfig> EnsureAppSettingsAsync(CancellationToken cancellationToken = default)
     {
         _paths.EnsureCreated();
         var existing = await ReadAsync<AppSettingsConfig>(_paths.AppSettingsFile, cancellationToken);
         if (existing is not null)
         {
+            ValidateSchema(existing.SchemaVersion, _paths.AppSettingsFile);
             NormalizeAppSettings(existing);
             await SaveAppSettingsAsync(existing, cancellationToken);
             return existing;
         }
 
+        // 正式版不读取旧数据库中的偏好设置。
         var created = new AppSettingsConfig();
-        if (legacyStore is not null)
-        {
-            var maxTabs = await legacyStore.GetAsync("report_max_tabs", cancellationToken);
-            if (int.TryParse(maxTabs, out var maxTabValue)) created.MaxReportTabs = maxTabValue;
-        }
-
         NormalizeAppSettings(created);
         await SaveAppSettingsAsync(created, cancellationToken);
-        return created;
-    }
-
-    public async Task<PluginConfig> EnsurePluginConfigAsync(CancellationToken cancellationToken = default)
-    {
-        _paths.EnsureCreated();
-        var existing = await ReadAsync<PluginConfig>(_paths.PluginsConfigFile, cancellationToken);
-        if (existing is not null)
-        {
-            existing.Plugins ??= new List<PluginConfigEntry>();
-            NormalizePluginConfig(existing);
-            await SavePluginConfigAsync(existing, cancellationToken);
-            return existing;
-        }
-
-        var created = new PluginConfig();
-        await SavePluginConfigAsync(created, cancellationToken);
         return created;
     }
 
@@ -111,27 +84,6 @@ public sealed class WorkbenchConfigurationService
     {
         NormalizeAppSettings(config);
         return WriteAtomicAsync(_paths.AppSettingsFile, config, cancellationToken);
-    }
-
-    public Task SavePluginConfigAsync(PluginConfig config, CancellationToken cancellationToken = default)
-    {
-        config.Plugins ??= new List<PluginConfigEntry>();
-        NormalizePluginConfig(config);
-        return WriteAtomicAsync(_paths.PluginsConfigFile, config, cancellationToken);
-    }
-
-    public async Task UpsertPluginAsync(PluginConfigEntry plugin, CancellationToken cancellationToken = default)
-    {
-        var config = await EnsurePluginConfigAsync(cancellationToken);
-        var existing = config.Plugins.FirstOrDefault(x => string.Equals(x.Id, plugin.Id, StringComparison.OrdinalIgnoreCase));
-        if (existing is null) config.Plugins.Add(plugin);
-        else
-        {
-            existing.Version = plugin.Version;
-            existing.Source = plugin.Source;
-        }
-        config.DefaultPluginId ??= plugin.Enabled ? plugin.Id : null;
-        await SavePluginConfigAsync(config, cancellationToken);
     }
 
     private async Task<T?> ReadAsync<T>(string path, CancellationToken cancellationToken)
@@ -169,6 +121,12 @@ public sealed class WorkbenchConfigurationService
         }
     }
 
+    private static void ValidateSchema(int schemaVersion, string path)
+    {
+        if (schemaVersion != 2)
+            throw new InvalidDataException($"配置文件 schemaVersion 必须为 2：{path}");
+    }
+
     private List<string> NormalizeMonitorPaths(IEnumerable<string>? paths)
     {
         var normalized = (paths ?? Array.Empty<string>())
@@ -186,21 +144,17 @@ public sealed class WorkbenchConfigurationService
             : string.Equals(settings.Theme, AppSettingsConfig.LightTheme, StringComparison.OrdinalIgnoreCase)
                 ? AppSettingsConfig.LightTheme
                 : AppSettingsConfig.LightTheme;
-        settings.MaxReportTabs = Math.Clamp(settings.MaxReportTabs, 1, 10);
         settings.CleanupRetentionDays = Math.Clamp(settings.CleanupRetentionDays, 1, 7);
-        settings.GitHubDownloadMirrorTemplate = settings.GitHubDownloadMirrorTemplate?.Trim() ?? string.Empty;
+        settings.Extension ??= new ExtensionPolicyConfig();
+        settings.Ssh ??= new SshSettingsConfig();
+        settings.Ssh.DefaultPort = settings.Ssh.DefaultPort is >= 1 and <= 65535 ? settings.Ssh.DefaultPort : 22;
+        settings.Terminal ??= new TerminalSettingsConfig();
+        settings.Terminal.FontFamily = string.IsNullOrWhiteSpace(settings.Terminal.FontFamily)
+            ? "Cascadia Mono"
+            : settings.Terminal.FontFamily.Trim();
+        settings.Terminal.FontSize = Math.Clamp(settings.Terminal.FontSize, 10, 24);
+        if (!Enum.IsDefined(settings.ReconnectBehavior))
+            settings.ReconnectBehavior = SshReconnectBehavior.AutomaticThreeAttempts;
     }
 
-    private static void NormalizePluginConfig(PluginConfig config)
-    {
-        config.Plugins = config.Plugins
-            .Where(x => !string.IsNullOrWhiteSpace(x.Id))
-            .GroupBy(x => x.Id, StringComparer.OrdinalIgnoreCase)
-            .Select(x => x.First())
-            .ToList();
-        if (config.DefaultPluginId is not null
-            && !config.Plugins.Any(x => x.Enabled && string.Equals(x.Id, config.DefaultPluginId, StringComparison.OrdinalIgnoreCase)))
-            config.DefaultPluginId = null;
-        config.DefaultPluginId ??= config.Plugins.FirstOrDefault(x => x.Enabled)?.Id;
-    }
 }

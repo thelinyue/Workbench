@@ -1,4 +1,4 @@
-using HephaestusWorkbench.Core.Repositories;
+using HephaestusWorkbench.Data;
 using System.Formats.Tar;
 using System.IO.Compression;
 using System.Text;
@@ -12,16 +12,16 @@ public sealed class LogInboxServiceTests
     public async Task StartAsync_UsesDataInboxWhenNoManualDirectoryIsSaved()
     {
         var root = Path.Combine(Path.GetTempPath(), "HephaestusWorkbenchTests", Guid.NewGuid().ToString("N"));
-        var paths = new HephaestusWorkbench.Data.DataPaths(root);
+        var paths = new DataPaths(root);
         paths.EnsureCreated();
-        var settings = new MemorySettingsStore();
+        var configuration = new WorkbenchConfigurationService(paths);
 
         try
         {
             using var service = new LogInboxService(
                 new LogFileParser(),
                 new ArchiveValidator(),
-                settings,
+                configuration,
                 new WorkbenchLogger(root),
                 paths.InboxDirectory);
 
@@ -31,7 +31,7 @@ public sealed class LogInboxServiceTests
             Assert.True(service.IsConfigured);
             Assert.True(service.IsUsingDefaultDirectory);
             Assert.Empty(service.Items);
-            Assert.Null(await settings.GetAsync("watch_directory"));
+            Assert.Contains("\"schemaVersion\": 2", await File.ReadAllTextAsync(paths.WorkspaceConfigFile));
         }
         finally
         {
@@ -43,17 +43,17 @@ public sealed class LogInboxServiceTests
     public async Task SetWatchDirectoryAsync_SwitchesFromDefaultToManualDirectory()
     {
         var root = Path.Combine(Path.GetTempPath(), "HephaestusWorkbenchTests", Guid.NewGuid().ToString("N"));
-        var paths = new HephaestusWorkbench.Data.DataPaths(root);
+        var paths = new DataPaths(root);
         paths.EnsureCreated();
         var manualDirectory = Path.Combine(root, "ExternalInbox");
-        var settings = new MemorySettingsStore();
+        var configuration = new WorkbenchConfigurationService(paths);
 
         try
         {
             using var service = new LogInboxService(
                 new LogFileParser(),
                 new ArchiveValidator(),
-                settings,
+                configuration,
                 new WorkbenchLogger(root),
                 paths.InboxDirectory);
 
@@ -63,7 +63,8 @@ public sealed class LogInboxServiceTests
             Assert.Equal(Path.GetFullPath(manualDirectory), service.WatchDirectory);
             Assert.False(service.IsUsingDefaultDirectory);
             Assert.True(Directory.Exists(manualDirectory));
-            Assert.Equal(Path.GetFullPath(manualDirectory), await settings.GetAsync("watch_directory"));
+            var workspace = await configuration.EnsureWorkspaceAsync(cancellationToken: CancellationToken.None);
+            Assert.Equal(new[] { Path.GetFullPath(manualDirectory) }, workspace.MonitorPaths);
         }
         finally
         {
@@ -75,7 +76,7 @@ public sealed class LogInboxServiceTests
     public async Task SetWatchDirectoriesAsync_AggregatesValidLogsFromMultipleDirectories()
     {
         var root = Path.Combine(Path.GetTempPath(), "HephaestusWorkbenchTests", Guid.NewGuid().ToString("N"));
-        var paths = new HephaestusWorkbench.Data.DataPaths(root);
+        var paths = new DataPaths(root);
         paths.EnsureCreated();
         var first = Path.Combine(root, "First");
         var second = Path.Combine(root, "Second");
@@ -112,7 +113,7 @@ public sealed class LogInboxServiceTests
     public async Task InspectFileAsync_ValidatesLogOutsideWatchDirectory()
     {
         var root = Path.Combine(Path.GetTempPath(), "HephaestusWorkbenchTests", Guid.NewGuid().ToString("N"));
-        var paths = new HephaestusWorkbench.Data.DataPaths(root);
+        var paths = new DataPaths(root);
         paths.EnsureCreated();
         var selectedPath = Path.Combine(root, "Downloads", "diag_DEVICE01_2608111530.tgz");
         Directory.CreateDirectory(Path.GetDirectoryName(selectedPath)!);
@@ -123,7 +124,7 @@ public sealed class LogInboxServiceTests
             using var service = new LogInboxService(
                 new LogFileParser(),
                 new ArchiveValidator(),
-                new MemorySettingsStore(),
+                new WorkbenchConfigurationService(paths),
                 new WorkbenchLogger(root),
                 paths.InboxDirectory);
 
@@ -144,7 +145,7 @@ public sealed class LogInboxServiceTests
     public async Task RefreshAsync_RecognizesTempTgzLog()
     {
         var root = Path.Combine(Path.GetTempPath(), "HephaestusWorkbenchTests", Guid.NewGuid().ToString("N"));
-        var paths = new HephaestusWorkbench.Data.DataPaths(root);
+        var paths = new DataPaths(root);
         paths.EnsureCreated();
         var source = Path.Combine(paths.InboxDirectory, "diag_EC752JJ212509E27_202608111149.tgz.temp");
         await WriteValidArchiveAsync(source);
@@ -154,7 +155,7 @@ public sealed class LogInboxServiceTests
             using var service = new LogInboxService(
                 new LogFileParser(),
                 new ArchiveValidator(),
-                new MemorySettingsStore(),
+                new WorkbenchConfigurationService(paths),
                 new WorkbenchLogger(root),
                 paths.InboxDirectory);
 
@@ -175,7 +176,7 @@ public sealed class LogInboxServiceTests
     public async Task InspectFileAsync_ValidatesTempTgzLogOutsideWatchDirectory()
     {
         var root = Path.Combine(Path.GetTempPath(), "HephaestusWorkbenchTests", Guid.NewGuid().ToString("N"));
-        var paths = new HephaestusWorkbench.Data.DataPaths(root);
+        var paths = new DataPaths(root);
         paths.EnsureCreated();
         var selectedPath = Path.Combine(root, "Downloads", "diag_EC752JJ212509E27_202608111149.tgz.temp");
         Directory.CreateDirectory(Path.GetDirectoryName(selectedPath)!);
@@ -186,7 +187,7 @@ public sealed class LogInboxServiceTests
             using var service = new LogInboxService(
                 new LogFileParser(),
                 new ArchiveValidator(),
-                new MemorySettingsStore(),
+                new WorkbenchConfigurationService(paths),
                 new WorkbenchLogger(root),
                 paths.InboxDirectory);
 
@@ -205,7 +206,7 @@ public sealed class LogInboxServiceTests
     public async Task InspectFileAsync_ReturnsChineseErrorsForUnsupportedMissingAndCorruptFiles()
     {
         var root = Path.Combine(Path.GetTempPath(), "HephaestusWorkbenchTests", Guid.NewGuid().ToString("N"));
-        var paths = new HephaestusWorkbench.Data.DataPaths(root);
+        var paths = new DataPaths(root);
         paths.EnsureCreated();
         var corruptPath = Path.Combine(root, "diag_DEVICE01_2608111530.tgz");
         await File.WriteAllTextAsync(corruptPath, "not-a-tar-gzip");
@@ -215,7 +216,7 @@ public sealed class LogInboxServiceTests
             using var service = new LogInboxService(
                 new LogFileParser(),
                 new ArchiveValidator(),
-                new MemorySettingsStore(),
+                new WorkbenchConfigurationService(paths),
                 new WorkbenchLogger(root),
                 paths.InboxDirectory);
 
@@ -237,7 +238,7 @@ public sealed class LogInboxServiceTests
     public async Task RefreshAsync_CountsAndKeepsUnrecognizedLogsForInboxReview()
     {
         var root = Path.Combine(Path.GetTempPath(), "HephaestusWorkbenchTests", Guid.NewGuid().ToString("N"));
-        var paths = new HephaestusWorkbench.Data.DataPaths(root);
+        var paths = new DataPaths(root);
         paths.EnsureCreated();
         var invalidPath = Path.Combine(paths.InboxDirectory, "bad-name.tgz");
         await File.WriteAllTextAsync(invalidPath, "invalid");
@@ -247,7 +248,7 @@ public sealed class LogInboxServiceTests
             using var service = new LogInboxService(
                 new LogFileParser(),
                 new ArchiveValidator(),
-                new MemorySettingsStore(),
+                new WorkbenchConfigurationService(paths),
                 new WorkbenchLogger(root),
                 paths.InboxDirectory);
 
@@ -269,7 +270,7 @@ public sealed class LogInboxServiceTests
     public async Task DeleteAsync_RemovesOnlyOriginalLogAndKeepsAnalysisArtifacts()
     {
         var root = Path.Combine(Path.GetTempPath(), "HephaestusWorkbenchTests", Guid.NewGuid().ToString("N"));
-        var paths = new HephaestusWorkbench.Data.DataPaths(root);
+        var paths = new DataPaths(root);
         paths.EnsureCreated();
         var source = Path.Combine(paths.InboxDirectory, "diag_DEVICE01_2608111530.tgz");
         var extractMarker = Path.Combine(root, "Cases", "case-1", "Extract", "keep.txt");
@@ -285,7 +286,7 @@ public sealed class LogInboxServiceTests
             using var service = new LogInboxService(
                 new LogFileParser(),
                 new ArchiveValidator(),
-                new MemorySettingsStore(),
+                new WorkbenchConfigurationService(paths),
                 new WorkbenchLogger(root),
                 paths.InboxDirectory);
             await service.StartAsync();
@@ -310,7 +311,7 @@ public sealed class LogInboxServiceTests
     public async Task DeleteAsync_MissingOriginalLogWritesChineseSkipMessage()
     {
         var root = Path.Combine(Path.GetTempPath(), "HephaestusWorkbenchTests", Guid.NewGuid().ToString("N"));
-        var paths = new HephaestusWorkbench.Data.DataPaths(root);
+        var paths = new DataPaths(root);
         paths.EnsureCreated();
         var missing = Path.Combine(paths.InboxDirectory, "diag_DEVICE01_2608111530.tgz");
 
@@ -319,7 +320,7 @@ public sealed class LogInboxServiceTests
             using var service = new LogInboxService(
                 new LogFileParser(),
                 new ArchiveValidator(),
-                new MemorySettingsStore(),
+                new WorkbenchConfigurationService(paths),
                 new WorkbenchLogger(root),
                 paths.InboxDirectory);
             await service.StartAsync();
@@ -342,6 +343,16 @@ public sealed class LogInboxServiceTests
         }
     }
 
+    [Fact]
+    public void Constructor_RequiresV2ConfigurationService()
+    {
+        var constructor = Assert.Single(typeof(LogInboxService).GetConstructors());
+        var parameters = constructor.GetParameters();
+
+        Assert.Equal(typeof(WorkbenchConfigurationService), parameters[2].ParameterType);
+        Assert.DoesNotContain(parameters, parameter => parameter.ParameterType.Name == "ISettingsStore");
+    }
+
     private static async Task WriteValidArchiveAsync(string path)
     {
         await using var file = File.Create(path);
@@ -351,19 +362,5 @@ public sealed class LogInboxServiceTests
         {
             DataStream = new MemoryStream(Encoding.UTF8.GetBytes("test"))
         });
-    }
-
-    private sealed class MemorySettingsStore : ISettingsStore
-    {
-        private readonly Dictionary<string, string> _values = new(StringComparer.OrdinalIgnoreCase);
-
-        public Task<string?> GetAsync(string key, CancellationToken cancellationToken = default)
-            => Task.FromResult(_values.GetValueOrDefault(key));
-
-        public Task SetAsync(string key, string value, CancellationToken cancellationToken = default)
-        {
-            _values[key] = value;
-            return Task.CompletedTask;
-        }
     }
 }

@@ -3,6 +3,7 @@ using System.Diagnostics;
 using System.IO;
 using System.Windows.Input;
 using HephaestusWorkbench.Core.Models;
+using HephaestusWorkbench.Core.Services;
 using HephaestusWorkbench.Services;
 using Wpf = System.Windows;
 using AnalysisTaskStatus = HephaestusWorkbench.Core.Models.TaskStatus;
@@ -18,8 +19,7 @@ public sealed class AnalysisCenterViewModel : ViewModelBase, IDisposable
     private readonly LogInboxService _inbox;
     private readonly CaseAnalysisService _analysis;
     private readonly ReportService _reportService;
-    private readonly StorageService _storage;
-    private readonly SettingsService _settings;
+    private readonly IReportOpenService _reportOpenService;
     private readonly Action<string> _openExtractDirectory;
     private readonly WorkbenchLogger _logger;
     private readonly Func<string, bool> _confirmDeleteLifecycle;
@@ -32,9 +32,6 @@ public sealed class AnalysisCenterViewModel : ViewModelBase, IDisposable
     private string _message = string.Empty;
     private string? _operationMessage;
     private bool _isBulkOperationActive;
-    private bool _cleanupEnabled;
-    private int _cleanupRetentionDays = 7;
-    private string _cleanupSettingsMessage = string.Empty;
     private int _suppressStateRefresh;
     private int _pendingLoadOperations;
     private bool _disposed;
@@ -43,53 +40,54 @@ public sealed class AnalysisCenterViewModel : ViewModelBase, IDisposable
         LogInboxService inbox,
         CaseAnalysisService analysis,
         ReportService reportService,
-        StorageService storage,
-        SettingsService settings,
-        ReportsWorkspaceViewModel reports,
         Action<string> openExtractDirectory,
         WorkbenchLogger logger,
-        Func<string, bool>? confirmDeleteLifecycle = null)
+        Func<string, bool>? confirmDeleteLifecycle = null,
+        IReportOpenService? reportOpenService = null)
     {
         _inbox = inbox;
         _analysis = analysis;
         _reportService = reportService;
-        _storage = storage;
-        _settings = settings;
-        Reports = reports;
+        _reportOpenService = reportOpenService ?? reportService.CreateOpenService(logger);
         _openExtractDirectory = openExtractDirectory;
         _logger = logger;
         _confirmDeleteLifecycle = confirmDeleteLifecycle ?? (message => Wpf.MessageBox.Show(message, "删除全部数据", Wpf.MessageBoxButton.YesNo, Wpf.MessageBoxImage.Warning) == Wpf.MessageBoxResult.Yes);
 
         RefreshCommand = new DelegateCommand(() => { _operationMessage = null; _ = LoadAsync(); }, () => !IsBulkOperationActive);
-        OpenRowReportCommand = new DelegateCommand(parameter => _ = OpenRowReportAsync(parameter as AnalysisLogGroupViewModel), parameter => parameter is AnalysisLogGroupViewModel { CanOpenReport: true });
+        OpenRowReportCommand = new DelegateCommand(parameter => _ = OpenRowReportAsync(parameter), parameter => ResolveReport(parameter)?.IsAvailable == true);
         AnalyzeAllPendingCommand = new DelegateCommand(() => _ = AnalyzeAllPendingAsync(), () => !IsBulkOperationActive && BulkEligibleCount > 0);
         DeleteInvalidCommand = new DelegateCommand(() => _ = DeleteInvalidAsync(), () => !IsBulkOperationActive && InvalidDeleteCount > 0);
         AnalyzeSingleCommand = new DelegateCommand(parameter => _ = AnalyzeSingleAsync(parameter as AnalysisLogGroupViewModel), CanAnalyzeSingle);
+        CancelAnalysisCommand = new DelegateCommand(parameter => _ = CancelAnalysisAsync(parameter as AnalysisLogGroupViewModel), parameter => parameter is AnalysisLogGroupViewModel { CanCancelAnalysis: true });
         OpenExtractDirectoryCommand = new DelegateCommand(OpenExtractDirectory, CanOpenExtractDirectory);
         OpenReportFolderCommand = new DelegateCommand(OpenReportFolder, parameter => ResolveAttempt(parameter)?.Report is not null);
         DeleteLifecycleCommand = new DelegateCommand(parameter => _ = DeleteLifecycleAsync(parameter as AnalysisLogGroupViewModel), parameter => parameter is AnalysisLogGroupViewModel item && item.CanDeleteLifecycle && !IsBulkOperationActive);
-        CleanupExpiredCommand = new DelegateCommand(() => _ = CleanupExpiredAsync(), () => !IsBulkOperationActive && CleanupEnabled);
-        SaveCleanupSettingsCommand = new DelegateCommand(() => _ = SaveCleanupSettingsAsync(), () => !IsBulkOperationActive);
 
         _inbox.ItemsChanged += OnSourceStateChanged;
         _inbox.ConfigurationChanged += OnSourceStateChanged;
         _analysis.StateChanged += OnSourceStateChanged;
     }
 
-    public ReportsWorkspaceViewModel Reports { get; }
     public ObservableCollection<AnalysisLogGroupViewModel> Items { get; } = new();
     public ICommand RefreshCommand { get; }
     public ICommand OpenRowReportCommand { get; }
     public ICommand AnalyzeAllPendingCommand { get; }
     public ICommand DeleteInvalidCommand { get; }
     public ICommand AnalyzeSingleCommand { get; }
+    public ICommand CancelAnalysisCommand { get; }
     public ICommand OpenExtractDirectoryCommand { get; }
     public ICommand OpenReportFolderCommand { get; }
     public ICommand DeleteLifecycleCommand { get; }
-    public ICommand CleanupExpiredCommand { get; }
-    public ICommand SaveCleanupSettingsCommand { get; }
 
     public bool ShowEmptyState => Items.Count == 0;
+    public IEnumerable<AnalysisLogGroupViewModel> PendingItems => Items.Where(x => x.StageKey is "pending" or "active" or "invalid");
+    /// <summary>
+    /// 历史记录按“分析尝试”展开，而不是按源日志聚合；同一日志重试三次必须保留三条可独立打开的记录。
+    /// 待分析列表仍继续使用 <see cref="Items"/> 的源日志聚合行，避免两个列表混用同一种数据粒度。
+    /// </summary>
+    public IEnumerable<AnalysisHistoryItemViewModel> HistoryItems => Items
+        .SelectMany(group => group.Attempts.Select(attempt => new AnalysisHistoryItemViewModel(group, attempt)))
+        .OrderByDescending(item => item.ActivityTime);
     public bool HasSelection => SelectedItem is not null;
     public int BulkEligibleCount => Items.Count(x => x.IsBulkEligible);
     public int InvalidDeleteCount => Items.Count(x => x.IsInvalidDeleteEligible);
@@ -103,23 +101,6 @@ public sealed class AnalysisCenterViewModel : ViewModelBase, IDisposable
         }
     }
     public string Message { get => _message; private set => SetProperty(ref _message, value); }
-    public string TotalSpace { get; private set; } = "计算中";
-    public string ReleasableSpace { get; private set; } = "计算中";
-    public string LogSpace { get; private set; } = "计算中";
-    public string ExtractSpace { get; private set; } = "计算中";
-    public string ReportSpace { get; private set; } = "计算中";
-    public bool CleanupEnabled
-    {
-        get => _cleanupEnabled;
-        set
-        {
-            if (!SetProperty(ref _cleanupEnabled, value)) return;
-            ((DelegateCommand)CleanupExpiredCommand).RaiseCanExecuteChanged();
-        }
-    }
-    public int CleanupRetentionDays { get => _cleanupRetentionDays; set => SetProperty(ref _cleanupRetentionDays, value); }
-    public string CleanupSettingsMessage { get => _cleanupSettingsMessage; private set => SetProperty(ref _cleanupSettingsMessage, value); }
-
     public AnalysisLogGroupViewModel? SelectedItem
     {
         get => _selectedItem;
@@ -162,25 +143,7 @@ public sealed class AnalysisCenterViewModel : ViewModelBase, IDisposable
             var casesTask = _analysis.ListCasesAsync();
             var tasksTask = _analysis.ListTasksAsync();
             var reportsTask = _reportService.ListAsync(new ReportQuery());
-            var storageTask = _storage.GetSummaryAsync();
-            var cleanupEnabledTask = _settings.GetManualCleanupEnabledAsync();
-            var cleanupDaysTask = _settings.GetCleanupRetentionDaysAsync();
-            await Task.WhenAll(casesTask, tasksTask, reportsTask, storageTask, cleanupEnabledTask, cleanupDaysTask);
-            var storage = storageTask.Result;
-            TotalSpace = ViewModelFormatting.Size(storage.TotalBytes);
-            ReleasableSpace = ViewModelFormatting.Size(storage.ReleasableBytes);
-            LogSpace = ViewModelFormatting.Size(storage.LogBytes);
-            ExtractSpace = ViewModelFormatting.Size(storage.ExtractBytes);
-            ReportSpace = ViewModelFormatting.Size(storage.ReportBytes);
-            CleanupEnabled = cleanupEnabledTask.Result;
-            CleanupRetentionDays = cleanupDaysTask.Result;
-            OnPropertyChanged(nameof(TotalSpace));
-            OnPropertyChanged(nameof(ReleasableSpace));
-            OnPropertyChanged(nameof(LogSpace));
-            OnPropertyChanged(nameof(ExtractSpace));
-            OnPropertyChanged(nameof(ReportSpace));
-            OnPropertyChanged(nameof(CleanupEnabled));
-            OnPropertyChanged(nameof(CleanupRetentionDays));
+            await Task.WhenAll(casesTask, tasksTask, reportsTask);
 
             _allItems.Clear();
             _allItems.AddRange(BuildGroups(_inbox.Items, casesTask.Result, tasksTask.Result, reportsTask.Result));
@@ -204,7 +167,6 @@ public sealed class AnalysisCenterViewModel : ViewModelBase, IDisposable
         await LoadAsync();
         var group = _allItems.FirstOrDefault(x => x.Attempts.Any(a => string.Equals(a.Case.Id, caseId, StringComparison.OrdinalIgnoreCase)));
         if (group is null) return;
-        Reports.IsAnalysisListVisible = true;
         SelectedItem = group;
         SelectedAttempt = group.Attempts.First(x => string.Equals(x.Case.Id, caseId, StringComparison.OrdinalIgnoreCase));
     }
@@ -212,11 +174,17 @@ public sealed class AnalysisCenterViewModel : ViewModelBase, IDisposable
     public async Task SelectSourceAsync(string sourcePath)
     {
         await LoadAsync();
-        Reports.IsAnalysisListVisible = true;
         SelectedItem = _allItems.FirstOrDefault(x => PathsEqual(x.SourcePath, sourcePath));
     }
 
-    public Task<bool> OpenCaseReportAsync(string caseId) => Reports.OpenCaseReportAsync(caseId);
+    public async Task<bool> OpenCaseReportAsync(string caseId)
+    {
+        var report = await _reportService.GetLatestForCaseAsync(caseId);
+        if (report is null) return false;
+        var result = await _reportOpenService.OpenAsync(new ReportOpenRequest(report.Id));
+        Message = GetReportOpenMessage(result);
+        return result.Success;
+    }
 
     private static IReadOnlyList<AnalysisLogGroupViewModel> BuildGroups(
         IReadOnlyList<LogInboxItem> inboxItems,
@@ -268,26 +236,61 @@ public sealed class AnalysisCenterViewModel : ViewModelBase, IDisposable
         OnPropertyChanged(nameof(ShowEmptyState));
         OnPropertyChanged(nameof(BulkEligibleCount));
         OnPropertyChanged(nameof(InvalidDeleteCount));
+        OnPropertyChanged(nameof(PendingItems));
+        OnPropertyChanged(nameof(HistoryItems));
         RaiseCommands();
     }
 
-    private async Task OpenRowReportAsync(AnalysisLogGroupViewModel? item)
+    private async Task OpenRowReportAsync(object? item)
     {
-        if (item?.LatestAvailableReport is { IsAvailable: true } report)
+        if (ResolveReport(item) is not { IsAvailable: true } report)
         {
-            await Reports.OpenReportAsync(report);
+            Message = "该分析记录暂无可用报告。";
             return;
         }
-        Message = "该日志暂无可用报告。";
+
+        var result = await _reportOpenService.OpenAsync(new ReportOpenRequest(report.Id));
+        Message = GetReportOpenMessage(result);
     }
 
+    /// <summary>
+    /// 报告已由浏览器成功打开时，持久化最后打开时间失败属于需要告知用户的警告，
+    /// 不能再用通用成功文案覆盖服务返回的中文说明。
+    /// </summary>
+    private static string GetReportOpenMessage(ReportOpenResult result)
+        => result.Success
+            ? string.IsNullOrWhiteSpace(result.ErrorMessage) ? "报告已在默认浏览器中打开。" : result.ErrorMessage
+            : result.ErrorMessage ?? "报告打开失败。";
+
+
+    /// <summary>
+    /// 快速分析单个用户选择的日志。该入口会等待分析完成，并且只为这一份日志自动打开报告；
+    /// 监控目录和批量提交继续在后台运行，不会批量弹出浏览器窗口。
+    /// </summary>
+    public async Task AnalyzeFileAsync(string sourcePath)
+    {
+        if (IsBulkOperationActive || string.IsNullOrWhiteSpace(sourcePath)) return;
+        var normalizedPath = NormalizePath(sourcePath);
+        var item = _allItems.FirstOrDefault(x => PathsEqual(x.SourcePath, normalizedPath));
+        if (item is null)
+        {
+            var inspection = await _inbox.InspectFileAsync(normalizedPath);
+            if (!inspection.IsValid || inspection.Item is null)
+            {
+                Message = inspection.Item?.ErrorMessage ?? "所选文件不是可分析的诊断日志。";
+                return;
+            }
+            item = new AnalysisLogGroupViewModel(normalizedPath, inspection.Item, Array.Empty<AnalysisAttemptViewModel>());
+        }
+        await AnalyzeSingleAsync(item, autoOpenReport: true);
+    }
     private bool CanAnalyzeSingle(object? parameter)
         => parameter is AnalysisLogGroupViewModel item
             && !IsBulkOperationActive
             && item.CanAnalyzeSingle
             && !_submittingSources.Contains(item.SourcePath);
 
-    private async Task AnalyzeSingleAsync(AnalysisLogGroupViewModel? item)
+    private async Task AnalyzeSingleAsync(AnalysisLogGroupViewModel? item, bool autoOpenReport = false)
     {
         if (item is null || !CanAnalyzeSingle(item) || !_submittingSources.Add(item.SourcePath)) return;
         BeginBulkOperation();
@@ -301,12 +304,21 @@ public sealed class AnalysisCenterViewModel : ViewModelBase, IDisposable
                 AnalysisSubmissionResult.Skipped => $"日志状态已变化，未提交：{item.FileName}",
                 _ => $"提交分析任务失败：{item.FileName}"
             };
-            if (submission.Result == AnalysisSubmissionResult.Submitted
+            if (autoOpenReport
+                && submission.Result == AnalysisSubmissionResult.Submitted
                 && submission.Task is { CaseId: var caseId, ReportPath: not null })
             {
                 await LoadAsync();
-                if (await Reports.OpenCaseReportAsync(caseId))
-                    feedback = $"重新分析完成，已打开最新报告：{item.FileName}";
+                var report = await _reportService.GetLatestForCaseAsync(caseId);
+                if (report is not null)
+                {
+                    var openResult = await _reportOpenService.OpenAsync(new ReportOpenRequest(report.Id));
+                    feedback = openResult.Success
+                        ? string.IsNullOrWhiteSpace(openResult.ErrorMessage)
+                            ? $"分析完成，报告已在默认浏览器中打开：{item.FileName}"
+                            : $"分析完成：{openResult.ErrorMessage}"
+                        : $"分析完成，但报告打开失败：{openResult.ErrorMessage}";
+                }
             }
         }
         catch (Exception ex)
@@ -327,6 +339,20 @@ public sealed class AnalysisCenterViewModel : ViewModelBase, IDisposable
     /// 批量按钮只提交当前筛选结果中的“待分析”日志。先复制快照再逐项创建任务，
     /// 避免任务状态事件刷新列表后改变本次批量操作的边界。
     /// </summary>
+
+    /// <summary>取消当前日志记录上正在等待或运行的任务，不影响其他分析记录。</summary>
+    private async Task CancelAnalysisAsync(AnalysisLogGroupViewModel? item)
+    {
+        var task = item?.ActiveTask;
+        if (task is null) return;
+        if (!await _analysis.CancelAsync(task.Id))
+        {
+            Message = "当前分析任务已结束，无法取消。";
+            return;
+        }
+        Message = $"已请求取消分析：{item!.FileName}";
+        await LoadAsync();
+    }
     private async Task AnalyzeAllPendingAsync()
     {
         if (IsBulkOperationActive) return;
@@ -395,7 +421,17 @@ public sealed class AnalysisCenterViewModel : ViewModelBase, IDisposable
         => parameter switch
         {
             AnalysisAttemptViewModel attempt => attempt,
+            AnalysisHistoryItemViewModel history => history.Attempt,
             AnalysisLogGroupViewModel group => group.CurrentAttempt,
+            _ => null
+        };
+
+    private static ReportSummary? ResolveReport(object? parameter)
+        => parameter switch
+        {
+            AnalysisHistoryItemViewModel history => history.Attempt.Report,
+            AnalysisAttemptViewModel attempt => attempt.Report,
+            AnalysisLogGroupViewModel group => group.LatestAvailableReport,
             _ => null
         };
 
@@ -434,7 +470,6 @@ public sealed class AnalysisCenterViewModel : ViewModelBase, IDisposable
         var extractPath = item.Attempts.FirstOrDefault()?.Case.ExtractPath ?? "无";
         var message = $"确认删除这份日志的全部数据吗？\n\n原始日志：{item.SourcePath}\n解压目录：{extractPath}\n案例：{item.Attempts.Count} 个\n报告：{reportCount} 个\n\n此操作不可恢复。";
         if (!_confirmDeleteLifecycle(message)) return;
-        Reports.CloseCaseTabs(item.Attempts.Select(x => x.Case.Id));
         try
         {
             await DeleteLifecycleCoreAsync(item);
@@ -460,11 +495,10 @@ public sealed class AnalysisCenterViewModel : ViewModelBase, IDisposable
         var reportCount = targets.Sum(x => x.Attempts.Count(a => a.Report is not null));
         var message = $"确认删除当前筛选结果中的 {targets.Length} 个无效日志吗？\n\n"
             + $"关联案例：{caseCount} 个\n关联报告：{reportCount} 个\n\n"
-            + "报告文件、原始日志、解压目录及全部数据库记录（案例、任务、报告、报告会话）都将被删除，此操作不可恢复。";
+            + "报告文件、原始日志、解压目录及全部数据库记录（案例、任务、报告）都将被删除，此操作不可恢复。";
         if (!_confirmDeleteLifecycle(message)) return;
 
         BeginBulkOperation();
-        Reports.CloseCaseTabs(targets.SelectMany(x => x.Attempts).Select(x => x.Case.Id));
         var deleted = 0;
         var skipped = 0;
         var failed = 0;
@@ -494,69 +528,6 @@ public sealed class AnalysisCenterViewModel : ViewModelBase, IDisposable
             EndBulkOperation();
             await LoadAsync();
             Message = _operationMessage = $"异常日志清理完成：成功 {deleted} 个，跳过 {skipped} 个，失败 {failed} 个。";
-        }
-    }
-
-    private async Task CleanupExpiredAsync()
-    {
-        if (IsBulkOperationActive || !CleanupEnabled) return;
-        var cutoff = DateTime.Now.AddDays(-CleanupRetentionDays);
-        var candidates = Items.SelectMany(x => x.Attempts)
-            .Where(x => x.Report is { IsAvailable: true, CreateTime: var time } && time < cutoff
-                && x.Task?.Status is not (AnalysisTaskStatus.Waiting or AnalysisTaskStatus.Running))
-            .Select(x => x.Case.SourcePath)
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .ToArray();
-        if (candidates.Length == 0)
-        {
-            Message = $"没有找到超过 {CleanupRetentionDays} 天的可清理报告。";
-            return;
-        }
-
-        var message = $"发现 {candidates.Length} 份报告超过 {CleanupRetentionDays} 天。\n\n"
-            + "将删除对应报告文件、原始日志、解压目录及全部数据库记录（案例、任务、报告、报告会话），此操作不可恢复。\n\n是否立即清理？";
-        if (!_confirmDeleteLifecycle(message)) return;
-        BeginBulkOperation();
-        try
-        {
-            Reports.CloseCaseTabs(Items.SelectMany(x => x.Attempts)
-                .Where(x => candidates.Contains(x.Case.SourcePath, StringComparer.OrdinalIgnoreCase))
-                .Select(x => x.Case.Id));
-            var result = await _analysis.CleanupExpiredAsync(CleanupRetentionDays);
-            Message = $"到期报告清理完成：成功 {result.Deleted} 份，跳过 {result.Skipped} 份，失败 {result.Failed} 份。";
-        }
-        catch (Exception ex)
-        {
-            Message = $"到期报告清理失败：{ex.Message}";
-            _logger.Error("到期报告清理失败", ex);
-        }
-        finally
-        {
-            EndBulkOperation();
-            await LoadAsync();
-        }
-    }
-
-    /// <summary>在分析中心就地保存清理策略，保证设置入口与实际清理动作处于同一业务上下文。</summary>
-    private async Task SaveCleanupSettingsAsync()
-    {
-        if (CleanupRetentionDays is < 1 or > 7)
-        {
-            CleanupSettingsMessage = "清理保留天数必须在 1 到 7 天之间。";
-            return;
-        }
-
-        try
-        {
-            await _settings.SetManualCleanupEnabledAsync(CleanupEnabled);
-            await _settings.SetCleanupRetentionDaysAsync(CleanupRetentionDays);
-            CleanupSettingsMessage = "清理策略已保存。";
-            ((DelegateCommand)CleanupExpiredCommand).RaiseCanExecuteChanged();
-        }
-        catch (Exception ex)
-        {
-            CleanupSettingsMessage = $"清理策略保存失败：{ex.Message}";
-            _logger.Error("清理策略保存失败", ex);
         }
     }
 
@@ -604,8 +575,8 @@ public sealed class AnalysisCenterViewModel : ViewModelBase, IDisposable
         foreach (var command in new[]
         {
             RefreshCommand, OpenRowReportCommand, AnalyzeAllPendingCommand,
-            DeleteInvalidCommand, AnalyzeSingleCommand, OpenExtractDirectoryCommand, OpenReportFolderCommand,
-            DeleteLifecycleCommand, CleanupExpiredCommand, SaveCleanupSettingsCommand
+            DeleteInvalidCommand, AnalyzeSingleCommand, CancelAnalysisCommand, OpenExtractDirectoryCommand, OpenReportFolderCommand,
+            DeleteLifecycleCommand
         })
             ((DelegateCommand)command).RaiseCanExecuteChanged();
     }
@@ -636,7 +607,6 @@ public sealed class AnalysisCenterViewModel : ViewModelBase, IDisposable
         while (Volatile.Read(ref _pendingLoadOperations) > 0)
             Thread.Sleep(10);
         _loadLock.Dispose();
-        Reports.Dispose();
     }
 }
 
@@ -661,6 +631,43 @@ public sealed class AnalysisAttemptViewModel : ViewModelBase
     public DateTime ActivityTime => Task?.EndTime ?? Task?.StartTime ?? Case.UpdateTime;
     public bool IsActive => Task?.Status is AnalysisTaskStatus.Waiting or AnalysisTaskStatus.Running
         || Case.Status is CaseStatus.Ready or CaseStatus.Running;
+}
+
+/// <summary>
+/// 历史列表的一行对应一次不可合并的分析尝试。该模型保留所属源日志用于展示，
+/// 但报告、状态和时间始终来自当前尝试，避免“最新报告”覆盖较早尝试的真实结果。
+/// </summary>
+public sealed class AnalysisHistoryItemViewModel : ViewModelBase
+{
+    public AnalysisHistoryItemViewModel(AnalysisLogGroupViewModel group, AnalysisAttemptViewModel attempt)
+    {
+        Group = group;
+        Attempt = attempt;
+        StatusText = ResolveStatusText(attempt);
+    }
+
+    public AnalysisLogGroupViewModel Group { get; }
+    public AnalysisAttemptViewModel Attempt { get; }
+    public string FileName => Group.FileName;
+    public string SourcePath => Group.SourcePath;
+    public string DeviceId => Group.DeviceId;
+    public DateTime ActivityTime => Attempt.ActivityTime;
+    public string StatusText { get; }
+    public object StatusValue => Attempt.StatusValue;
+    public string ErrorMessage => Attempt.ErrorMessage;
+    public bool HasError => Attempt.HasError;
+    public bool CanOpenReport => Attempt.Report?.IsAvailable == true;
+
+    private static string ResolveStatusText(AnalysisAttemptViewModel attempt)
+    {
+        if (attempt.IsActive)
+            return attempt.Task?.Status == AnalysisTaskStatus.Running || attempt.Case.Status == CaseStatus.Running ? "分析中" : "等待分析";
+        if (attempt.Case.Status == CaseStatus.Completed)
+            return attempt.Report?.IsAvailable == true ? "已完成" : "报告不可用";
+        if (attempt.Task?.Status == AnalysisTaskStatus.Cancelled)
+            return "已取消";
+        return "失败";
+    }
 }
 
 /// <summary>同一源日志的聚合行；主列表状态优先采用活动分析，否则采用最近一次分析结果。</summary>
@@ -746,6 +753,8 @@ public sealed class AnalysisLogGroupViewModel : ViewModelBase
     public string PrimaryActionText { get; }
     public bool CanOpenReport => LatestAvailableReport is not null;
     public bool CanOpenExtractDirectory => CurrentAttempt is not null;
+    public AnalysisTask? ActiveTask => Attempts.Select(x => x.Task).FirstOrDefault(x => x?.Status is AnalysisTaskStatus.Waiting or AnalysisTaskStatus.Running);
+    public bool CanCancelAnalysis => ActiveTask is not null;
     public bool CanAnalyzeSingle => SourceExists && !HasActiveTask && StageKey != "invalid";
     public bool IsBulkEligible => SourceExists && StageKey == "pending";
     public bool IsInvalidDeleteEligible => SourceExists && !HasActiveTask && StageKey == "invalid";

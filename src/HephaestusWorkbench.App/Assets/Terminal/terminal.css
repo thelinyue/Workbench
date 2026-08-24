@@ -1,0 +1,11 @@
+/* Offline assets: @xterm/xterm 6.0.0 and @xterm/addon-fit 0.11.0. */
+html, body, #terminal {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  overflow: hidden;
+  background: #0f1720;
+}
+body { padding: 8px; box-sizing: border-box; }
+#terminal { min-width: 0; min-height: 0; }
+.xterm { height: 100%; }

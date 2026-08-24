@@ -2,7 +2,4 @@
   <PropertyGroup>
     <TargetFramework>net8.0</TargetFramework>
   </PropertyGroup>
-  <ItemGroup>
-    <ProjectReference Include="..\HephaestusWorkbench.Core\HephaestusWorkbench.Core.csproj" />
-  </ItemGroup>
 </Project>

@@ -1,23 +1,35 @@
 # Hephaestus Workbench Releases
 
-本仓库仅用于发布赫菲斯托斯工程工作台的 Windows 安装包、官方插件、SHA-256 校验文件和公开使用文档。
+**v2.0.0 尚未发布。** 当前源码树没有提交真实 `distribution/bundled-extensions.json`，宿主正式发布者公钥信任锚也尚未注入，因此不能声称已有可安装的 v2.0.0 正式产物。
 
-本仓库不包含产品源码，也不代表产品以开源许可证发布。请只从本仓库的 Releases 页面下载安装包和插件。
+正式发布完成后，对应 Release 应包含：
 
-## 安装
-
-从最新 Release 下载名称中带版本号的安装包（例如 `Hephaestus工作台_v1.2.1.exe`）。它是包含 .NET 8 运行时和官方内置插件的单文件离线安装包，提供标准 Windows 安装向导；同一个安装包也用于后续升级和修复。卸载请使用 Windows 设置或控制面板中的“已安装的应用”。
-
-下载后可使用 PowerShell 验证文件：
-
-```powershell
-Get-FileHash -Algorithm SHA256 .\Hephaestus工作台_v1.2.1.exe
+```text
+HephaestusWorkbench_v2.0.0.exe
+SHA256SUMS.txt
 ```
 
-结果应与同一 Release 中的 `SHA256SUMS.txt` 一致。
+届时可使用 PowerShell 校验：
 
-## 官方插件目录
+```powershell
+Get-FileHash -Algorithm SHA256 .\HephaestusWorkbench_v2.0.0.exe
+```
 
-从 v1.1.1 开始，应用读取独立公开仓库 `thelinyue/Hephaestus-Workbench-Plugins` 根目录的 `catalog.json` 获取在线插件。插件 ZIP 仍由各插件的 GitHub Release 托管；客户端会强制校验 HTTPS、包大小、SHA-256、压缩包路径和插件清单。v1.1.0 保留使用本仓库中的旧目录。
+结果必须与同一 Release 的 `SHA256SUMS.txt` 一致。
 
-遇到下载、安装或校验错误时，请保留工作台 `Logs/workbench.log` 中的中文错误信息用于排查。
+## v2 数据边界
+
+v2.0.0 不兼容旧数据库、旧配置、旧 `Plugins`、旧 manifest/catalog、旧 `report.html` 或旧客户端。发现旧工作区时，客户端只显示旧目录绝对路径以及“打开目录 / 退出”，不会迁移、备份或删除数据。
+
+## 正式扩展校验链路
+
+发布候选安装包必须携带仓库锁定清单声明的真实签名扩展资产。客户端将校验：
+
+- schema v2、扩展身份与 Host API；
+- ZIP 大小和 SHA-256；
+- 宿主内置信任锚与 Ed25519 原始 ZIP 签名；
+- 解压路径、manifest、类型健康检查和激活回滚。
+
+在线扩展目录来自独立 `Hephaestus-Workbench-Plugins` 仓库的 schema v2 `catalog.json`。Catalog 只能声明发布元数据，不能自行授予公钥信任。
+
+遇到安装或校验错误时，请保留工作台数据目录中 `Logs/workbench.log` 的中文错误信息。

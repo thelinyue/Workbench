@@ -12,7 +12,7 @@ public sealed class DataPathsTests
         Assert.EndsWith(Path.Combine("Database", "workbench.db"), paths.DatabaseFile);
         Assert.EndsWith(Path.Combine("Cases", "case-1", "Source"), paths.GetCaseSourceDirectory("case-1"));
         Assert.EndsWith(Path.Combine("Cases", "case-1", "Extract"), paths.GetCaseExtractDirectory("case-1"));
-        Assert.EndsWith(Path.Combine("Extract", "report"), paths.GetReportDirectory(Path.Combine(paths.Root, "Extract")));
+        Assert.EndsWith(Path.Combine("Extract", "Report"), paths.GetReportDirectory(Path.Combine(paths.Root, "Extract")));
         Assert.EndsWith("Inbox", paths.InboxDirectory);
         Assert.EndsWith("Config", paths.ConfigDirectory);
         Assert.EndsWith("Logs", paths.LogsDirectory);

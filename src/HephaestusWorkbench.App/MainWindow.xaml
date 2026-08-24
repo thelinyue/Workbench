@@ -1,21 +1,20 @@
 <Window x:Class="HephaestusWorkbench.App.MainWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="{Binding WindowTitle}" Height="760" Width="1280" MinHeight="600" MinWidth="960"
-        WindowStartupLocation="CenterScreen"
-        Icon="Assets/AppIcon/app-icon.ico">
+        Title="{Binding WindowTitle}" Height="800" Width="1320" MinHeight="720" MinWidth="1180"
+        WindowStartupLocation="CenterScreen" Icon="Assets/AppIcon/app-icon.ico">
     <Grid Background="{DynamicResource WorkbenchBackgroundBrush}">
         <Grid.ColumnDefinitions>
-            <ColumnDefinition Width="236" />
+            <ColumnDefinition Width="216" />
             <ColumnDefinition Width="*" />
         </Grid.ColumnDefinitions>
         <Grid.RowDefinitions>
-            <RowDefinition Height="56" />
+            <RowDefinition Height="76" />
             <RowDefinition Height="*" />
             <RowDefinition Height="30" />
         </Grid.RowDefinitions>
 
-        <!-- 左侧导航是整个工作台的稳定锚点；页面内容只在右侧切换。 -->
+        <!-- v2 导航由 Host 固定定义；扩展只能从扩展中心打开，不能向侧栏注册页面。 -->
         <Border Grid.RowSpan="3" Background="{DynamicResource WorkbenchNavBrush}"
                 BorderBrush="{DynamicResource WorkbenchBorderBrush}" BorderThickness="0,0,1,0">
             <Grid>
@@ -24,161 +23,84 @@
                     <RowDefinition Height="*" />
                     <RowDefinition Height="Auto" />
                 </Grid.RowDefinitions>
-
                 <StackPanel Margin="20,20,18,18">
                     <StackPanel Orientation="Horizontal">
                         <Border Width="28" Height="28" CornerRadius="7" Background="{DynamicResource WorkbenchPrimaryBrush}">
-                            <TextBlock Text="H" Foreground="{DynamicResource WorkbenchOnPrimaryBrush}"
-                                       FontSize="17" FontWeight="Bold" HorizontalAlignment="Center" VerticalAlignment="Center" />
+                            <TextBlock Text="H" Foreground="{DynamicResource WorkbenchOnPrimaryBrush}" FontSize="17" FontWeight="Bold"
+                                       HorizontalAlignment="Center" VerticalAlignment="Center" />
                         </Border>
                         <StackPanel Margin="10,0,0,0" VerticalAlignment="Center">
                             <TextBlock Text="HEPHAESTUS" FontSize="13" FontWeight="Bold" />
                             <TextBlock Text="WORKBENCH" Style="{StaticResource MutedTextStyle}" FontSize="10" Margin="0,2,0,0" />
                         </StackPanel>
                     </StackPanel>
-                    <TextBlock Text="本地日志分析工作台" Style="{StaticResource MutedTextStyle}" Margin="0,14,0,0" />
                 </StackPanel>
 
-                <ListBox Grid.Row="1" ItemsSource="{Binding NavigationItems}" SelectedItem="{Binding SelectedNavigationItem}"
-                         Margin="10,0,10,12" ScrollViewer.VerticalScrollBarVisibility="Disabled">
-                    <ListBox.ItemContainerStyle>
-                        <Style TargetType="ListBoxItem" BasedOn="{StaticResource {x:Type ListBoxItem}}">
-                            <Setter Property="Margin" Value="0,0,0,4" />
-                            <Setter Property="Padding" Value="0" />
-                            <Setter Property="Template">
-                                <Setter.Value>
-                                    <ControlTemplate TargetType="ListBoxItem">
-                                        <Border x:Name="NavItem" Background="Transparent" BorderBrush="Transparent"
-                                                BorderThickness="3,0,0,0" CornerRadius="6" Padding="12,11">
-                                            <ContentPresenter />
-                                        </Border>
-                                        <ControlTemplate.Triggers>
-                                            <Trigger Property="IsMouseOver" Value="True">
-                                                <Setter TargetName="NavItem" Property="Background" Value="{DynamicResource WorkbenchHoverBrush}" />
-                                            </Trigger>
-                                            <Trigger Property="IsSelected" Value="True">
-                                                <Setter TargetName="NavItem" Property="Background" Value="{DynamicResource WorkbenchSelectedBrush}" />
-                                                <Setter TargetName="NavItem" Property="BorderBrush" Value="{DynamicResource WorkbenchPrimaryBrush}" />
-                                            </Trigger>
-                                        </ControlTemplate.Triggers>
-                                    </ControlTemplate>
-                                </Setter.Value>
-                            </Setter>
-                        </Style>
-                    </ListBox.ItemContainerStyle>
-                    <ListBox.ItemTemplate>
+                <ItemsControl Grid.Row="1" ItemsSource="{Binding NavigationSections}" Margin="10,0,10,12">
+                    <ItemsControl.ItemTemplate>
                         <DataTemplate>
-                            <StackPanel Orientation="Horizontal">
-                                <TextBlock Text="{Binding Icon}" FontFamily="Segoe Fluent Icons" FontSize="16" Width="28" VerticalAlignment="Center" />
-                                <TextBlock Text="{Binding Title}" FontSize="14" VerticalAlignment="Center" />
+                            <StackPanel Margin="0,0,0,14">
+                                <TextBlock Text="{Binding Title}" Style="{StaticResource MutedTextStyle}" FontSize="11"
+                                           FontWeight="SemiBold" Margin="12,0,0,6" />
+                                <ListBox ItemsSource="{Binding Items}"
+                                         SelectedItem="{Binding DataContext.SelectedNavigationItem, RelativeSource={RelativeSource AncestorType=Window}, Mode=TwoWay}"
+                                         BorderThickness="0" Background="Transparent" ScrollViewer.VerticalScrollBarVisibility="Disabled">
+                                    <ListBox.ItemContainerStyle>
+                                        <Style TargetType="ListBoxItem" BasedOn="{StaticResource {x:Type ListBoxItem}}">
+                                            <Setter Property="Margin" Value="0,0,0,3" />
+                                            <Setter Property="Padding" Value="0" />
+                                            <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+                                            <Setter Property="Template">
+                                                <Setter.Value>
+                                                    <ControlTemplate TargetType="ListBoxItem">
+                                                        <Border x:Name="NavItem" Background="Transparent" BorderBrush="Transparent"
+                                                                BorderThickness="3,0,0,0" CornerRadius="6" Padding="12,10">
+                                                            <ContentPresenter />
+                                                        </Border>
+                                                        <ControlTemplate.Triggers>
+                                                            <Trigger Property="IsMouseOver" Value="True">
+                                                                <Setter TargetName="NavItem" Property="Background" Value="{DynamicResource WorkbenchHoverBrush}" />
+                                                            </Trigger>
+                                                            <Trigger Property="IsSelected" Value="True">
+                                                                <Setter TargetName="NavItem" Property="Background" Value="{DynamicResource WorkbenchSelectedBrush}" />
+                                                                <Setter TargetName="NavItem" Property="BorderBrush" Value="{DynamicResource WorkbenchPrimaryBrush}" />
+                                                            </Trigger>
+                                                        </ControlTemplate.Triggers>
+                                                    </ControlTemplate>
+                                                </Setter.Value>
+                                            </Setter>
+                                        </Style>
+                                    </ListBox.ItemContainerStyle>
+                                    <ListBox.ItemTemplate>
+                                        <DataTemplate>
+                                            <StackPanel Orientation="Horizontal">
+                                                <TextBlock Text="{Binding Icon}" FontFamily="Segoe Fluent Icons" FontSize="16" Width="28" />
+                                                <TextBlock Text="{Binding Title}" FontSize="14" VerticalAlignment="Center" />
+                                            </StackPanel>
+                                        </DataTemplate>
+                                    </ListBox.ItemTemplate>
+                                </ListBox>
                             </StackPanel>
                         </DataTemplate>
-                    </ListBox.ItemTemplate>
-                </ListBox>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
 
-                <StackPanel Grid.Row="2" Margin="20,0,18,18">
-                    <Border Height="1" Background="{DynamicResource WorkbenchBorderBrush}" Margin="0,0,0,12" />
-                    <TextBlock Text="离线优先 · 本地数据" Style="{StaticResource MutedTextStyle}" />
-                    <TextBlock Text="{Binding AppVersion, StringFormat=版本 {0}}" Style="{StaticResource MutedTextStyle}" FontSize="11" Margin="0,4,0,0" />
-                </StackPanel>
+                <TextBlock Grid.Row="2" Text="{Binding AppVersion}" Style="{StaticResource MutedTextStyle}" Margin="20,0,18,18" />
             </Grid>
         </Border>
 
-        <Border Grid.Column="1" Background="{DynamicResource WorkbenchSurfaceBrush}"
+        <Border Grid.Row="0" Grid.Column="1" Background="{DynamicResource WorkbenchSurfaceBrush}"
                 BorderBrush="{DynamicResource WorkbenchBorderBrush}" BorderThickness="0,0,0,1" Padding="24,0,20,0">
             <Grid>
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="*" />
-                    <ColumnDefinition Width="Auto" />
-                </Grid.ColumnDefinitions>
                 <StackPanel VerticalAlignment="Center">
-                    <TextBlock Text="{Binding PageTitle}" FontSize="19" FontWeight="SemiBold" />
-                    <TextBlock Text="{Binding PageContext}" Style="{StaticResource MutedTextStyle}" Margin="0,3,0,0" />
-                </StackPanel>
-                <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
-                    <Border Background="{DynamicResource WorkbenchSurfaceAltBrush}" BorderBrush="{DynamicResource WorkbenchBorderBrush}"
-                            BorderThickness="1" CornerRadius="5" Padding="9,5" Margin="0,0,10,0">
-                        <StackPanel Orientation="Horizontal">
-                            <Ellipse Width="7" Height="7" Fill="{DynamicResource WorkbenchSuccessBrush}" VerticalAlignment="Center" Margin="0,0,6,0" />
-                            <TextBlock Text="本地运行" Style="{StaticResource MutedTextStyle}" FontSize="11" />
-                        </StackPanel>
-                    </Border>
-                    <Border Background="{DynamicResource WorkbenchSurfaceAltBrush}" BorderBrush="{DynamicResource WorkbenchBorderBrush}"
-                            BorderThickness="1" CornerRadius="5" Padding="9,5" Margin="0,0,10,0">
-                        <TextBlock Text="{Binding AppVersion}" Style="{StaticResource MutedTextStyle}" FontSize="11" />
-                    </Border>
-                    <Button Content="&#xEA8F;" FontFamily="Segoe Fluent Icons" Command="{Binding OpenGlobalWarningCommand}"
-                            ToolTip="{Binding GlobalWarningText}" AutomationProperties.Name="全局异常提醒"
-                            Padding="9,7" Margin="0,0,4,0" Foreground="{DynamicResource WorkbenchWarningBrush}"
+                    <StackPanel Orientation="Horizontal">
+                        <TextBlock Text="{Binding PageTitle}" FontSize="20" FontWeight="SemiBold" />
+                        <TextBlock Text="{Binding PageContext}" Style="{StaticResource MutedTextStyle}" FontSize="14" Margin="8,4,0,0" />
+                    </StackPanel>
+                    <Button Content="{Binding GlobalWarningText}" Command="{Binding OpenGlobalWarningCommand}"
+                            HorizontalAlignment="Left" BorderThickness="0" Padding="0" Background="Transparent"
+                            Foreground="{DynamicResource WorkbenchWarningBrush}"
                             Visibility="{Binding HasGlobalWarning, Converter={StaticResource BooleanToVisibilityConverter}}" />
-                    <Button x:Name="TaskButton" Command="{Binding TaskPanel.ToggleCommand}" ToolTip="{Binding TaskPanel.ButtonToolTip}"
-                            AutomationProperties.Name="后台任务" Padding="8,6" Margin="0">
-                        <StackPanel Orientation="Horizontal">
-                            <Grid Width="22">
-                                <TextBlock Text="&#xE768;" FontFamily="Segoe Fluent Icons" FontSize="16" VerticalAlignment="Center" />
-                                <Border Background="{DynamicResource WorkbenchDangerBrush}" CornerRadius="8" MinWidth="16" Height="16"
-                                        Padding="3,0" HorizontalAlignment="Right" VerticalAlignment="Top" Margin="10,-7,-8,0"
-                                        Visibility="{Binding TaskPanel.HasActiveTasks, Converter={StaticResource BooleanToVisibilityConverter}}">
-                                    <TextBlock Text="{Binding TaskPanel.ActiveTaskCount}" Foreground="White" FontSize="10" HorizontalAlignment="Center" />
-                                </Border>
-                            </Grid>
-                            <TextBlock Text="后台任务" Margin="6,0,0,0" VerticalAlignment="Center" />
-                        </StackPanel>
-                    </Button>
-                    <Popup PlacementTarget="{Binding ElementName=TaskButton}" Placement="Bottom" HorizontalOffset="-340" VerticalOffset="8"
-                           AllowsTransparency="True" StaysOpen="False" DataContext="{Binding TaskPanel}" IsOpen="{Binding IsOpen, Mode=TwoWay}">
-                        <Border Width="390" MaxHeight="520" Background="{DynamicResource WorkbenchSurfaceBrush}"
-                                BorderBrush="{DynamicResource WorkbenchBorderBrush}" BorderThickness="1" CornerRadius="8" Padding="16">
-                            <Grid>
-                                <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="*" /></Grid.RowDefinitions>
-                                <DockPanel Margin="0,0,0,12">
-                                    <Button DockPanel.Dock="Right" Content="刷新" Command="{Binding RefreshCommand}" Padding="9,5" Margin="10,0,0,0" />
-                                    <StackPanel>
-                                        <TextBlock Text="后台任务" FontSize="16" FontWeight="SemiBold" />
-                                        <TextBlock Text="活动任务与最近结果" Style="{StaticResource MutedTextStyle}" Margin="0,3,0,0" />
-                                    </StackPanel>
-                                </DockPanel>
-                                <Grid Grid.Row="1">
-                                    <ScrollViewer VerticalScrollBarVisibility="Auto">
-                                        <ItemsControl ItemsSource="{Binding Items}">
-                                            <ItemsControl.ItemTemplate>
-                                                <DataTemplate>
-                                                    <Border BorderBrush="{DynamicResource WorkbenchBorderBrush}" BorderThickness="0,0,0,1" Padding="0,10">
-                                                        <Grid>
-                                                            <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
-                                                            <Button Command="{Binding DataContext.OpenTaskCommand, RelativeSource={RelativeSource AncestorType=ItemsControl}}"
-                                                                    CommandParameter="{Binding}" Background="Transparent" BorderThickness="0" Padding="0" HorizontalContentAlignment="Left">
-                                                                <StackPanel>
-                                                                    <TextBlock Text="{Binding CaseName}" FontWeight="SemiBold" />
-                                                                    <StackPanel Orientation="Horizontal" Margin="0,4,0,0">
-                                                                        <TextBlock Text="{Binding PluginId}" Style="{StaticResource MutedTextStyle}" />
-                                                                        <TextBlock Text=" · " Style="{StaticResource MutedTextStyle}" />
-                                                                        <TextBlock Text="{Binding TimeText}" Style="{StaticResource MutedTextStyle}" />
-                                                                    </StackPanel>
-                                                                    <TextBlock Text="{Binding ErrorMessage}" Foreground="{DynamicResource WorkbenchDangerBrush}" FontSize="12"
-                                                                               TextWrapping="Wrap" Margin="0,4,8,0" Visibility="{Binding HasError, Converter={StaticResource BooleanToVisibilityConverter}}" />
-                                                                </StackPanel>
-                                                            </Button>
-                                                            <StackPanel Grid.Column="1" HorizontalAlignment="Right">
-                                                                <Border Background="{Binding StatusValue, Converter={StaticResource StatusBrushConverter}}" CornerRadius="10" Padding="8,3">
-                                                                    <TextBlock Text="{Binding StatusValue, Converter={StaticResource StatusTextConverter}}" FontSize="12" />
-                                                                </Border>
-                                                                <Button Content="取消" Command="{Binding DataContext.CancelTaskCommand, RelativeSource={RelativeSource AncestorType=ItemsControl}}"
-                                                                        CommandParameter="{Binding}" Padding="7,3" Margin="0,5,0,0"
-                                                                        Visibility="{Binding IsActive, Converter={StaticResource BooleanToVisibilityConverter}}" />
-                                                            </StackPanel>
-                                                        </Grid>
-                                                    </Border>
-                                                </DataTemplate>
-                                            </ItemsControl.ItemTemplate>
-                                        </ItemsControl>
-                                    </ScrollViewer>
-                                    <TextBlock Text="暂无后台任务" Style="{StaticResource MutedTextStyle}" HorizontalAlignment="Center" Margin="0,24"
-                                               Visibility="{Binding ShowEmptyState, Converter={StaticResource BooleanToVisibilityConverter}}" />
-                                </Grid>
-                            </Grid>
-                        </Border>
-                    </Popup>
                 </StackPanel>
             </Grid>
         </Border>
@@ -190,9 +112,9 @@
         <Border Grid.Row="2" Grid.Column="1" Background="{DynamicResource WorkbenchSurfaceAltBrush}"
                 BorderBrush="{DynamicResource WorkbenchBorderBrush}" BorderThickness="0,1,0,0" Padding="24,0,20,0">
             <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
-                <Ellipse Width="6" Height="6" Fill="{DynamicResource WorkbenchSuccessBrush}" VerticalAlignment="Center" Margin="0,0,8,0" />
-                <TextBlock Text="{Binding StatusMessage}" ToolTip="{Binding StatusMessage}" Foreground="{DynamicResource WorkbenchMutedTextBrush}"
-                           FontSize="12" TextTrimming="CharacterEllipsis" />
+                <Ellipse Width="6" Height="6" Fill="{DynamicResource WorkbenchSuccessBrush}" Margin="0,0,8,0" />
+                <TextBlock Text="{Binding StatusMessage}" ToolTip="{Binding StatusMessage}"
+                           Foreground="{DynamicResource WorkbenchMutedTextBrush}" FontSize="12" TextTrimming="CharacterEllipsis" />
             </StackPanel>
         </Border>
     </Grid>

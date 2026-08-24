@@ -24,8 +24,8 @@ public sealed class SqliteAnalysisLifecycleRepository : IAnalysisLifecycleReposi
             VALUES ($id, $display_name, $original_name, $device_id, $log_time, $status, $source_path, $extract_path, $report_path, $error_message, $create_time, $update_time)
             """, AddCaseParameters, cancellationToken);
         await ExecuteAsync(connection, transaction, """
-            INSERT INTO analysis_tasks (id, case_id, plugin_id, status, start_time, end_time, report_path, error_message)
-            VALUES ($id, $case_id, $plugin_id, $status, $start_time, $end_time, $report_path, $error_message)
+            INSERT INTO analysis_tasks (id, case_id, plugin_id, analysis_scope, status, start_time, end_time, report_path, error_message)
+            VALUES ($id, $case_id, $plugin_id, $analysis_scope, $status, $start_time, $end_time, $report_path, $error_message)
             """, AddTaskParameters, cancellationToken);
         await transaction.CommitAsync(cancellationToken);
 
@@ -50,6 +50,7 @@ public sealed class SqliteAnalysisLifecycleRepository : IAnalysisLifecycleReposi
             command.Parameters.AddWithValue("$id", task.Id);
             command.Parameters.AddWithValue("$case_id", task.CaseId);
             command.Parameters.AddWithValue("$plugin_id", task.PluginId);
+            command.Parameters.AddWithValue("$analysis_scope", task.AnalysisScope.ToString());
             command.Parameters.AddWithValue("$status", task.Status.ToString());
             command.Parameters.AddWithValue("$start_time", (object?)SqliteValue.Date(task.StartTime) ?? DBNull.Value);
             command.Parameters.AddWithValue("$end_time", (object?)SqliteValue.Date(task.EndTime) ?? DBNull.Value);
@@ -137,8 +138,8 @@ public sealed class SqliteAnalysisLifecycleRepository : IAnalysisLifecycleReposi
     }
 
     /// <summary>
-    /// 显式删除完整分析生命周期的数据库记录，不依赖历史数据库是否配置了外键级联。
-    /// 删除顺序必须先处理报告会话，再处理报告、任务和案例，避免旧库留下孤儿记录。
+    /// 显式删除完整分析生命周期的数据库记录。
+    /// 删除顺序先处理报告，再处理任务和案例，避免产生孤儿记录。
     /// </summary>
     public async Task DeleteByCaseIdsAsync(IReadOnlyCollection<string> caseIds, CancellationToken cancellationToken = default)
     {
@@ -152,10 +153,6 @@ public sealed class SqliteAnalysisLifecycleRepository : IAnalysisLifecycleReposi
         await using var transaction = (Microsoft.Data.Sqlite.SqliteTransaction)await connection.BeginTransactionAsync(cancellationToken);
         var parameters = string.Join(", ", ids.Select((_, index) => $"$case_id_{index}"));
 
-        await ExecuteAsync(connection, transaction,
-            $"DELETE FROM report_sessions WHERE report_id IN (SELECT id FROM reports WHERE case_id IN ({parameters}));",
-            AddCaseIdParameters,
-            cancellationToken);
         await ExecuteAsync(connection, transaction,
             $"DELETE FROM reports WHERE case_id IN ({parameters});",
             AddCaseIdParameters,

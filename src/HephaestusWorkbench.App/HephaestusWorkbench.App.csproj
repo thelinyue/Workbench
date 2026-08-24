@@ -9,6 +9,18 @@
     <RootNamespace>HephaestusWorkbench.App</RootNamespace>
     <ApplicationIcon>Assets\AppIcon\app-icon.ico</ApplicationIcon>
   </PropertyGroup>
+  <PropertyGroup Condition="'$(RequireBundledExtensions)' == 'true'">
+    <DefineConstants>$(DefineConstants);REQUIRE_BUNDLED_EXTENSIONS</DefineConstants>
+  </PropertyGroup>
+  <ItemGroup Condition="'$(ExtensionTrustAnchorPath)' != ''">
+    <EmbeddedResource Include="$(ExtensionTrustAnchorPath)">
+      <LogicalName>HephaestusWorkbench.ExtensionTrustAnchor.json</LogicalName>
+    </EmbeddedResource>
+  </ItemGroup>
+  <Target Name="ValidateFormalExtensionTrustAnchor" BeforeTargets="PrepareForBuild" Condition="'$(RequireBundledExtensions)' == 'true'">
+    <Error Condition="'$(ExtensionTrustAnchorPath)' == ''" Text="正式构建必须显式提供扩展信任锚 ExtensionTrustAnchorPath。" />
+    <Error Condition="'$(ExtensionTrustAnchorPath)' != '' and !Exists('$(ExtensionTrustAnchorPath)')" Text="正式构建指定的扩展信任锚文件不存在：$(ExtensionTrustAnchorPath)" />
+  </Target>
   <ItemGroup>
     <ProjectReference Include="..\HephaestusWorkbench.Core\HephaestusWorkbench.Core.csproj" />
     <ProjectReference Include="..\HephaestusWorkbench.Data\HephaestusWorkbench.Data.csproj" />
@@ -18,9 +30,8 @@
     <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.2903.40" />
   </ItemGroup>
   <ItemGroup>
-    <None Include="PluginSeed\manifest.json" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
-    <None Include="$(PluginBinaryPath)" Condition="'$(PluginBinaryPath)' != '' and Exists('$(PluginBinaryPath)')" Link="PluginSeed\log_analyzer.exe" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
     <None Include="..\..\docs\plugin-development.md" Link="Documentation\plugin-development.md" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
     <Resource Include="Assets\AppIcon\app-icon.ico" />
+    <Content Include="Assets\Terminal\**\*" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>

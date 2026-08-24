@@ -14,7 +14,6 @@ public sealed class FirstRunWizardViewModel : ViewModelBase
     private readonly Func<string, IReadOnlyList<string>, IProgress<string>, Task> _initializeAsync;
     private readonly Action _browseDataPath;
     private readonly Action _browseMonitorPath;
-    private readonly Action _openPluginDirectory;
     private string _dataPath;
     private string _newMonitorPath = string.Empty;
     private string? _selectedMonitorPath;
@@ -30,22 +29,19 @@ public sealed class FirstRunWizardViewModel : ViewModelBase
         string defaultDataPath,
         Func<string, IReadOnlyList<string>, IProgress<string>, Task> initializeAsync,
         Action browseDataPath,
-        Action browseMonitorPath,
-        Action openPluginDirectory)
+        Action browseMonitorPath)
     {
         _dataPath = Path.GetFullPath(defaultDataPath);
         MonitorPaths.Add(Path.Combine(_dataPath, "Inbox"));
         _initializeAsync = initializeAsync;
         _browseDataPath = browseDataPath;
         _browseMonitorPath = browseMonitorPath;
-        _openPluginDirectory = openPluginDirectory;
         BackCommand = new DelegateCommand(() => CurrentStep--, () => CurrentStep > 0 && !IsBusy);
         NextCommand = new DelegateCommand(() => _ = NextAsync(), () => !IsBusy);
         AddMonitorCommand = new DelegateCommand(AddMonitorPath);
         RemoveMonitorCommand = new DelegateCommand(RemoveMonitorPath, CanRemoveMonitorPath);
         BrowseDataPathCommand = new DelegateCommand(_browseDataPath);
         BrowseMonitorPathCommand = new DelegateCommand(_browseMonitorPath);
-        OpenPluginDirectoryCommand = new DelegateCommand(_openPluginDirectory);
         SelectedMonitorPath = MonitorPaths[0];
     }
 
@@ -65,11 +61,9 @@ public sealed class FirstRunWizardViewModel : ViewModelBase
                     SelectedMonitorPath = MonitorPaths[0];
                 OnPropertyChanged(nameof(MonitorPaths));
             }
-            OnPropertyChanged(nameof(PluginDirectory));
         }
     }
 
-    public string PluginDirectory => Path.Combine(DataPath, "Plugins");
     public string NewMonitorPath
     {
         get => _newMonitorPath;
@@ -103,14 +97,14 @@ public sealed class FirstRunWizardViewModel : ViewModelBase
         get => _currentStep;
         set
         {
-            if (!SetProperty(ref _currentStep, Math.Clamp(value, 0, 4))) return;
+            if (!SetProperty(ref _currentStep, Math.Clamp(value, 0, 3))) return;
             OnPropertyChanged(nameof(StepText));
             OnPropertyChanged(nameof(NextButtonText));
             (BackCommand as DelegateCommand)?.RaiseCanExecuteChanged();
         }
     }
-    public string StepText => $"步骤 {CurrentStep + 1} / 5";
-    public string NextButtonText => CurrentStep == 0 ? "开始" : CurrentStep == 4 && _initializationCompleted ? "完成" : CurrentStep == 4 ? "开始初始化" : "下一步";
+    public string StepText => $"步骤 {CurrentStep + 1} / 4";
+    public string NextButtonText => CurrentStep == 0 ? "开始" : CurrentStep == 3 && _initializationCompleted ? "完成" : CurrentStep == 3 ? "开始初始化" : "下一步";
     public bool IsBusy { get => _isBusy; private set { if (SetProperty(ref _isBusy, value)) { (BackCommand as DelegateCommand)?.RaiseCanExecuteChanged(); (NextCommand as DelegateCommand)?.RaiseCanExecuteChanged(); } } }
 
     public ICommand BackCommand { get; }
@@ -119,7 +113,6 @@ public sealed class FirstRunWizardViewModel : ViewModelBase
     public ICommand RemoveMonitorCommand { get; }
     public ICommand BrowseDataPathCommand { get; }
     public ICommand BrowseMonitorPathCommand { get; }
-    public ICommand OpenPluginDirectoryCommand { get; }
     public event EventHandler? Finished;
 
     private void AddMonitorPath()
@@ -199,7 +192,7 @@ public sealed class FirstRunWizardViewModel : ViewModelBase
             ErrorMessage = "至少需要一个日志监控目录。";
             return;
         }
-        if (CurrentStep < 4)
+        if (CurrentStep < 3)
         {
             CurrentStep++;
             return;

@@ -73,7 +73,7 @@ public sealed class SqliteAnalysisLifecycleRepositoryTests
     }
 
     [Fact]
-    public async Task DeleteByCaseIdsAsync_DeletesSessionsReportsTasksAndCasesInOneTransaction()
+    public async Task DeleteByCaseIdsAsync_DeletesReportsTasksAndCasesInOneTransaction()
     {
         var root = CreateRoot();
         try
@@ -95,11 +95,9 @@ public sealed class SqliteAnalysisLifecycleRepositoryTests
                 Path = Path.Combine(root, "report"),
                 CreateTime = now
             });
-            await InsertReportSessionAsync(factory, "report-delete");
 
             await lifecycle.DeleteByCaseIdsAsync(new[] { "case-delete" });
 
-            Assert.Equal(0, await CountRowsAsync(factory, "report_sessions"));
             Assert.Equal(0, await CountRowsAsync(factory, "reports"));
             Assert.Equal(0, await CountRowsAsync(factory, "analysis_tasks"));
             Assert.Equal(0, await CountRowsAsync(factory, "analysis_cases"));
@@ -130,20 +128,6 @@ public sealed class SqliteAnalysisLifecycleRepositoryTests
         PluginId = "log-analyzer",
         Status = status
     };
-
-    private static async Task InsertReportSessionAsync(SqliteConnectionFactory factory, string reportId)
-    {
-        await using var connection = await factory.OpenAsync();
-        await using var command = connection.CreateCommand();
-        command.CommandText = """
-            INSERT INTO report_sessions (id, report_id, order_index, is_active, scroll_position, last_open_time)
-            VALUES ($id, $report_id, 0, 1, 0, $last_open_time)
-            """;
-        command.Parameters.AddWithValue("$id", $"session-{reportId}");
-        command.Parameters.AddWithValue("$report_id", reportId);
-        command.Parameters.AddWithValue("$last_open_time", DateTime.Now.ToString("O"));
-        await command.ExecuteNonQueryAsync();
-    }
 
     private static async Task<long> CountRowsAsync(SqliteConnectionFactory factory, string table)
     {

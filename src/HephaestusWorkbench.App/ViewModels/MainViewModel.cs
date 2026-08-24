@@ -1,5 +1,5 @@
-using System.Collections.ObjectModel;
-using HephaestusWorkbench.Core.Models;
+using HephaestusWorkbench.PluginSDK;
+using HephaestusWorkbench.Data;
 using HephaestusWorkbench.Services;
 using System.Windows.Input;
 using Wpf = System.Windows;
@@ -10,56 +10,62 @@ namespace HephaestusWorkbench.App.ViewModels;
 public sealed class MainViewModel : ViewModelBase, IDisposable
 {
     private readonly LogInboxService _inbox;
-    private readonly PluginCatalog _plugins;
     private readonly DirectoryOpenService _directoryOpen;
+    private readonly WorkbenchLogger _logger;
+    private readonly CancellationTokenSource _extensionRefreshCancellation = new();
+    private Task? _extensionRefreshTask;
+    private bool _disposed;
     private object? _currentPage;
     private NavigationItem? _selectedNavigationItem;
     private string _globalWarningText = string.Empty;
 
-    public MainViewModel(CaseAnalysisService analysis, LogInboxService inbox, StorageService storage, SettingsService settings, PluginCatalog plugins, PluginMarketplaceService marketplace, ReportService reports, WorkbenchLogger logger, Func<string, string?> applyTheme, RuleSetService rules, IRuleDistributionService ruleDistribution)
+    public MainViewModel(
+        CaseAnalysisService analysis,
+        LogInboxService inbox,
+        SettingsService settings,
+        ReportService reports,
+        WorkbenchLogger logger,
+        Func<string, string?> applyTheme,
+        DataPaths paths,
+        BootstrapConfigurationStore bootstrapStore,
+        Func<string?> startReplacementProcess,
+        Action shutdownCurrentProcess,
+        IExtensionCenterService extensions,
+        Action<ExtensionManifest> openWorkspace,
+        SshTerminalViewModel sshTerminal)
     {
         _inbox = inbox;
-        _plugins = plugins;
+        _logger = logger;
         _directoryOpen = new DirectoryOpenService(logger);
-        NavigationItems = new ObservableCollection<NavigationItem>
-        {
-            new("dashboard", "首页", "\uE80F"),
-            new("analysis", "分析中心", "\uE896"),
-            new("plugins", "应用中心", "\uECAA"),
-            new("settings", "设置", "\uE713")
-        };
-        var reportWorkspace = new ReportsWorkspaceViewModel(reports, settings, OpenExtractDirectory, logger);
-        AnalysisCenter = new AnalysisCenterViewModel(inbox, analysis, reports, storage, settings, reportWorkspace, OpenExtractDirectory, logger);
-        TaskPanel = new TaskPanelViewModel(analysis, OpenCase);
-        OpenGlobalWarningCommand = new DelegateCommand(() => SelectNavigation("plugins"));
-        Dashboard = new DashboardViewModel(
-            analysis,
-            storage,
+        NavigationSections = ShellNavigation.CreateFixed();
+        AnalysisCenter = new AnalysisCenterViewModel(inbox, analysis, reports, OpenExtractDirectory, logger);
+        SshTerminal = sshTerminal;
+        OpenGlobalWarningCommand = new DelegateCommand(() => SelectNavigation("extensions"));
+        Settings = new SettingsViewModel(
+            settings,
             inbox,
-            () => SelectNavigation("analysis"),
-            () => SelectNavigation("analysis"),
-            OpenSettings,
-            OpenQuickReportAsync,
-            OpenExtractDirectory,
-            logger,
-            () => TaskPanel.ToggleCommand.Execute(null));
-        Settings = new SettingsViewModel(settings, inbox, () => AnalysisCenter.Reports.OpenTabCount, applyTheme);
-        Plugins = new MarketplacePluginsViewModel(plugins, marketplace, settings, logger, rules, ruleDistribution, new HttpRulePublisher(Environment.GetEnvironmentVariable("HEPHAESTUS_RULE_PUBLISH_URL"), Environment.GetEnvironmentVariable("HEPHAESTUS_RULE_PUBLISH_TOKEN"), logger, protectedTokenPath: rules.RulePublisherTokenPath));
-        _selectedNavigationItem = NavigationItems[0];
-        _currentPage = Dashboard;
+            applyTheme,
+            SshTerminal.ApplyPreferences,
+            paths,
+            bootstrapStore,
+            _directoryOpen,
+            startReplacementProcess,
+            shutdownCurrentProcess);
+        Extensions = new ExtensionCenterViewModel(extensions, openWorkspace, logger);
+        Settings.ExtensionAllowPrereleaseSaved += OnExtensionAllowPrereleaseSaved;
+        _selectedNavigationItem = FindNavigation("analysis");
+        _currentPage = AnalysisCenter;
         UpdateStatusMessage();
         _inbox.ConfigurationChanged += OnConfigurationChanged;
-        AnalysisCenter.Reports.PropertyChanged += OnReportWorkspacePropertyChanged;
-        Plugins.StateChanged += OnPluginStateChanged;
+        Extensions.StateChanged += OnExtensionStateChanged;
         logger.MessageWritten += OnLogMessage;
     }
 
-    public ObservableCollection<NavigationItem> NavigationItems { get; }
-    public DashboardViewModel Dashboard { get; }
+    public IReadOnlyList<NavigationSection> NavigationSections { get; }
     public AnalysisCenterViewModel AnalysisCenter { get; }
-    public TaskPanelViewModel TaskPanel { get; }
+    public SshTerminalViewModel SshTerminal { get; }
     public SettingsViewModel Settings { get; }
-    public MarketplacePluginsViewModel Plugins { get; }
+    public ExtensionCenterViewModel Extensions { get; }
     public string GlobalWarningText { get => _globalWarningText; private set { if (SetProperty(ref _globalWarningText, value)) OnPropertyChanged(nameof(HasGlobalWarning)); } }
     public bool HasGlobalWarning => !string.IsNullOrWhiteSpace(GlobalWarningText);
     public string StatusMessage { get; private set; } = string.Empty;
@@ -76,10 +82,10 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
             CurrentPage = value.Key switch
             {
                 "analysis" => AnalysisCenter,
-
-                "plugins" => Plugins,
+                "ssh" => SshTerminal,
+                "extensions" => Extensions,
                 "settings" => Settings,
-                _ => Dashboard
+                _ => AnalysisCenter
             };
         }
     }
@@ -95,34 +101,24 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
         }
     }
     public string PageTitle => SelectedNavigationItem?.Title ?? "Hephaestus工作台";
-    public string PageContext => SelectedNavigationItem?.Key is "analysis"
-        && !AnalysisCenter.Reports.IsAnalysisListVisible
-        && AnalysisCenter.Reports.SelectedTab is not null
-        ? $"· {AnalysisCenter.Reports.SelectedTab.Title}"
-        : string.Empty;
+    public string PageContext => string.Empty;
 
     public async Task InitializeAsync()
     {
         await AnalysisCenter.InitializeAsync();
-        await TaskPanel.LoadAsync();
-        await RefreshGlobalWarningAsync();
+        await Settings.Initialization;
+        await SshTerminal.InitializeAsync();
+        // 默认启动页是分析中心；在线 Catalog 刷新不得阻塞主窗口出现，完成后通过 StateChanged 更新全局告警。
+        _extensionRefreshTask = Extensions.InitializeAsync(
+            Settings.AutoCheckExtensionUpdates,
+            Settings.AllowPrereleaseExtensions,
+            _extensionRefreshCancellation.Token);
+        RefreshGlobalWarning();
     }
 
-    private async Task<bool> OpenQuickReportAsync(string caseId)
-    {
-        var opened = await AnalysisCenter.OpenCaseReportAsync(caseId);
-        if (opened) SelectNavigation("analysis");
-        return opened;
-    }
-
-    private void OpenCase(string caseId)
-    {
-        SelectedNavigationItem = NavigationItems.First(x => x.Key == "analysis");
-        _ = AnalysisCenter.SelectCaseAsync(caseId);
-    }
-
-    private void OpenSettings() => SelectedNavigationItem = NavigationItems.First(x => x.Key == "settings");
-    private void SelectNavigation(string key) => SelectedNavigationItem = NavigationItems.First(x => x.Key == key);
+    private void SelectNavigation(string key) => SelectedNavigationItem = FindNavigation(key);
+    private NavigationItem FindNavigation(string key)
+        => NavigationSections.SelectMany(section => section.Items).First(item => item.Key == key);
 
     private void OpenExtractDirectory(string path)
     {
@@ -133,21 +129,10 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
 
     private void OnConfigurationChanged(object? sender, EventArgs e) => RunOnUi(UpdateStatusMessage);
     private void OnLogMessage(object? sender, string message) => RunOnUi(() => { StatusMessage = message; OnPropertyChanged(nameof(StatusMessage)); });
-    private void OnPluginStateChanged(object? sender, EventArgs e) => RunOnUi(() => _ = RefreshGlobalWarningAsync());
-    private void OnReportWorkspacePropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
-    {
-        if (e.PropertyName is not (nameof(ReportsWorkspaceViewModel.SelectedTab) or nameof(ReportsWorkspaceViewModel.IsAnalysisListVisible))) return;
-        RunOnUi(() => OnPropertyChanged(nameof(PageContext)));
-    }
-
-    private async Task RefreshGlobalWarningAsync()
-    {
-        try
-        {
-            GlobalWarningText = (await _plugins.ScanAsync()).Count == 0 ? "没有可用的日志分析插件" : string.Empty;
-        }
-        catch (Exception ex) { GlobalWarningText = $"读取插件状态失败：{ex.Message}"; }
-    }
+    private void OnExtensionStateChanged(object? sender, EventArgs e) => RunOnUi(RefreshGlobalWarning);
+    private void OnExtensionAllowPrereleaseSaved(bool allowPrerelease) => Extensions.SetAllowPrerelease(allowPrerelease);
+    private void RefreshGlobalWarning()
+        => GlobalWarningText = Extensions.HasEnabledAnalysisEngine ? string.Empty : "没有已启用的日志分析扩展";
 
     private void UpdateStatusMessage()
     {
@@ -164,11 +149,17 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
 
     public void Dispose()
     {
+        if (_disposed) return;
+        _disposed = true;
+
+        // 在线 Catalog 刷新不阻塞主窗口，但仍由 Shell 持有取消权，避免窗口关闭后继续回调 UI。
+        _extensionRefreshCancellation.Cancel();
+        _extensionRefreshCancellation.Dispose();
         _inbox.ConfigurationChanged -= OnConfigurationChanged;
-        AnalysisCenter.Reports.PropertyChanged -= OnReportWorkspacePropertyChanged;
-        Plugins.StateChanged -= OnPluginStateChanged;
-        Dashboard.Dispose();
-        TaskPanel.Dispose();
+        Settings.ExtensionAllowPrereleaseSaved -= OnExtensionAllowPrereleaseSaved;
+        Extensions.StateChanged -= OnExtensionStateChanged;
+        _logger.MessageWritten -= OnLogMessage;
         AnalysisCenter.Dispose();
+        SshTerminal.Dispose();
     }
 }

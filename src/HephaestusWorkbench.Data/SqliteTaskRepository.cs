@@ -14,7 +14,7 @@ public sealed class SqliteTaskRepository : IAnalysisTaskRepository
     {
         await using var connection = await _factory.OpenAsync(cancellationToken);
         await using var command = connection.CreateCommand();
-        command.CommandText = "SELECT id, case_id, plugin_id, status, start_time, end_time, report_path, error_message FROM analysis_tasks ORDER BY COALESCE(start_time, '') DESC";
+        command.CommandText = "SELECT id, case_id, plugin_id, analysis_scope, status, start_time, end_time, report_path, error_message FROM analysis_tasks ORDER BY COALESCE(start_time, '') DESC";
         await using var reader = await command.ExecuteReaderAsync(cancellationToken);
         var result = new List<AnalysisTask>();
         while (await reader.ReadAsync(cancellationToken)) result.Add(Read(reader));
@@ -25,7 +25,7 @@ public sealed class SqliteTaskRepository : IAnalysisTaskRepository
     {
         await using var connection = await _factory.OpenAsync(cancellationToken);
         await using var command = connection.CreateCommand();
-        command.CommandText = "SELECT id, case_id, plugin_id, status, start_time, end_time, report_path, error_message FROM analysis_tasks WHERE id = $id";
+        command.CommandText = "SELECT id, case_id, plugin_id, analysis_scope, status, start_time, end_time, report_path, error_message FROM analysis_tasks WHERE id = $id";
         command.Parameters.AddWithValue("$id", id);
         await using var reader = await command.ExecuteReaderAsync(cancellationToken);
         return await reader.ReadAsync(cancellationToken) ? Read(reader) : null;
@@ -36,8 +36,8 @@ public sealed class SqliteTaskRepository : IAnalysisTaskRepository
         await using var connection = await _factory.OpenAsync(cancellationToken);
         await using var command = connection.CreateCommand();
         command.CommandText = """
-            INSERT INTO analysis_tasks (id, case_id, plugin_id, status, start_time, end_time, report_path, error_message)
-            VALUES ($id, $case_id, $plugin_id, $status, $start_time, $end_time, $report_path, $error_message)
+            INSERT INTO analysis_tasks (id, case_id, plugin_id, analysis_scope, status, start_time, end_time, report_path, error_message)
+            VALUES ($id, $case_id, $plugin_id, $analysis_scope, $status, $start_time, $end_time, $report_path, $error_message)
             """;
         Add(command, item);
         await command.ExecuteNonQueryAsync(cancellationToken);
@@ -60,6 +60,7 @@ public sealed class SqliteTaskRepository : IAnalysisTaskRepository
         command.Parameters.AddWithValue("$id", item.Id);
         command.Parameters.AddWithValue("$case_id", item.CaseId);
         command.Parameters.AddWithValue("$plugin_id", item.PluginId);
+        command.Parameters.AddWithValue("$analysis_scope", item.AnalysisScope.ToString());
         command.Parameters.AddWithValue("$status", item.Status.ToString());
         command.Parameters.AddWithValue("$start_time", (object?)SqliteValue.Date(item.StartTime) ?? DBNull.Value);
         command.Parameters.AddWithValue("$end_time", (object?)SqliteValue.Date(item.EndTime) ?? DBNull.Value);
@@ -72,10 +73,11 @@ public sealed class SqliteTaskRepository : IAnalysisTaskRepository
         Id = reader.GetString(0),
         CaseId = reader.GetString(1),
         PluginId = reader.GetString(2),
-        Status = Enum.Parse<AnalysisTaskStatus>(reader.GetString(3)),
-        StartTime = SqliteValue.ParseNullableDate(reader.IsDBNull(4) ? null : reader.GetValue(4)),
-        EndTime = SqliteValue.ParseNullableDate(reader.IsDBNull(5) ? null : reader.GetValue(5)),
-        ReportPath = reader.IsDBNull(6) ? null : reader.GetString(6),
-        ErrorMessage = reader.IsDBNull(7) ? null : reader.GetString(7)
+        AnalysisScope = Enum.Parse<AnalysisScope>(reader.GetString(3)),
+        Status = Enum.Parse<AnalysisTaskStatus>(reader.GetString(4)),
+        StartTime = SqliteValue.ParseNullableDate(reader.IsDBNull(5) ? null : reader.GetValue(5)),
+        EndTime = SqliteValue.ParseNullableDate(reader.IsDBNull(6) ? null : reader.GetValue(6)),
+        ReportPath = reader.IsDBNull(7) ? null : reader.GetString(7),
+        ErrorMessage = reader.IsDBNull(8) ? null : reader.GetString(8)
     };
 }

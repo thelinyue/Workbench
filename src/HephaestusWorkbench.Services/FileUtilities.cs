@@ -13,7 +13,7 @@ internal static class FileUtilities
     }
 
     /// <summary>返回解压目录下的统一报告目录，不再使用独立案例报告目录。</summary>
-    public static string GetReportDirectory(string extractPath) => Path.Combine(Path.GetFullPath(extractPath), "report");
+    public static string GetReportDirectory(string extractPath) => Path.Combine(Path.GetFullPath(extractPath), "Report");
 
     /// <summary>
     /// 删除案例关联的原始数据。路径来自数据库，删除前必须验证它们仍然符合“源文件同目录下的同名解压目录”约定，

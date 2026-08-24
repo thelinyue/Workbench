@@ -1,0 +1,24 @@
+{
+  "schemaVersion": 2,
+  "extensions": [
+    {
+      "id": "log-analyzer",
+      "name": "日志分析",
+      "description": "用于本地日志综合分析并生成工程诊断报告。",
+      "publisherId": "thelinyue",
+      "kind": "analysis",
+      "asset": "log-analyzer-v2.0.0.zip",
+      "release": {
+        "version": "2.0.0",
+        "minHostVersion": "2.0.0",
+        "url": "https://github.com/thelinyue/Hephaestus-Workbench-Releases/releases/download/extension-log-analyzer-v2.0.0/log-analyzer-v2.0.0.zip",
+        "size": 3938450,
+        "sha256": "bfd71bb0205105e67bbd2bcf7f79f4dceaef916aff75febe62f0c972b93bdb67",
+        "signature": {
+          "keyId": "thelinyue-analysis-ed25519-2026-01",
+          "signature": "Z4STZc8BDIGaTS2WxtSvAvhTONTDPhIgpPQnh6IBRMgGfWhmUN/csESGImRiFbUPJ0igVt/6QAFnabwQ5C/lAw=="
+        }
+      }
+    }
+  ]
+}

@@ -1,4 +1,5 @@
 using HephaestusWorkbench.App.ViewModels;
+using HephaestusWorkbench.Data;
 using HephaestusWorkbench.Services;
 
 namespace HephaestusWorkbench.Tests;
@@ -15,7 +16,6 @@ public sealed class DirectoryConfigurationViewModelTests
         var viewModel = new FirstRunWizardViewModel(
             root,
             (_, _, _) => Task.CompletedTask,
-            () => { },
             () => { },
             () => { });
 
@@ -52,17 +52,33 @@ public sealed class DirectoryConfigurationViewModelTests
     }
 
     [Fact]
+    public void FirstRunWizard_ClampsNavigationToFourVisibleSteps()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "HephaestusWorkbenchTests", Guid.NewGuid().ToString("N"));
+        var viewModel = new FirstRunWizardViewModel(
+            root,
+            (_, _, _) => Task.CompletedTask,
+            () => { },
+            () => { });
+
+        viewModel.CurrentStep = 4;
+
+        Assert.Equal(3, viewModel.CurrentStep);
+        Assert.Equal("步骤 4 / 4", viewModel.StepText);
+    }
+
+    [Fact]
     public async Task SettingsDirectoryCommands_UseTheSameValidationAndSelectionBehavior()
     {
         var root = Path.Combine(Path.GetTempPath(), "HephaestusWorkbenchTests", Guid.NewGuid().ToString("N"));
-        Directory.CreateDirectory(root);
-        var store = new MemorySettingsStore();
+        var paths = new DataPaths(root);
+        var configuration = new WorkbenchConfigurationService(paths);
         var logger = new WorkbenchLogger(root);
-        using var inbox = new LogInboxService(new LogFileParser(), new ArchiveValidator(), store, logger, root);
-        var settings = new SettingsService(store, root);
-        var viewModel = new SettingsViewModel(settings, inbox, () => 0, _ => null);
+        using var inbox = new LogInboxService(new LogFileParser(), new ArchiveValidator(), configuration, logger, paths.InboxDirectory);
+        var settings = new SettingsService(configuration, paths.InboxDirectory);
+        var viewModel = new SettingsViewModel(settings, inbox, _ => null);
 
-        await WaitForAsync(() => viewModel.WatchDirectories.Count == 1);
+        await viewModel.Initialization;
         Assert.True(viewModel.WatchDirectories.Single().IsAccessible);
         Assert.False(viewModel.SaveCommand.CanExecute(null));
         Assert.False(viewModel.RemoveWatchDirectoryCommand.CanExecute(null));
@@ -91,19 +107,19 @@ public sealed class DirectoryConfigurationViewModelTests
     public async Task SettingsThemeSelection_AppliesPreviewImmediatelyAndPersistsOnSave()
     {
         var root = Path.Combine(Path.GetTempPath(), "HephaestusWorkbenchTests", Guid.NewGuid().ToString("N"));
-        Directory.CreateDirectory(root);
-        var store = new MemorySettingsStore();
+        var paths = new DataPaths(root);
+        var configuration = new WorkbenchConfigurationService(paths);
         var appliedThemes = new List<string>();
         var logger = new WorkbenchLogger(root);
-        using var inbox = new LogInboxService(new LogFileParser(), new ArchiveValidator(), store, logger, root);
-        var settings = new SettingsService(store, root);
-        var viewModel = new SettingsViewModel(settings, inbox, () => 0, theme =>
+        using var inbox = new LogInboxService(new LogFileParser(), new ArchiveValidator(), configuration, logger, paths.InboxDirectory);
+        var settings = new SettingsService(configuration, paths.InboxDirectory);
+        var viewModel = new SettingsViewModel(settings, inbox, theme =>
         {
             appliedThemes.Add(theme);
             return null;
         });
 
-        await WaitForAsync(() => viewModel.WatchDirectories.Count == 1);
+        await viewModel.Initialization;
         viewModel.SelectedTheme = "Dark";
 
         Assert.Equal("Dark", appliedThemes.Last());
@@ -121,15 +137,17 @@ public sealed class DirectoryConfigurationViewModelTests
     public async Task SettingsSaveFailure_ExplainsThatThemePreviewWasNotPersisted()
     {
         var root = Path.Combine(Path.GetTempPath(), "HephaestusWorkbenchTests", Guid.NewGuid().ToString("N"));
-        Directory.CreateDirectory(root);
-        var store = new MemorySettingsStore { FailingKey = "theme" };
+        var paths = new DataPaths(root);
+        var configuration = new WorkbenchConfigurationService(paths);
         var logger = new WorkbenchLogger(root);
-        using var inbox = new LogInboxService(new LogFileParser(), new ArchiveValidator(), store, logger, root);
-        var settings = new SettingsService(store, root);
-        var viewModel = new SettingsViewModel(settings, inbox, () => 0, _ => null);
+        using var inbox = new LogInboxService(new LogFileParser(), new ArchiveValidator(), configuration, logger, paths.InboxDirectory);
+        var settings = new SettingsService(configuration, paths.InboxDirectory);
+        var viewModel = new SettingsViewModel(settings, inbox, _ => null);
 
-        await WaitForAsync(() => viewModel.WatchDirectories.Count == 1);
+        await WaitForAsync(() => viewModel.WatchDirectories.Count == 1 && !viewModel.IsLoading);
         viewModel.SelectedTheme = "Dark";
+        File.Delete(paths.AppSettingsFile);
+        Directory.CreateDirectory(paths.AppSettingsFile);
         viewModel.SaveCommand.Execute(null);
         await WaitForAsync(() => viewModel.Message.Contains("尚未保存", StringComparison.Ordinal));
 
@@ -137,27 +155,20 @@ public sealed class DirectoryConfigurationViewModelTests
         Assert.True(viewModel.HasUnsavedChanges);
     }
 
+    [Fact]
+    public void SettingsService_OnlyAcceptsV2ConfigurationService()
+    {
+        var constructor = Assert.Single(typeof(SettingsService).GetConstructors());
+        var parameters = constructor.GetParameters();
+
+        Assert.Equal(2, parameters.Length);
+        Assert.Equal(typeof(WorkbenchConfigurationService), parameters[0].ParameterType);
+        Assert.DoesNotContain(parameters, parameter => parameter.ParameterType.Name == "ISettingsStore");
+    }
+
     private static async Task WaitForAsync(Func<bool> condition)
     {
         for (var attempt = 0; attempt < 50 && !condition(); attempt++) await Task.Delay(10);
         Assert.True(condition(), "设置页目录未在预期时间内加载完成。");
-    }
-
-    private sealed class MemorySettingsStore : HephaestusWorkbench.Core.Repositories.ISettingsStore
-    {
-        private readonly Dictionary<string, string> _values = new(StringComparer.OrdinalIgnoreCase);
-        public string? FailingKey { get; init; }
-
-        public Task<string?> GetAsync(string key, CancellationToken cancellationToken = default)
-            => Task.FromResult(_values.GetValueOrDefault(key));
-
-        public Task SetAsync(string key, string value, CancellationToken cancellationToken = default)
-        {
-            if (string.Equals(FailingKey, key, StringComparison.OrdinalIgnoreCase))
-                throw new IOException($"模拟保存失败：{key}");
-
-            _values[key] = value;
-            return Task.CompletedTask;
-        }
     }
 }

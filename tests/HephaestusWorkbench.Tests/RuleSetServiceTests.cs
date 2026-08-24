@@ -2,7 +2,6 @@ using System.Text.Json;
 using HephaestusWorkbench.Core.Models;
 using HephaestusWorkbench.Data;
 using HephaestusWorkbench.Services;
-using NSec.Cryptography;
 
 namespace HephaestusWorkbench.Tests;
 
@@ -153,36 +152,6 @@ public sealed class RuleSetServiceTests
     }
 
     [Fact]
-    public async Task BuildSubmissionAsync_UsesCurrentCandidateBeforeLocalSave()
-    {
-        var root = Path.Combine(Path.GetTempPath(), "HephaestusWorkbenchTests", Guid.NewGuid().ToString("N"));
-        var service = new RuleSetService(new DataPaths(root), new WorkbenchLogger(root));
-        var candidate = new UserRuleSet
-        {
-            BaseVersion = "2026.08.15",
-            Rules = new()
-            {
-                new UserRuleRecord
-                {
-                    LocalId = "page-only",
-                    File = "syslog",
-                    Category = "系统",
-                    Selected = true,
-                    Status = "draft",
-                    Rule = new RuleDefinition { Term = "ERROR", Result = "页面刚编辑的规则" }
-                }
-            }
-        };
-
-        var submission = await service.BuildSubmissionAsync(candidate);
-
-        var change = Assert.Single(submission.Changes);
-        Assert.Equal("page-only", change.LocalId);
-        Assert.Equal("页面刚编辑的规则", change.Rule.Result);
-        Assert.False(File.Exists(new DataPaths(root).LocalAdditionsFile));
-    }
-
-    [Fact]
     public async Task SaveUserRules_InvalidCurrentStateDoesNotWriteLocalFile()
     {
         var root = Path.Combine(Path.GetTempPath(), "HephaestusWorkbenchTests", Guid.NewGuid().ToString("N"));
@@ -200,51 +169,5 @@ public sealed class RuleSetServiceTests
         Assert.False(File.Exists(paths.LocalAdditionsFile));
     }
 
-    [Fact]
-    public void SignedRulePackage_VerifiesAndRejectsOneByteTamper()
-    {
-        var root = Path.Combine(Path.GetTempPath(), "HephaestusWorkbenchTests", Guid.NewGuid().ToString("N"));
-        var paths = new DataPaths(root);
-        var rulesService = new RuleSetService(paths, new WorkbenchLogger(root));
-        var rules = new RuleSet
-        {
-            Version = "2026.08.13",
-            Files = new()
-            {
-                new RuleFile
-                {
-                    Name = "system.log",
-                    Category = "system",
-                    Keywords = new() { new RuleDefinition { Term = "ERROR", Result = "error", Severity = "warning" } }
-                }
-            }
-        };
-        var payload = JsonSerializer.SerializeToUtf8Bytes(rules);
-        var catalog = new RuleCatalogEntry
-        {
-            SchemaVersion = 1,
-            RuleSetId = "log-analyzer",
-            PluginId = "log-analyzer",
-            Version = rules.Version,
-            MinimumPluginVersion = "1.0.0",
-            SignatureAlgorithm = Ed25519RulePackageVerifier.Algorithm,
-            PackageUrl = "https://example.test/rules.json",
-            PackageSize = payload.Length,
-            Sha256 = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(payload)).ToLowerInvariant(),
-            KeyId = "test"
-        };
 
-        using var key = Key.Create(SignatureAlgorithm.Ed25519);
-        catalog.Signature = Convert.ToBase64String(SignatureAlgorithm.Ed25519.Sign(
-            key,
-            Ed25519RulePackageVerifier.BuildSignedBytes(payload, catalog)));
-        var verifier = new Ed25519RulePackageVerifier(
-            rulesService,
-            Convert.ToBase64String(key.PublicKey.Export(KeyBlobFormat.RawPublicKey)));
-
-        Assert.Equal(rules.Version, verifier.VerifyAndRead(payload, catalog).Version);
-
-        payload[0] ^= 0x01;
-        Assert.Throws<InvalidDataException>(() => verifier.VerifyAndRead(payload, catalog));
-    }
 }

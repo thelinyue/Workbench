@@ -1,5 +1,4 @@
 using HephaestusWorkbench.Core.Models;
-using HephaestusWorkbench.Core.Repositories;
 
 namespace HephaestusWorkbench.Services;
 
@@ -11,35 +10,19 @@ public sealed record LogFileInspectionResult(LogInboxItem? Item, string? ErrorMe
 
 /// <summary>
 /// 监控一个或多个日志目录并维护内存收件箱。
-/// 目录配置写入 workspace.json；旧版本仍可通过 watch_directory 键完成兼容迁移。
+/// 监控目录通过 schema v2 workspace.json 持久化，服务不访问 SQLite 设置。
 /// </summary>
 public sealed class LogInboxService : IDisposable
 {
     private readonly LogFileParser _parser;
     private readonly ArchiveValidator _validator;
-    private readonly ISettingsStore? _legacySettings;
-    private readonly WorkbenchConfigurationService? _configuration;
+    private readonly WorkbenchConfigurationService _configuration;
     private readonly WorkbenchLogger _logger;
     private readonly string _defaultWatchDirectory;
     private readonly SemaphoreSlim _refreshLock = new(1, 1);
     private readonly List<FileSystemWatcher> _watchers = new();
     private IReadOnlyList<LogInboxItem> _items = Array.Empty<LogInboxItem>();
     private int _invalidItemCount;
-
-    // 保留旧构造函数，便于旧版调用方和单元测试平滑迁移。
-    public LogInboxService(
-        LogFileParser parser,
-        ArchiveValidator validator,
-        ISettingsStore settings,
-        WorkbenchLogger logger,
-        string defaultWatchDirectory)
-    {
-        _parser = parser;
-        _validator = validator;
-        _legacySettings = settings;
-        _logger = logger;
-        _defaultWatchDirectory = Path.GetFullPath(defaultWatchDirectory);
-    }
 
     public LogInboxService(
         LogFileParser parser,
@@ -224,30 +207,17 @@ public sealed class LogInboxService : IDisposable
 
     private async Task<IReadOnlyList<string>> LoadDirectoriesAsync(CancellationToken cancellationToken)
     {
-        if (_configuration is not null)
-        {
-            var workspace = await _configuration.EnsureWorkspaceAsync(cancellationToken: cancellationToken);
-            return workspace.MonitorPaths;
-        }
-
-        var configuredDirectory = await _legacySettings!.GetAsync("watch_directory", cancellationToken);
-        return string.IsNullOrWhiteSpace(configuredDirectory)
-            ? new[] { _defaultWatchDirectory }
-            : new[] { configuredDirectory! };
+        var workspace = await _configuration.EnsureWorkspaceAsync(cancellationToken: cancellationToken);
+        return workspace.MonitorPaths;
     }
 
     private Task SaveDirectoriesAsync(IReadOnlyList<string> directories, CancellationToken cancellationToken)
     {
-        if (_configuration is not null)
+        return _configuration.SaveWorkspaceAsync(new WorkspaceConfig
         {
-            return _configuration.SaveWorkspaceAsync(new HephaestusWorkbench.Core.Models.WorkspaceConfig
-            {
-                DataPath = _configuration.DataRoot,
-                MonitorPaths = directories.ToList()
-            }, cancellationToken);
-        }
-
-        return _legacySettings!.SetAsync("watch_directory", directories[0], cancellationToken);
+            DataPath = _configuration.DataRoot,
+            MonitorPaths = directories.ToList()
+        }, cancellationToken);
     }
 
     private void StartWatcher(string directory)

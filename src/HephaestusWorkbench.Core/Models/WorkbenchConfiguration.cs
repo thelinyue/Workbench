@@ -1,3 +1,5 @@
+using System.Text.Json.Serialization;
+
 namespace HephaestusWorkbench.Core.Models;
 
 /// <summary>
@@ -6,6 +8,9 @@ namespace HephaestusWorkbench.Core.Models;
 /// </summary>
 public sealed class WorkspaceConfig
 {
+    [JsonPropertyName("schemaVersion")]
+    public int SchemaVersion { get; set; } = 2;
+
     public string DataPath { get; set; } = string.Empty;
     public List<string> MonitorPaths { get; set; } = new();
 }
@@ -13,39 +18,56 @@ public sealed class WorkspaceConfig
 /// <summary>应用级偏好配置，不保存案例、报告等业务数据。</summary>
 public sealed class AppSettingsConfig
 {
+    [JsonPropertyName("schemaVersion")]
+    public int SchemaVersion { get; set; } = 2;
+
     public const string LightTheme = "Light";
     public const string DarkTheme = "Dark";
 
     public string Theme { get; set; } = LightTheme;
-    public int MaxReportTabs { get; set; } = 10;
-    public bool ManualCleanupEnabled { get; set; }
     public int CleanupRetentionDays { get; set; } = 7;
+    public SshSettingsConfig Ssh { get; set; } = new();
+    public TerminalSettingsConfig Terminal { get; set; } = new();
+    public SshReconnectBehavior ReconnectBehavior { get; set; } = SshReconnectBehavior.AutomaticThreeAttempts;
+    public ExtensionPolicyConfig Extension { get; set; } = new();
 
-    /// <summary>
-    /// GitHub 插件包的备用下载地址模板。留空表示只使用官方直连地址；模板中的
-    /// {url} 会被替换为目录中的原始包地址，避免把加速策略写入单个插件配置。
-    /// </summary>
-    public string GitHubDownloadMirrorTemplate { get; set; } = string.Empty;
 }
 
-/// <summary>插件配置仅记录已登记插件和启用状态，插件文件仍由插件目录管理。</summary>
-public sealed class PluginConfig
+/// <summary>扩展中心的应用级更新偏好；扩展启用状态仍由 extensions.json 管理。</summary>
+public sealed class ExtensionPolicyConfig
 {
-    public string? DefaultPluginId { get; set; }
-    public List<PluginConfigEntry> Plugins { get; set; } = new();
+    public bool AutoCheckUpdates { get; set; } = true;
+
+    /// <summary>是否允许发现和手动安装预发布扩展；默认关闭并作为唯一用户级预发布策略源。</summary>
+    public bool AllowPrerelease { get; set; }
 }
 
-public enum PluginInstallSource
+/// <summary>SSH 连接默认值，不包含设备身份或任何凭据。</summary>
+public sealed class SshSettingsConfig
 {
-    Manual,
-    Bundled,
-    Marketplace
+    public int DefaultPort { get; set; } = 22;
 }
 
-public sealed class PluginConfigEntry
+/// <summary>内置 xterm.js 的显示偏好。</summary>
+public sealed class TerminalSettingsConfig
 {
-    public string Id { get; set; } = string.Empty;
-    public string Version { get; set; } = string.Empty;
-    public bool Enabled { get; set; } = true;
-    public PluginInstallSource Source { get; set; } = PluginInstallSource.Manual;
+    public string FontFamily { get; set; } = "Cascadia Mono";
+    public double FontSize { get; set; } = 14;
 }
+
+/// <summary>交互终端在暂态断线后的有限重连策略。</summary>
+[JsonConverter(typeof(JsonStringEnumConverter))]
+public enum SshReconnectBehavior
+{
+    Disabled,
+    AutomaticThreeAttempts
+}
+
+
+
+/// <summary>设置页读取和保存的 SSH/终端偏好快照，不包含任何凭据。</summary>
+public sealed record SshTerminalPreferences(
+    int DefaultPort,
+    string FontFamily,
+    double FontSize,
+    SshReconnectBehavior ReconnectBehavior);
