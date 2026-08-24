@@ -81,6 +81,10 @@ public interface IExtensionCenterService
 {
     Task<ExtensionCenterSnapshot> LoadAsync(CancellationToken cancellationToken = default);
 
+    Task<ExtensionCenterSnapshot> LoadAsync(bool autoCheckUpdates, CancellationToken cancellationToken = default);
+
+    Task<ExtensionCenterSnapshot> RefreshAsync(CancellationToken cancellationToken = default);
+
     Task<ExtensionInstallResult> InstallAsync(
         ExtensionCenterInstallRequest request,
         CancellationToken cancellationToken = default);
@@ -119,7 +123,20 @@ public sealed class ExtensionCenterService : IExtensionCenterService
         _hostCompatibility = new ExtensionHostCompatibility(hostVersion);
     }
 
-    public async Task<ExtensionCenterSnapshot> LoadAsync(CancellationToken cancellationToken = default)
+    public Task<ExtensionCenterSnapshot> LoadAsync(CancellationToken cancellationToken = default)
+        => RefreshAsync(cancellationToken);
+
+    public Task<ExtensionCenterSnapshot> LoadAsync(
+        bool autoCheckUpdates,
+        CancellationToken cancellationToken = default)
+        => autoCheckUpdates ? RefreshAsync(cancellationToken) : LoadCoreAsync(refreshCatalog: false, cancellationToken);
+
+    public Task<ExtensionCenterSnapshot> RefreshAsync(CancellationToken cancellationToken = default)
+        => LoadCoreAsync(refreshCatalog: true, cancellationToken);
+
+    private async Task<ExtensionCenterSnapshot> LoadCoreAsync(
+        bool refreshCatalog,
+        CancellationToken cancellationToken)
     {
         var installed = await _registry.LoadAsync(cancellationToken);
         var settings = await _settings.EnsureAsync(cancellationToken);
@@ -128,7 +145,9 @@ public sealed class ExtensionCenterService : IExtensionCenterService
 
         try
         {
-            catalogResult = await _catalogClient.RefreshAsync(cancellationToken);
+            catalogResult = refreshCatalog
+                ? await _catalogClient.RefreshAsync(cancellationToken)
+                : await _catalogClient.LoadCachedAsync(cancellationToken);
             warning = catalogResult.Warning;
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -137,8 +156,14 @@ public sealed class ExtensionCenterService : IExtensionCenterService
         }
         catch (Exception exception)
         {
-            warning = $"在线扩展目录不可用，仍显示本机已安装扩展：{exception.Message}";
-            _logger.Error("在线扩展目录不可用，扩展中心将仅显示本机已安装扩展。", exception);
+            warning = refreshCatalog
+                ? $"在线扩展目录不可用，仍显示本机已安装扩展：{exception.Message}"
+                : $"自动检查扩展更新已关闭，且没有可用的本地 v2 缓存；仍显示本机已安装扩展：{exception.Message}";
+            _logger.Error(
+                refreshCatalog
+                    ? "在线扩展目录不可用，扩展中心将仅显示本机已安装扩展。"
+                    : "自动检查扩展更新已关闭，本地 v2 缓存不可用，扩展中心将仅显示本机已安装扩展。",
+                exception);
         }
 
         var catalogItems = catalogResult?.Catalog.Extensions

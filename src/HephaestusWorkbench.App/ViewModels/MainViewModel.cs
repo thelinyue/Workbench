@@ -108,7 +108,9 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
         await Settings.Initialization;
         await SshTerminal.InitializeAsync();
         // 默认启动页是分析中心；在线 Catalog 刷新不得阻塞主窗口出现，完成后通过 StateChanged 更新全局告警。
-        _extensionRefreshTask = Extensions.InitializeAsync(_extensionRefreshCancellation.Token);
+        _extensionRefreshTask = Extensions.InitializeAsync(
+            Settings.AutoCheckExtensionUpdates,
+            _extensionRefreshCancellation.Token);
         RefreshGlobalWarning();
     }
 

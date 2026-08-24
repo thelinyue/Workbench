@@ -79,6 +79,13 @@
                 </Border>
                 <Border Style="{StaticResource CardStyle}" Margin="0,10,0,0">
                     <StackPanel>
+                        <TextBlock Text="扩展策略" Style="{StaticResource SectionTitleStyle}"/>
+                        <TextBlock Text="关闭后，工作台启动时只读取本地已验证目录缓存；在扩展中心手动刷新仍会联网。" Style="{StaticResource MutedTextStyle}" TextWrapping="Wrap" Margin="0,0,0,12"/>
+                        <CheckBox Content="启动时自动检查扩展更新" IsChecked="{Binding AutoCheckExtensionUpdates}" AutomationProperties.Name="启动时自动检查扩展更新"/>
+                    </StackPanel>
+                </Border>
+                <Border Style="{StaticResource CardStyle}" Margin="0,10,0,0">
+                    <StackPanel>
                         <TextBlock Text="SSH 与终端" Style="{StaticResource SectionTitleStyle}"/>
                         <TextBlock Text="这些偏好用于新建连接和新终端标签，不保存任何凭据。" Style="{StaticResource MutedTextStyle}" TextWrapping="Wrap" Margin="0,0,0,12"/>
                         <TextBlock Text="默认端口" Style="{StaticResource MutedTextStyle}" Margin="0,0,0,5"/>

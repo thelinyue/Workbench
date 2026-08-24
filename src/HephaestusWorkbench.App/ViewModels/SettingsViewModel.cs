@@ -38,6 +38,7 @@ public sealed class SettingsViewModel : ViewModelBase
     private string _terminalFontFamily = "Cascadia Mono";
     private double _terminalFontSize = 14;
     private bool _automaticSshReconnect = true;
+    private bool _autoCheckExtensionUpdates = true;
     private string _candidateDataRoot = string.Empty;
     private string _storageFeedback = string.Empty;
     private bool _storageFeedbackIsError;
@@ -241,6 +242,12 @@ public sealed class SettingsViewModel : ViewModelBase
         set { if (SetProperty(ref _automaticSshReconnect, value)) MarkUnsaved(); }
     }
 
+    public bool AutoCheckExtensionUpdates
+    {
+        get => _autoCheckExtensionUpdates;
+        set { if (SetProperty(ref _autoCheckExtensionUpdates, value)) MarkUnsaved(); }
+    }
+
     public string SelectedTheme
     {
         get => _selectedTheme;
@@ -417,6 +424,7 @@ public sealed class SettingsViewModel : ViewModelBase
             TerminalFontFamily = ssh.FontFamily;
             TerminalFontSize = ssh.FontSize;
             AutomaticSshReconnect = ssh.ReconnectBehavior == SshReconnectBehavior.AutomaticThreeAttempts;
+            AutoCheckExtensionUpdates = await _settings.GetExtensionAutoCheckUpdatesAsync();
             _themePreviewError = null;
             HasUnsavedChanges = false;
         }
@@ -459,6 +467,7 @@ public sealed class SettingsViewModel : ViewModelBase
                 TerminalFontFamily,
                 TerminalFontSize,
                 reconnectBehavior);
+            await _settings.SetExtensionAutoCheckUpdatesAsync(AutoCheckExtensionUpdates);
             _sshPreferencesSaved?.Invoke(new SshTerminalPreferences(
                 SshDefaultPort,
                 TerminalFontFamily.Trim(),

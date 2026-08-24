@@ -29,7 +29,14 @@ public sealed class AppSettingsConfig
     public SshSettingsConfig Ssh { get; set; } = new();
     public TerminalSettingsConfig Terminal { get; set; } = new();
     public SshReconnectBehavior ReconnectBehavior { get; set; } = SshReconnectBehavior.AutomaticThreeAttempts;
+    public ExtensionPolicyConfig Extension { get; set; } = new();
 
+}
+
+/// <summary>扩展中心的应用级更新偏好；扩展启用状态和更新通道仍由 extensions.json 管理。</summary>
+public sealed class ExtensionPolicyConfig
+{
+    public bool AutoCheckUpdates { get; set; } = true;
 }
 
 /// <summary>SSH 连接默认值，不包含设备身份或任何凭据。</summary>

@@ -426,6 +426,14 @@ public sealed class ExtensionCenterViewModelTests
             return Task.FromResult(snapshot);
         }
 
+        public Task<ExtensionCenterSnapshot> LoadAsync(
+            bool autoCheckUpdates,
+            CancellationToken cancellationToken = default)
+            => LoadAsync(cancellationToken);
+
+        public Task<ExtensionCenterSnapshot> RefreshAsync(CancellationToken cancellationToken = default)
+            => LoadAsync(cancellationToken);
+
         public Task<ExtensionInstallResult> InstallAsync(
             ExtensionCenterInstallRequest request,
             CancellationToken cancellationToken = default)

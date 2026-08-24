@@ -145,6 +145,7 @@ public sealed class WorkbenchConfigurationService
                 ? AppSettingsConfig.LightTheme
                 : AppSettingsConfig.LightTheme;
         settings.CleanupRetentionDays = Math.Clamp(settings.CleanupRetentionDays, 1, 7);
+        settings.Extension ??= new ExtensionPolicyConfig();
         settings.Ssh ??= new SshSettingsConfig();
         settings.Ssh.DefaultPort = settings.Ssh.DefaultPort is >= 1 and <= 65535 ? settings.Ssh.DefaultPort : 22;
         settings.Terminal ??= new TerminalSettingsConfig();

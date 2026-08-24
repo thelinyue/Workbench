@@ -116,7 +116,7 @@ public sealed class ExtensionCenterViewModel : ViewModelBase
         _openWorkspace = openWorkspace ?? throw new ArgumentNullException(nameof(openWorkspace));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
 
-        RefreshCommand = new DelegateCommand(() => _ = LoadAsync(), () => !IsBusy);
+        RefreshCommand = new DelegateCommand(() => _ = LoadAsync(refreshCatalog: true), () => !IsBusy);
         SelectDiscoveryTabCommand = new DelegateCommand(() => SelectTab(DiscoveryTab));
         SelectInstalledTabCommand = new DelegateCommand(() => SelectTab(InstalledTab));
         SelectUpdatesTabCommand = new DelegateCommand(() => SelectTab(UpdatesTab));
@@ -210,16 +210,25 @@ public sealed class ExtensionCenterViewModel : ViewModelBase
         manifest.Capabilities.Contains("analysis.engine", StringComparer.Ordinal));
 
     public Task InitializeAsync(CancellationToken cancellationToken = default)
-        => LoadAsync(cancellationToken);
+        => InitializeAsync(autoCheckUpdates: true, cancellationToken);
 
-    private async Task LoadAsync(CancellationToken cancellationToken = default)
+    public Task InitializeAsync(
+        bool autoCheckUpdates,
+        CancellationToken cancellationToken = default)
+        => LoadAsync(autoCheckUpdates, cancellationToken);
+
+    private async Task LoadAsync(
+        bool refreshCatalog = true,
+        CancellationToken cancellationToken = default)
     {
         if (IsBusy) return;
         IsBusy = true;
         BusyText = "正在刷新扩展目录…";
         try
         {
-            var snapshot = await _service.LoadAsync(cancellationToken);
+            var snapshot = refreshCatalog
+                ? await _service.RefreshAsync(cancellationToken)
+                : await _service.LoadAsync(autoCheckUpdates: false, cancellationToken);
             _allItems.Clear();
             _allItems.AddRange(snapshot.Extensions
                 .Select(entry => new ExtensionCenterItemViewModel(entry))

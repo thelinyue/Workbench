@@ -66,6 +66,31 @@ public sealed class ExtensionCatalogClient
     }
 
     /// <summary>
+    /// 仅读取并严格解析最近一次写入的 v2 Catalog 缓存，不发起任何网络请求。
+    /// 自动检查关闭时由宿主调用；缓存缺失或损坏会明确失败，由扩展中心降级为仅展示已安装扩展。
+    /// </summary>
+    public async Task<ExtensionCatalogLoadResult> LoadCachedAsync(CancellationToken cancellationToken = default)
+    {
+        if (!File.Exists(_paths.ExtensionCatalogCacheFile))
+            throw new InvalidDataException($"本地扩展目录缓存不存在：{_paths.ExtensionCatalogCacheFile}");
+
+        try
+        {
+            var cachedJson = await File.ReadAllTextAsync(_paths.ExtensionCatalogCacheFile, cancellationToken);
+            var cached = ExtensionCatalogParser.Parse(cachedJson);
+            return new ExtensionCatalogLoadResult(cached, true, "自动检查扩展更新已关闭，当前使用本地缓存。");
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or InvalidDataException)
+        {
+            throw new InvalidDataException($"本地扩展目录缓存不是有效的 v2 Catalog：{_paths.ExtensionCatalogCacheFile}", exception);
+        }
+    }
+
+    /// <summary>
     /// 下载目录中声明的一个 release，并严格按 release.size 限制读取。
     /// 返回值仍是未受信的 ZIP 字节，调用方必须继续执行 SHA-256 和 Ed25519 验签。
     /// </summary>

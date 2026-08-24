@@ -35,6 +35,57 @@ public sealed class ExtensionCenterServiceTests
     }
 
     [Fact]
+    public async Task LoadAsync_WhenStartupAutoCheckUpdatesIsDisabled_UsesValidatedCacheWithoutNetworkRequest()
+    {
+        using var environment = new TestEnvironment(CatalogJson());
+        Directory.CreateDirectory(Path.GetDirectoryName(environment.Paths.ExtensionCatalogCacheFile)!);
+        await File.WriteAllTextAsync(environment.Paths.ExtensionCatalogCacheFile, CatalogJson());
+
+        var snapshot = await LoadForStartupAsync(environment.Service, autoCheckUpdates: false);
+
+        Assert.Equal(0, environment.Handler.CatalogRequestCount);
+        Assert.True(snapshot.IsCatalogFromCache);
+        Assert.Single(snapshot.Extensions);
+    }
+
+    [Fact]
+    public async Task LoadAsync_WhenStartupAutoCheckUpdatesIsDisabledAndCacheIsMissing_StillShowsInstalledExtensionWithChineseExplanation()
+    {
+        using var environment = new TestEnvironment(CatalogJson());
+        await environment.AddInstalledAsync("log-analyzer", "2.0.0", ExtensionKind.Analysis);
+
+        var snapshot = await LoadForStartupAsync(environment.Service, autoCheckUpdates: false);
+
+        Assert.Equal(0, environment.Handler.CatalogRequestCount);
+        Assert.Equal("log-analyzer", Assert.Single(snapshot.Extensions).Id);
+        Assert.Contains("自动检查扩展更新已关闭", snapshot.Warning, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task LoadAsync_WhenStartupAutoCheckUpdatesIsEnabled_RefreshesOnlineCatalog()
+    {
+        using var environment = new TestEnvironment(CatalogJson());
+
+        var snapshot = await LoadForStartupAsync(environment.Service, autoCheckUpdates: true);
+
+        Assert.Equal(1, environment.Handler.CatalogRequestCount);
+        Assert.False(snapshot.IsCatalogFromCache);
+        Assert.Single(snapshot.Extensions);
+    }
+
+    [Fact]
+    public async Task RefreshAsync_AlwaysRefreshesOnlineCatalogRegardlessOfStartupPolicy()
+    {
+        using var environment = new TestEnvironment(CatalogJson());
+
+        var snapshot = await RefreshManuallyAsync(environment.Service);
+
+        Assert.Equal(1, environment.Handler.CatalogRequestCount);
+        Assert.False(snapshot.IsCatalogFromCache);
+        Assert.Single(snapshot.Extensions);
+    }
+
+    [Fact]
     public async Task LoadAsync_WhenCatalogUnavailable_StillReturnsInstalledExtensionsWithChineseWarning()
     {
         using var environment = new TestEnvironment(null);
@@ -366,6 +417,28 @@ public sealed class ExtensionCenterServiceTests
         return target.ToArray();
     }
 
+    private static async Task<ExtensionCenterSnapshot> LoadForStartupAsync(
+        ExtensionCenterService service,
+        bool autoCheckUpdates)
+    {
+        var method = typeof(ExtensionCenterService).GetMethod(
+            nameof(ExtensionCenterService.LoadAsync),
+            [typeof(bool), typeof(CancellationToken)]);
+        Assert.True(method is not null,
+            "ExtensionCenterService 必须提供 LoadAsync(bool autoCheckUpdates, CancellationToken)，以区分启动检查和仅本地缓存加载。");
+        var result = method!.Invoke(service, [autoCheckUpdates, CancellationToken.None]);
+        return await Assert.IsAssignableFrom<Task<ExtensionCenterSnapshot>>(result);
+    }
+
+    private static async Task<ExtensionCenterSnapshot> RefreshManuallyAsync(ExtensionCenterService service)
+    {
+        var method = typeof(ExtensionCenterService).GetMethod("RefreshAsync", [typeof(CancellationToken)]);
+        Assert.True(method is not null,
+            "ExtensionCenterService 必须提供 RefreshAsync(CancellationToken)，供用户手动刷新时强制联网。");
+        var result = method!.Invoke(service, [CancellationToken.None]);
+        return await Assert.IsAssignableFrom<Task<ExtensionCenterSnapshot>>(result);
+    }
+
     private static string CatalogJson() => """
         {
           "schemaVersion": 2,
@@ -488,12 +561,14 @@ public sealed class ExtensionCenterServiceTests
 
     private sealed class StubHandler(string? catalogJson, byte[]? packageBytes) : HttpMessageHandler
     {
+        public int CatalogRequestCount { get; private set; }
         public int PackageRequestCount { get; private set; }
 
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
         {
             if (request.RequestUri?.AbsolutePath.EndsWith("catalog.json", StringComparison.Ordinal) == true)
             {
+                CatalogRequestCount++;
                 if (catalogJson is null) throw new HttpRequestException("offline");
                 return Task.FromResult(CreateResponse(
                     new StringContent(catalogJson, Encoding.UTF8, "application/json"),
