@@ -139,6 +139,9 @@ public sealed class CaseAnalysisExtensionRuntimeTests
         Assert.NotNull(task);
         Assert.Single(await environment.Cases.ListAsync());
         Assert.False(Assert.Single((await environment.ExtensionSettings.EnsureAsync()).Extensions).Enabled);
+
+        // StartAsync 仅完成生命周期创建；释放临时扩展目录前必须等待后台分析进程退出。
+        await environment.TaskCenter.WaitForCompletionAsync(task.Id);
     }
 
     [Fact]
