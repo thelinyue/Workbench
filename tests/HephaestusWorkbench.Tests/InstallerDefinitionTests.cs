@@ -4,6 +4,7 @@ using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Text.RegularExpressions;
+using NSec.Cryptography;
 
 namespace HephaestusWorkbench.Tests;
 
@@ -119,6 +120,41 @@ public sealed class InstallerDefinitionTests
         Assert.DoesNotContain("默认信任锚", script, StringComparison.Ordinal);
         Assert.DoesNotContain("占位信任锚", script, StringComparison.Ordinal);
     }
+    [Fact]
+    public void FormalInstaller_VerifiesDownloadedZipWithPublicKeyResolvedFromTrustAnchor()
+    {
+        var buildScript = ReadRepositoryFile("installer", "build-installer.ps1");
+        var verifier = ReadRepositoryFile("installer", "verify-ed25519.ps1");
+        var downloadSection = buildScript[buildScript.IndexOf("正在下载并校验锁定的 Bundled Extension 资产", StringComparison.Ordinal)..];
+
+        Assert.Contains("verify-ed25519.ps1", buildScript, StringComparison.Ordinal);
+        Assert.Contains("$signatureVerifier", downloadSection, StringComparison.Ordinal);
+        Assert.Contains("trustedPublishersByKeyId", downloadSection, StringComparison.Ordinal);
+        Assert.Contains("publicKey", downloadSection, StringComparison.Ordinal);
+        Assert.Contains("release.signature.signature", downloadSection, StringComparison.Ordinal);
+        Assert.Contains("crypto_sign_verify_detached", verifier, StringComparison.Ordinal);
+        Assert.Contains("project.assets.json", verifier, StringComparison.Ordinal);
+        Assert.DoesNotContain("privateKey", verifier, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task Ed25519Verifier_AcceptsSignatureOverExactPackageBytes()
+    {
+        var result = await RunEd25519VerifierAsync(tamperPackage: false);
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Contains("Ed25519 验签通过", result.Output, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Ed25519Verifier_RejectsTamperedPackageInChinese()
+    {
+        var result = await RunEd25519VerifierAsync(tamperPackage: true);
+
+        Assert.NotEqual(0, result.ExitCode);
+        Assert.Contains("Ed25519 验签失败", result.Output, StringComparison.Ordinal);
+    }
+
     [Fact]
     public void FormalInstaller_FailsClosedUntilRealLockedManifestIsPublished()
     {
@@ -481,6 +517,68 @@ public sealed class InstallerDefinitionTests
         return result;
     }
 
+    /// <summary>使用真实 NSec 测试密钥签名临时包，并在独立 PowerShell 进程中验证发布脚本的原始字节验签行为。</summary>
+    private static async Task<SignatureVerificationResult> RunEd25519VerifierAsync(bool tamperPackage)
+    {
+        var sandbox = Path.Combine(Path.GetTempPath(), $"hephaestus-ed25519-verifier-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(sandbox);
+        try
+        {
+            var packagePath = Path.Combine(sandbox, "package.zip");
+            var packageBytes = RandomNumberGenerator.GetBytes(256);
+            byte[] publicKey;
+            byte[] signature;
+            using (var key = Key.Create(SignatureAlgorithm.Ed25519))
+            {
+                publicKey = key.PublicKey.Export(KeyBlobFormat.RawPublicKey);
+                signature = SignatureAlgorithm.Ed25519.Sign(key, packageBytes);
+            }
+
+            if (tamperPackage) packageBytes[0] ^= 0x5a;
+            await File.WriteAllBytesAsync(packagePath, packageBytes);
+
+            var startInfo = new ProcessStartInfo
+            {
+                FileName = "pwsh",
+                WorkingDirectory = FindRepositoryRoot(),
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                UseShellExecute = false,
+                CreateNoWindow = true
+            };
+            startInfo.ArgumentList.Add("-NoProfile");
+            startInfo.ArgumentList.Add("-NonInteractive");
+            startInfo.ArgumentList.Add("-File");
+            startInfo.ArgumentList.Add(Path.Combine(FindRepositoryRoot(), "installer", "verify-ed25519.ps1"));
+            startInfo.ArgumentList.Add("-PackagePath");
+            startInfo.ArgumentList.Add(packagePath);
+            startInfo.ArgumentList.Add("-PublicKeyBase64");
+            startInfo.ArgumentList.Add(Convert.ToBase64String(publicKey));
+            startInfo.ArgumentList.Add("-SignatureBase64");
+            startInfo.ArgumentList.Add(Convert.ToBase64String(signature));
+            startInfo.ArgumentList.Add("-ProjectAssetsPath");
+            startInfo.ArgumentList.Add(Path.Combine(
+                FindRepositoryRoot(),
+                "src",
+                "HephaestusWorkbench.Services",
+                "obj",
+                "project.assets.json"));
+
+            using var process = Process.Start(startInfo);
+            Assert.NotNull(process);
+            var standardOutput = process!.StandardOutput.ReadToEndAsync();
+            var standardError = process.StandardError.ReadToEndAsync();
+            await process.WaitForExitAsync();
+            return new SignatureVerificationResult(
+                process.ExitCode,
+                await standardOutput + await standardError);
+        }
+        finally
+        {
+            DeleteValidationSandbox(sandbox);
+        }
+    }
+
     /// <summary>仅清理当前测试在系统临时目录下创建的隔离仓库。</summary>
     private static void DeleteValidationSandbox(string sandbox)
     {
@@ -556,4 +654,6 @@ public sealed class InstallerDefinitionTests
         string Output,
         bool StagingDirectoryCreated,
         bool DistDirectoryCreated);
+
+    private sealed record SignatureVerificationResult(int ExitCode, string Output);
 }

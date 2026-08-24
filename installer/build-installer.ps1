@@ -15,6 +15,8 @@ $stagingRoot = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot '.staging'
 $appPublish = Join-Path $stagingRoot 'app'
 $bundleStaging = Join-Path $stagingRoot 'bundle'
 $dist = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot 'dist'))
+$signatureVerifier = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot 'verify-ed25519.ps1'))
+$projectAssetsPath = [System.IO.Path]::GetFullPath((Join-Path $repoRoot 'src\HephaestusWorkbench.Services\obj\project.assets.json'))
 $maximumPackageBytes = 64L * 1024 * 1024
 $knownKinds = @('workspace', 'analysis', 'maintenance')
 if ($Version -cnotmatch '^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$') {
@@ -240,6 +242,16 @@ if ([string]::IsNullOrWhiteSpace($InnoCompilerPath)) {
 if ([string]::IsNullOrWhiteSpace($InnoCompilerPath) -or -not (Test-Path -LiteralPath $InnoCompilerPath -PathType Leaf)) {
     throw '未找到 Inno Setup 6 编译器 ISCC.exe，请先安装 Inno Setup 6，或通过 -InnoCompilerPath 显式传入。'
 }
+if (-not (Test-Path -LiteralPath $signatureVerifier -PathType Leaf)) {
+    throw "缺少 Bundled Extension Ed25519 发布预检脚本：$signatureVerifier"
+}
+
+$env:DOTNET_CLI_HOME = Join-Path $repoRoot '.dotnet-home'
+$appProject = Join-Path $repoRoot 'src\HephaestusWorkbench.App\HephaestusWorkbench.App.csproj'
+$innoScript = Join-Path $PSScriptRoot 'HephaestusWorkbench.iss'
+Write-Host '正在还原 win-x64 发布依赖……'
+& dotnet restore $appProject -r win-x64 --configfile (Join-Path $repoRoot 'NuGet.config')
+if ($LASTEXITCODE -ne 0) { throw "应用还原失败，退出码：$LASTEXITCODE" }
 
 Assert-ChildPath $PSScriptRoot $stagingRoot '安装器暂存目录'
 Assert-ChildPath $PSScriptRoot $dist '安装器输出目录'
@@ -275,16 +287,16 @@ foreach ($item in $bundledExtensions) {
     if ($hash -ne ([string]$release.sha256).ToLowerInvariant()) {
         throw "Bundled Extension $($item.id) SHA-256 校验失败：实际 $hash。"
     }
-    Write-Host "Bundled Extension $($item.id) 资产校验通过：$assetName，SHA-256 $hash"
+
+    $trustedPublisher = $trustedPublishersByKeyId[[string]$release.signature.keyId]
+    & $signatureVerifier `
+        -PackagePath $assetPath `
+        -PublicKeyBase64 ([string]$trustedPublisher.publicKey) `
+        -SignatureBase64 ([string]$release.signature.signature) `
+        -ProjectAssetsPath $projectAssetsPath
+    Write-Host "Bundled Extension $($item.id) 资产校验通过：$assetName，SHA-256 $hash，Ed25519 签名有效"
 }
 Copy-Item -LiteralPath $bundleManifestPath -Destination (Join-Path $bundleStaging 'bundled-extensions.json')
-
-$env:DOTNET_CLI_HOME = Join-Path $repoRoot '.dotnet-home'
-$appProject = Join-Path $repoRoot 'src\HephaestusWorkbench.App\HephaestusWorkbench.App.csproj'
-$innoScript = Join-Path $PSScriptRoot 'HephaestusWorkbench.iss'
-Write-Host '正在还原 win-x64 发布依赖……'
-& dotnet restore $appProject -r win-x64 --configfile (Join-Path $repoRoot 'NuGet.config')
-if ($LASTEXITCODE -ne 0) { throw "应用还原失败，退出码：$LASTEXITCODE" }
 
 Write-Host '正在发布必须携带 BundledExtensions 的 self-contained 主程序……'
 & dotnet publish $appProject -c $Configuration -r win-x64 --self-contained true --no-restore -p:Version=$Version -p:RequireBundledExtensions=true -p:ExtensionTrustAnchorPath=$ExtensionTrustAnchorPath -p:DebugType=None -p:DebugSymbols=false -o $appPublish
