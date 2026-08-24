@@ -33,10 +33,13 @@ public sealed class AppSettingsConfig
 
 }
 
-/// <summary>扩展中心的应用级更新偏好；扩展启用状态和更新通道仍由 extensions.json 管理。</summary>
+/// <summary>扩展中心的应用级更新偏好；扩展启用状态仍由 extensions.json 管理。</summary>
 public sealed class ExtensionPolicyConfig
 {
     public bool AutoCheckUpdates { get; set; } = true;
+
+    /// <summary>是否允许发现和手动安装预发布扩展；默认关闭并作为唯一用户级预发布策略源。</summary>
+    public bool AllowPrerelease { get; set; }
 }
 
 /// <summary>SSH 连接默认值，不包含设备身份或任何凭据。</summary>

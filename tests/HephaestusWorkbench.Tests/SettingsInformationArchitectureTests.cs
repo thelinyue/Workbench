@@ -31,8 +31,12 @@ public sealed class SettingsInformationArchitectureTests
         Assert.Contains(document.Descendants(), element => (string?)element.Attribute("Text") == "外观");
         Assert.Contains(document.Descendants(), element => (string?)element.Attribute("Text") == "扩展策略");
         Assert.Contains(bindings, value => value.Contains("AutoCheckExtensionUpdates", StringComparison.Ordinal));
+        Assert.Contains(bindings, value => value.Contains("AllowPrereleaseExtensions", StringComparison.Ordinal));
         Assert.Contains(document.Descendants(), element =>
             (string?)element.Attribute("AutomationProperties.Name") == "启动时自动检查扩展更新");
+        Assert.Contains(document.Descendants(), element =>
+            (string?)element.Attribute("AutomationProperties.Name") == "允许预发布扩展");
+        Assert.DoesNotContain(bindings, value => value.Contains("UpdateChannel", StringComparison.Ordinal));
         Assert.Contains(bindings, value => value.Contains("CurrentDataRoot", StringComparison.Ordinal));
         Assert.Contains(bindings, value => value.Contains("OpenWorkspaceDirectoryCommand", StringComparison.Ordinal));
         Assert.Contains(bindings, value => value.Contains("CandidateDataRoot", StringComparison.Ordinal));

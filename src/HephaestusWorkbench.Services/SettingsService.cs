@@ -90,6 +90,18 @@ public sealed class SettingsService
         await _configuration.SaveAppSettingsAsync(settings, cancellationToken);
     }
 
+    public async Task<bool> GetExtensionAllowPrereleaseAsync(CancellationToken cancellationToken = default)
+        => (await _configuration.EnsureAppSettingsAsync(cancellationToken)).Extension.AllowPrerelease;
+
+    public async Task SetExtensionAllowPrereleaseAsync(
+        bool allowPrerelease,
+        CancellationToken cancellationToken = default)
+    {
+        var settings = await _configuration.EnsureAppSettingsAsync(cancellationToken);
+        settings.Extension.AllowPrerelease = allowPrerelease;
+        await _configuration.SaveAppSettingsAsync(settings, cancellationToken);
+    }
+
     public async Task<SshTerminalPreferences> GetSshTerminalPreferencesAsync(CancellationToken cancellationToken = default)
     {
         var settings = await _configuration.EnsureAppSettingsAsync(cancellationToken);

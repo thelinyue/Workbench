@@ -4,7 +4,7 @@ using HephaestusWorkbench.PluginSDK;
 
 namespace HephaestusWorkbench.Services;
 
-/// <summary>扩展中心安装请求；未指定版本时安装当前更新通道下最新且兼容的版本。</summary>
+/// <summary>扩展中心安装请求；未指定版本时安装当前预发布策略允许的最新兼容版本。</summary>
 public sealed class ExtensionCenterInstallRequest
 {
     [JsonPropertyName("extensionId")]
@@ -45,7 +45,7 @@ public sealed class ExtensionCenterEntry
     [JsonPropertyName("isCatalogListed")]
     public bool IsCatalogListed { get; init; }
 
-    /// <summary>当前更新通道是否存在适用于本宿主版本的发布包。</summary>
+    /// <summary>当前预发布策略下是否存在适用于本宿主版本的发布包。</summary>
     [JsonPropertyName("hasCompatibleRelease")]
     public bool HasCompatibleRelease { get; init; }
 
@@ -83,10 +83,24 @@ public interface IExtensionCenterService
 
     Task<ExtensionCenterSnapshot> LoadAsync(bool autoCheckUpdates, CancellationToken cancellationToken = default);
 
+    Task<ExtensionCenterSnapshot> LoadAsync(
+        bool autoCheckUpdates,
+        bool allowPrerelease,
+        CancellationToken cancellationToken = default);
+
     Task<ExtensionCenterSnapshot> RefreshAsync(CancellationToken cancellationToken = default);
+
+    Task<ExtensionCenterSnapshot> RefreshAsync(
+        bool allowPrerelease,
+        CancellationToken cancellationToken = default);
 
     Task<ExtensionInstallResult> InstallAsync(
         ExtensionCenterInstallRequest request,
+        CancellationToken cancellationToken = default);
+
+    Task<ExtensionInstallResult> InstallAsync(
+        ExtensionCenterInstallRequest request,
+        bool allowPrerelease,
         CancellationToken cancellationToken = default);
 
     Task SetEnabledAsync(string extensionId, bool enabled, CancellationToken cancellationToken = default);
@@ -98,8 +112,6 @@ public interface IExtensionCenterService
 /// </summary>
 public sealed class ExtensionCenterService : IExtensionCenterService
 {
-    private const string StableChannel = "stable";
-
     private readonly ExtensionCatalogClient _catalogClient;
     private readonly ExtensionInstaller _installer;
     private readonly ExtensionRegistry _registry;
@@ -124,18 +136,32 @@ public sealed class ExtensionCenterService : IExtensionCenterService
     }
 
     public Task<ExtensionCenterSnapshot> LoadAsync(CancellationToken cancellationToken = default)
-        => RefreshAsync(cancellationToken);
+        => RefreshAsync(allowPrerelease: false, cancellationToken);
 
     public Task<ExtensionCenterSnapshot> LoadAsync(
         bool autoCheckUpdates,
         CancellationToken cancellationToken = default)
-        => autoCheckUpdates ? RefreshAsync(cancellationToken) : LoadCoreAsync(refreshCatalog: false, cancellationToken);
+        => LoadAsync(autoCheckUpdates, allowPrerelease: false, cancellationToken);
+
+    public Task<ExtensionCenterSnapshot> LoadAsync(
+        bool autoCheckUpdates,
+        bool allowPrerelease,
+        CancellationToken cancellationToken = default)
+        => autoCheckUpdates
+            ? RefreshAsync(allowPrerelease, cancellationToken)
+            : LoadCoreAsync(refreshCatalog: false, allowPrerelease, cancellationToken);
 
     public Task<ExtensionCenterSnapshot> RefreshAsync(CancellationToken cancellationToken = default)
-        => LoadCoreAsync(refreshCatalog: true, cancellationToken);
+        => RefreshAsync(allowPrerelease: false, cancellationToken);
+
+    public Task<ExtensionCenterSnapshot> RefreshAsync(
+        bool allowPrerelease,
+        CancellationToken cancellationToken = default)
+        => LoadCoreAsync(refreshCatalog: true, allowPrerelease, cancellationToken);
 
     private async Task<ExtensionCenterSnapshot> LoadCoreAsync(
         bool refreshCatalog,
+        bool allowPrerelease,
         CancellationToken cancellationToken)
     {
         var installed = await _registry.LoadAsync(cancellationToken);
@@ -195,11 +221,13 @@ public sealed class ExtensionCenterService : IExtensionCenterService
 
             var compatibleRelease = catalogItem is null
                 ? null
-                : SelectLatestRelease(catalogItem, settings.UpdateChannel);
+                : SelectLatestRelease(catalogItem, allowPrerelease);
             var availableRelease = hasIdentityConflict ? null : compatibleRelease;
             var enabled = !enabledPreferences.TryGetValue(id, out var configuredEnabled) || configuredEnabled;
-            var hasUpdate = !hasIdentityConflict && manifest is not null && availableRelease is not null &&
-                            SemanticVersion.Parse(availableRelease.Version).CompareTo(SemanticVersion.Parse(manifest.Version)) > 0;
+            var installedVersion = manifest is null ? null : SemanticVersion.Parse(manifest.Version);
+            var hasUpdate = !hasIdentityConflict && installedVersion is not null && availableRelease is not null &&
+                            (allowPrerelease || !installedVersion.IsPrerelease) &&
+                            SemanticVersion.Parse(availableRelease.Version).CompareTo(installedVersion) > 0;
             var useInstalledIdentity = manifest is not null && hasIdentityConflict;
 
             entries.Add(new ExtensionCenterEntry
@@ -228,8 +256,14 @@ public sealed class ExtensionCenterService : IExtensionCenterService
         };
     }
 
+    public Task<ExtensionInstallResult> InstallAsync(
+        ExtensionCenterInstallRequest request,
+        CancellationToken cancellationToken = default)
+        => InstallAsync(request, allowPrerelease: false, cancellationToken);
+
     public async Task<ExtensionInstallResult> InstallAsync(
         ExtensionCenterInstallRequest request,
+        bool allowPrerelease,
         CancellationToken cancellationToken = default)
     {
         if (request is null)
@@ -238,7 +272,6 @@ public sealed class ExtensionCenterService : IExtensionCenterService
         if (string.IsNullOrWhiteSpace(extensionId))
             throw new ArgumentException("扩展 ID 不能为空。", nameof(request));
 
-        var settings = await _settings.EnsureAsync(cancellationToken);
         var catalogResult = await _catalogClient.RefreshAsync(cancellationToken);
         var item = catalogResult.Catalog.Extensions.SingleOrDefault(candidate =>
             string.Equals(candidate.Id, extensionId, StringComparison.Ordinal));
@@ -257,18 +290,24 @@ public sealed class ExtensionCenterService : IExtensionCenterService
         ExtensionRelease? release;
         if (string.IsNullOrWhiteSpace(request.Version))
         {
-            release = SelectLatestRelease(item, settings.UpdateChannel);
+            release = SelectLatestRelease(item, allowPrerelease);
         }
         else
         {
             release = item.Releases.SingleOrDefault(candidate =>
                 string.Equals(candidate.Version, request.Version, StringComparison.Ordinal));
-            if (release is not null && !IsAllowedRelease(release, settings.UpdateChannel))
-                release = null;
+            if (release is not null)
+            {
+                var requestedVersion = SemanticVersion.Parse(release.Version);
+                if (requestedVersion.IsPrerelease && !allowPrerelease)
+                    throw new InvalidDataException($"扩展 {extensionId} 的版本 {release.Version} 是预发布版本，当前策略不允许安装预发布扩展。");
+                if (!IsAllowedRelease(release, allowPrerelease))
+                    release = null;
+            }
         }
 
         if (release is null)
-            throw new InvalidDataException($"扩展 {extensionId} 没有适用于当前宿主和更新通道的发布版本。");
+            throw new InvalidDataException($"扩展 {extensionId} 没有符合当前预发布策略且适用于本宿主的发布版本。");
 
         var packageBytes = await _catalogClient.DownloadPackageAsync(
             item,
@@ -305,18 +344,18 @@ public sealed class ExtensionCenterService : IExtensionCenterService
     private static string AppendWarning(string? current, string warning)
         => string.IsNullOrWhiteSpace(current) ? warning : $"{current}；{warning}";
 
-    private ExtensionRelease? SelectLatestRelease(ExtensionCatalogItem item, string updateChannel)
+    private ExtensionRelease? SelectLatestRelease(ExtensionCatalogItem item, bool allowPrerelease)
         => item.Releases
-            .Where(release => IsAllowedRelease(release, updateChannel))
+            .Where(release => IsAllowedRelease(release, allowPrerelease))
             .Select(release => (Release: release, Version: SemanticVersion.Parse(release.Version)))
             .OrderByDescending(candidate => candidate.Version)
             .Select(candidate => candidate.Release)
             .FirstOrDefault();
 
-    private bool IsAllowedRelease(ExtensionRelease release, string updateChannel)
+    private bool IsAllowedRelease(ExtensionRelease release, bool allowPrerelease)
     {
         var version = SemanticVersion.Parse(release.Version);
-        if (string.Equals(updateChannel, StableChannel, StringComparison.Ordinal) && version.IsPrerelease)
+        if (version.IsPrerelease && !allowPrerelease)
             return false;
 
         return IsHostCompatible(release.MinHostVersion);

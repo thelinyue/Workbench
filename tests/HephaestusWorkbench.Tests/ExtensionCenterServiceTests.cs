@@ -120,6 +120,143 @@ public sealed class ExtensionCenterServiceTests
     }
 
     [Fact]
+    public async Task RefreshAsync_WhenAllowPrereleaseIsFalse_PrereleaseDoesNotBecomeAvailableReleaseOrUpdate()
+    {
+        using var environment = new TestEnvironment(PrereleaseOnlyCatalogJson());
+        await environment.AddInstalledAsync("log-analyzer", "2.0.0", ExtensionKind.Analysis);
+
+        var entry = Assert.Single((await RefreshWithPrereleasePolicyAsync(environment.Service, allowPrerelease: false)).Extensions);
+
+        Assert.Null(entry.AvailableRelease);
+        Assert.False(entry.HasUpdate);
+        Assert.False(entry.HasCompatibleRelease);
+    }
+
+    [Fact]
+    public async Task InstallAsync_WhenAllowPrereleaseIsFalse_RejectsSpecifiedPrereleaseBeforeDownload()
+    {
+        using var environment = new TestEnvironment(PrereleaseOnlyCatalogJson());
+
+        var method = GetInstallWithPrereleasePolicyMethod();
+        var result = method.Invoke(
+            environment.Service,
+            [
+                new ExtensionCenterInstallRequest { ExtensionId = "log-analyzer", Version = "3.0.0-beta.1" },
+                false,
+                CancellationToken.None
+            ]);
+        var installation = Assert.IsAssignableFrom<Task<ExtensionInstallResult>>(result);
+        var exception = await Assert.ThrowsAsync<InvalidDataException>(() => installation);
+
+        Assert.Contains("预发布", exception.Message, StringComparison.Ordinal);
+        Assert.Equal(0, environment.Handler.PackageRequestCount);
+        Assert.Equal(0, environment.Verifier.VerificationCount);
+    }
+
+    [Fact]
+    public async Task InstallAsync_WhenAllowPrereleaseIsTrue_AllowsFreshPrereleaseInstallation()
+    {
+        var package = CreateAnalysisPackage("log-analyzer", "3.0.0-beta.1");
+        var sha256 = Convert.ToHexString(SHA256.HashData(package)).ToLowerInvariant();
+        using var environment = new TestEnvironment(PrereleaseInstallCatalogJson(package.Length, sha256), package);
+
+        var result = await InstallWithPrereleasePolicyAsync(
+            environment.Service,
+            new ExtensionCenterInstallRequest { ExtensionId = "log-analyzer", Version = "3.0.0-beta.1" },
+            allowPrerelease: true);
+
+        Assert.Equal("3.0.0-beta.1", result.Manifest.Version);
+        Assert.Equal(1, environment.Handler.PackageRequestCount);
+        Assert.Equal("3.0.0-beta.1", Assert.Single(await environment.Registry.LoadAsync()).Version);
+    }
+
+    [Fact]
+    public async Task InstallAsync_WhenAllowPrereleaseIsTrue_AllowsStableInstallationToExplicitlyUpdateToPrerelease()
+    {
+        var package = CreateAnalysisPackage("log-analyzer", "3.0.0-beta.1");
+        var sha256 = Convert.ToHexString(SHA256.HashData(package)).ToLowerInvariant();
+        using var environment = new TestEnvironment(PrereleaseInstallCatalogJson(package.Length, sha256), package);
+        await environment.AddInstalledAsync("log-analyzer", "2.1.0", ExtensionKind.Analysis);
+
+        var result = await InstallWithPrereleasePolicyAsync(
+            environment.Service,
+            new ExtensionCenterInstallRequest { ExtensionId = "log-analyzer", Version = "3.0.0-beta.1" },
+            allowPrerelease: true);
+
+        Assert.Equal("3.0.0-beta.1", result.Manifest.Version);
+        Assert.Equal(1, environment.Handler.PackageRequestCount);
+        Assert.Equal("3.0.0-beta.1", Assert.Single(await environment.Registry.LoadAsync()).Version);
+    }
+
+    [Fact]
+    public async Task RefreshAsync_WhenPrereleaseIsInstalledAndAllowed_FollowsNewerPrereleaseThenStableRelease()
+    {
+        using var prereleaseEnvironment = new TestEnvironment(NewerPrereleaseCatalogJson());
+        await prereleaseEnvironment.AddInstalledAsync("log-analyzer", "3.0.0-beta.1", ExtensionKind.Analysis);
+
+        var prereleaseEntry = Assert.Single((await RefreshWithPrereleasePolicyAsync(
+            prereleaseEnvironment.Service,
+            allowPrerelease: true)).Extensions);
+
+        Assert.Equal("3.0.0-beta.2", prereleaseEntry.AvailableRelease?.Version);
+        Assert.True(prereleaseEntry.HasUpdate);
+
+        using var stableEnvironment = new TestEnvironment(StableAfterPrereleaseCatalogJson());
+        await stableEnvironment.AddInstalledAsync("log-analyzer", "3.0.0-beta.2", ExtensionKind.Analysis);
+
+        var stableEntry = Assert.Single((await RefreshWithPrereleasePolicyAsync(
+            stableEnvironment.Service,
+            allowPrerelease: true)).Extensions);
+
+        Assert.Equal("3.0.0", stableEntry.AvailableRelease?.Version);
+        Assert.True(stableEntry.HasUpdate);
+    }
+
+    [Fact]
+    public async Task RefreshAsync_WhenAllowPrereleaseIsFalse_DoesNotOfferStableUpdateForInstalledPrerelease()
+    {
+        using var environment = new TestEnvironment(StableAfterPrereleaseCatalogJson());
+        await environment.AddInstalledAsync("log-analyzer", "3.0.0-beta.2", ExtensionKind.Analysis);
+
+        var entry = Assert.Single((await RefreshWithPrereleasePolicyAsync(
+            environment.Service,
+            allowPrerelease: false)).Extensions);
+
+        Assert.Equal("3.0.0", entry.AvailableRelease?.Version);
+        Assert.False(entry.HasUpdate);
+    }
+
+    [Fact]
+    public async Task RefreshAsync_WhenAllowPrereleaseIsTrue_UsesPolicyEvenWhenExtensionsUpdateChannelRemainsStable()
+    {
+        using var environment = new TestEnvironment(PrereleaseOnlyCatalogJson());
+        var extensionSettings = await environment.Settings.EnsureAsync();
+        Assert.Equal("stable", extensionSettings.UpdateChannel);
+
+        var entry = Assert.Single((await RefreshWithPrereleasePolicyAsync(environment.Service, allowPrerelease: true)).Extensions);
+
+        Assert.Equal("3.0.0-beta.1", entry.AvailableRelease?.Version);
+        Assert.True(entry.HasCompatibleRelease);
+    }
+
+    [Fact]
+    public async Task LoadAndRefresh_WhenAllowPrereleaseIsEnabled_OnlyDiscoverVersionsAndNeverDownloadPackages()
+    {
+        using var environment = new TestEnvironment(CatalogJson());
+
+        var loaded = await LoadWithPrereleasePolicyAsync(
+            environment.Service,
+            autoCheckUpdates: true,
+            allowPrerelease: true);
+        var refreshed = await RefreshWithPrereleasePolicyAsync(environment.Service, allowPrerelease: true);
+
+        Assert.Equal("3.0.0-beta.1", Assert.Single(loaded.Extensions).AvailableRelease?.Version);
+        Assert.Equal("3.0.0-beta.1", Assert.Single(refreshed.Extensions).AvailableRelease?.Version);
+        Assert.Equal(0, environment.Handler.PackageRequestCount);
+        Assert.Equal(0, environment.Verifier.VerificationCount);
+    }
+
+    [Fact]
     public async Task Compatibility_WhenMinHostUsesLargeNumericIdentifier_RuntimeMatchesExtensionCenter()
     {
         const string minHostVersion = "1.999999999999999999999.0";
@@ -417,6 +554,53 @@ public sealed class ExtensionCenterServiceTests
         return target.ToArray();
     }
 
+    private static async Task<ExtensionCenterSnapshot> LoadWithPrereleasePolicyAsync(
+        ExtensionCenterService service,
+        bool autoCheckUpdates,
+        bool allowPrerelease)
+    {
+        var method = typeof(ExtensionCenterService).GetMethod(
+            nameof(ExtensionCenterService.LoadAsync),
+            [typeof(bool), typeof(bool), typeof(CancellationToken)]);
+        Assert.True(method is not null,
+            "ExtensionCenterService 必须提供 LoadAsync(bool autoCheckUpdates, bool allowPrerelease, CancellationToken)，使预发布策略成为唯一用户级过滤来源。 ");
+        var result = method!.Invoke(service, [autoCheckUpdates, allowPrerelease, CancellationToken.None]);
+        return await Assert.IsAssignableFrom<Task<ExtensionCenterSnapshot>>(result);
+    }
+
+    private static async Task<ExtensionCenterSnapshot> RefreshWithPrereleasePolicyAsync(
+        ExtensionCenterService service,
+        bool allowPrerelease)
+    {
+        var method = typeof(ExtensionCenterService).GetMethod(
+            "RefreshAsync",
+            [typeof(bool), typeof(CancellationToken)]);
+        Assert.True(method is not null,
+            "ExtensionCenterService 必须提供 RefreshAsync(bool allowPrerelease, CancellationToken)，使手动刷新遵守预发布策略。 ");
+        var result = method!.Invoke(service, [allowPrerelease, CancellationToken.None]);
+        return await Assert.IsAssignableFrom<Task<ExtensionCenterSnapshot>>(result);
+    }
+
+    private static System.Reflection.MethodInfo GetInstallWithPrereleasePolicyMethod()
+    {
+        var method = typeof(ExtensionCenterService).GetMethod(
+            nameof(ExtensionCenterService.InstallAsync),
+            [typeof(ExtensionCenterInstallRequest), typeof(bool), typeof(CancellationToken)]);
+        Assert.True(method is not null,
+            "ExtensionCenterService 必须提供 InstallAsync(request, bool allowPrerelease, CancellationToken)，避免未授权预发布版本进入下载链路。 ");
+        return method!;
+    }
+
+    private static async Task<ExtensionInstallResult> InstallWithPrereleasePolicyAsync(
+        ExtensionCenterService service,
+        ExtensionCenterInstallRequest request,
+        bool allowPrerelease)
+    {
+        var method = GetInstallWithPrereleasePolicyMethod();
+        var result = method.Invoke(service, [request, allowPrerelease, CancellationToken.None]);
+        return await Assert.IsAssignableFrom<Task<ExtensionInstallResult>>(result);
+    }
+
     private static async Task<ExtensionCenterSnapshot> LoadForStartupAsync(
         ExtensionCenterService service,
         bool autoCheckUpdates)
@@ -438,6 +622,65 @@ public sealed class ExtensionCenterServiceTests
         var result = method!.Invoke(service, [CancellationToken.None]);
         return await Assert.IsAssignableFrom<Task<ExtensionCenterSnapshot>>(result);
     }
+
+    private static string PrereleaseOnlyCatalogJson()
+        => PrereleaseCatalogJson("3.0.0-beta.1", size: 10, sha256: new string('b', 64));
+
+    private static string NewerPrereleaseCatalogJson()
+        => PrereleaseCatalogJson("3.0.0-beta.2", size: 10, sha256: new string('c', 64));
+
+    private static string StableAfterPrereleaseCatalogJson() => """
+        {
+          "schemaVersion": 2,
+          "extensions": [
+            {
+              "id": "log-analyzer",
+              "name": "日志分析",
+              "description": "综合日志分析",
+              "publisherId": "thelinyue",
+              "kind": "analysis",
+              "releases": [
+                {
+                  "version": "3.0.0",
+                  "minHostVersion": "2.0.0",
+                  "url": "https://example.invalid/log-analyzer-3.0.0.zip",
+                  "size": 10,
+                  "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                  "signature": { "keyId": "test-key", "signature": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==" }
+                }
+              ]
+            }
+          ]
+        }
+        """;
+
+    private static string PrereleaseInstallCatalogJson(long size, string sha256)
+        => PrereleaseCatalogJson("3.0.0-beta.1", size, sha256);
+
+    private static string PrereleaseCatalogJson(string version, long size, string sha256) => $$"""
+        {
+          "schemaVersion": 2,
+          "extensions": [
+            {
+              "id": "log-analyzer",
+              "name": "日志分析",
+              "description": "综合日志分析",
+              "publisherId": "thelinyue",
+              "kind": "analysis",
+              "releases": [
+                {
+                  "version": "{{version}}",
+                  "minHostVersion": "2.0.0",
+                  "url": "https://example.invalid/log-analyzer-{{version}}.zip",
+                  "size": {{size}},
+                  "sha256": "{{sha256}}",
+                  "signature": { "keyId": "test-key", "signature": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==" }
+                }
+              ]
+            }
+          ]
+        }
+        """;
 
     private static string CatalogJson() => """
         {

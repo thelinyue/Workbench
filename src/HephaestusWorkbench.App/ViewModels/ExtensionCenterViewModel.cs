@@ -106,6 +106,7 @@ public sealed class ExtensionCenterViewModel : ViewModelBase
     private string _message = "尚未加载扩展目录。";
     private string _busyText = "正在加载扩展…";
     private bool _isBusy;
+    private bool _allowPrerelease;
 
     public ExtensionCenterViewModel(
         IExtensionCenterService service,
@@ -210,12 +211,29 @@ public sealed class ExtensionCenterViewModel : ViewModelBase
         manifest.Capabilities.Contains("analysis.engine", StringComparer.Ordinal));
 
     public Task InitializeAsync(CancellationToken cancellationToken = default)
-        => InitializeAsync(autoCheckUpdates: true, cancellationToken);
+        => InitializeAsync(autoCheckUpdates: true, allowPrerelease: false, cancellationToken);
 
     public Task InitializeAsync(
         bool autoCheckUpdates,
         CancellationToken cancellationToken = default)
-        => LoadAsync(autoCheckUpdates, cancellationToken);
+        => InitializeAsync(autoCheckUpdates, allowPrerelease: false, cancellationToken);
+
+    /// <summary>
+    /// 启动时接收应用设置快照。后续手动刷新与安装沿用该预发布策略，
+    /// 避免 extensions.json 中的旧更新通道字段成为第二个版本选择源。
+    /// </summary>
+    public Task InitializeAsync(
+        bool autoCheckUpdates,
+        bool allowPrerelease,
+        CancellationToken cancellationToken = default)
+    {
+        _allowPrerelease = allowPrerelease;
+        return LoadAsync(autoCheckUpdates, cancellationToken);
+    }
+
+    /// <summary>应用设置保存后更新当前进程的预发布策略；不会自动刷新、下载或安装扩展。</summary>
+    public void SetAllowPrerelease(bool allowPrerelease)
+        => _allowPrerelease = allowPrerelease;
 
     private async Task LoadAsync(
         bool refreshCatalog = true,
@@ -227,8 +245,11 @@ public sealed class ExtensionCenterViewModel : ViewModelBase
         try
         {
             var snapshot = refreshCatalog
-                ? await _service.RefreshAsync(cancellationToken)
-                : await _service.LoadAsync(autoCheckUpdates: false, cancellationToken);
+                ? await _service.RefreshAsync(_allowPrerelease, cancellationToken)
+                : await _service.LoadAsync(
+                    autoCheckUpdates: false,
+                    allowPrerelease: _allowPrerelease,
+                    cancellationToken);
             _allItems.Clear();
             _allItems.AddRange(snapshot.Extensions
                 .Select(entry => new ExtensionCenterItemViewModel(entry))
@@ -259,11 +280,13 @@ public sealed class ExtensionCenterViewModel : ViewModelBase
         BusyText = $"正在{item.InstallText}“{item.Name}”…";
         try
         {
-            await _service.InstallAsync(new ExtensionCenterInstallRequest
-            {
-                ExtensionId = item.Id,
-                Version = item.Source.AvailableRelease?.Version
-            });
+            await _service.InstallAsync(
+                new ExtensionCenterInstallRequest
+                {
+                    ExtensionId = item.Id,
+                    Version = item.Source.AvailableRelease?.Version
+                },
+                _allowPrerelease);
             Message = $"扩展“{item.Name}”{item.InstallText}完成。";
         }
         catch (Exception exception)

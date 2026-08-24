@@ -52,6 +52,7 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
             startReplacementProcess,
             shutdownCurrentProcess);
         Extensions = new ExtensionCenterViewModel(extensions, openWorkspace, logger);
+        Settings.ExtensionAllowPrereleaseSaved += OnExtensionAllowPrereleaseSaved;
         _selectedNavigationItem = FindNavigation("analysis");
         _currentPage = AnalysisCenter;
         UpdateStatusMessage();
@@ -110,6 +111,7 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
         // 默认启动页是分析中心；在线 Catalog 刷新不得阻塞主窗口出现，完成后通过 StateChanged 更新全局告警。
         _extensionRefreshTask = Extensions.InitializeAsync(
             Settings.AutoCheckExtensionUpdates,
+            Settings.AllowPrereleaseExtensions,
             _extensionRefreshCancellation.Token);
         RefreshGlobalWarning();
     }
@@ -128,6 +130,7 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
     private void OnConfigurationChanged(object? sender, EventArgs e) => RunOnUi(UpdateStatusMessage);
     private void OnLogMessage(object? sender, string message) => RunOnUi(() => { StatusMessage = message; OnPropertyChanged(nameof(StatusMessage)); });
     private void OnExtensionStateChanged(object? sender, EventArgs e) => RunOnUi(RefreshGlobalWarning);
+    private void OnExtensionAllowPrereleaseSaved(bool allowPrerelease) => Extensions.SetAllowPrerelease(allowPrerelease);
     private void RefreshGlobalWarning()
         => GlobalWarningText = Extensions.HasEnabledAnalysisEngine ? string.Empty : "没有已启用的日志分析扩展";
 
@@ -153,6 +156,7 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
         _extensionRefreshCancellation.Cancel();
         _extensionRefreshCancellation.Dispose();
         _inbox.ConfigurationChanged -= OnConfigurationChanged;
+        Settings.ExtensionAllowPrereleaseSaved -= OnExtensionAllowPrereleaseSaved;
         Extensions.StateChanged -= OnExtensionStateChanged;
         _logger.MessageWritten -= OnLogMessage;
         AnalysisCenter.Dispose();

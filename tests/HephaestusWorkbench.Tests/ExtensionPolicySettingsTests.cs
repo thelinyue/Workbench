@@ -66,6 +66,87 @@ public sealed class ExtensionPolicySettingsTests
     }
 
     [Fact]
+    public async Task EnsureAppSettingsAsync_CreatesAndRepeatedlyReadsAllowPrereleaseDefault()
+    {
+        using var fixture = new SettingsFixture();
+
+        var created = await fixture.Configuration.EnsureAppSettingsAsync();
+        Assert.False(GetExtensionAllowPrerelease(created));
+
+        using var document = JsonDocument.Parse(await File.ReadAllTextAsync(fixture.Paths.AppSettingsFile));
+        Assert.False(document.RootElement.GetProperty("extension").GetProperty("allowPrerelease").GetBoolean());
+
+        var reloaded = await new WorkbenchConfigurationService(fixture.Paths).EnsureAppSettingsAsync();
+        Assert.False(GetExtensionAllowPrerelease(reloaded));
+    }
+
+    [Fact]
+    public async Task SettingsServiceAndViewModel_PersistAllowPrereleaseWithoutChangingExtensionsConfiguration()
+    {
+        using var fixture = new SettingsFixture();
+        var extensionSettings = new ExtensionSettingsStore(fixture.Paths);
+        await extensionSettings.EnsureAsync();
+        var extensionsBefore = await File.ReadAllTextAsync(fixture.Paths.ExtensionsConfigFile);
+
+        await InvokeRequiredTask(fixture.Settings, "SetExtensionAllowPrereleaseAsync", true, CancellationToken.None);
+        Assert.True(await InvokeRequiredBoolTask(fixture.Settings, "GetExtensionAllowPrereleaseAsync", CancellationToken.None));
+        Assert.True(GetExtensionAllowPrerelease(await fixture.Configuration.EnsureAppSettingsAsync()));
+        Assert.Equal(extensionsBefore, await File.ReadAllTextAsync(fixture.Paths.ExtensionsConfigFile));
+
+        var viewModel = fixture.CreateViewModel();
+        await viewModel.Initialization;
+        SetRequiredBoolean(viewModel, "AllowPrereleaseExtensions", false);
+        viewModel.SaveCommand.Execute(null);
+        await WaitUntilAsync(() => !viewModel.HasUnsavedChanges && viewModel.Message == "设置已保存。");
+
+        Assert.False(GetRequiredBoolean(viewModel, "AllowPrereleaseExtensions"));
+        Assert.False(GetExtensionAllowPrerelease(await fixture.Configuration.EnsureAppSettingsAsync()));
+        Assert.Equal(extensionsBefore, await File.ReadAllTextAsync(fixture.Paths.ExtensionsConfigFile));
+    }
+
+    [Fact]
+    public async Task SettingsViewModel_AfterSuccessfulSave_PublishesCurrentAllowPrereleasePolicy()
+    {
+        using var fixture = new SettingsFixture();
+        var viewModel = fixture.CreateViewModel();
+        bool? publishedPolicy = null;
+        viewModel.ExtensionAllowPrereleaseSaved += value => publishedPolicy = value;
+
+        await viewModel.Initialization;
+        viewModel.AllowPrereleaseExtensions = true;
+        viewModel.SaveCommand.Execute(null);
+        await WaitUntilAsync(() => !viewModel.HasUnsavedChanges && viewModel.Message == "设置已保存。");
+
+        Assert.True(publishedPolicy);
+    }
+
+    [Fact]
+    public void ExtensionCenterContracts_RequireAllowPrereleaseWithoutUpdateChannelControl()
+    {
+        var startupLoad = typeof(IExtensionCenterService).GetMethod(
+            "LoadAsync",
+            [typeof(bool), typeof(bool), typeof(CancellationToken)]);
+        Assert.True(startupLoad is not null,
+            "IExtensionCenterService 必须通过 LoadAsync(bool autoCheckUpdates, bool allowPrerelease, CancellationToken) 接收唯一的预发布策略。 ");
+
+        var manualRefresh = typeof(IExtensionCenterService).GetMethod(
+            "RefreshAsync",
+            [typeof(bool), typeof(CancellationToken)]);
+        Assert.True(manualRefresh is not null,
+            "IExtensionCenterService 必须通过 RefreshAsync(bool allowPrerelease, CancellationToken) 让用户刷新遵守预发布策略。 ");
+
+        var installation = typeof(IExtensionCenterService).GetMethod(
+            "InstallAsync",
+            [typeof(ExtensionCenterInstallRequest), typeof(bool), typeof(CancellationToken)]);
+        Assert.True(installation is not null,
+            "IExtensionCenterService 必须通过 InstallAsync(request, bool allowPrerelease, CancellationToken) 拒绝未授权的预发布安装。 ");
+
+        var extensionSettingsSource = File.ReadAllText(SourceFile("src", "HephaestusWorkbench.Services", "ExtensionCenterService.cs"));
+        Assert.DoesNotContain("settings.UpdateChannel", extensionSettingsSource, StringComparison.Ordinal);
+        Assert.DoesNotContain("StableChannel", extensionSettingsSource, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void ExtensionCenterStartupAndManualRefresh_ExposeSeparatePolicyAwareContracts()
     {
         var startupLoad = typeof(IExtensionCenterService).GetMethod(
@@ -87,6 +168,17 @@ public sealed class ExtensionPolicySettingsTests
         var mainViewModelSource = File.ReadAllText(SourceFile("src", "HephaestusWorkbench.App", "ViewModels", "MainViewModel.cs"));
         Assert.Contains("AutoCheckExtensionUpdates", mainViewModelSource, StringComparison.Ordinal);
         Assert.Contains("Extensions.InitializeAsync", mainViewModelSource, StringComparison.Ordinal);
+    }
+
+    private static bool GetExtensionAllowPrerelease(AppSettingsConfig settings)
+    {
+        var extensionProperty = typeof(AppSettingsConfig).GetProperty("Extension", BindingFlags.Instance | BindingFlags.Public);
+        Assert.True(extensionProperty is not null, "AppSettingsConfig 必须公开 Extension 预发布策略配置。 ");
+        var extension = extensionProperty!.GetValue(settings);
+        Assert.NotNull(extension);
+        var allowPrereleaseProperty = extension!.GetType().GetProperty("AllowPrerelease", BindingFlags.Instance | BindingFlags.Public);
+        Assert.True(allowPrereleaseProperty is not null, "AppSettingsConfig.Extension 必须公开 AllowPrerelease。 ");
+        return Assert.IsType<bool>(allowPrereleaseProperty!.GetValue(extension));
     }
 
     private static bool GetExtensionAutoCheckUpdates(AppSettingsConfig settings)

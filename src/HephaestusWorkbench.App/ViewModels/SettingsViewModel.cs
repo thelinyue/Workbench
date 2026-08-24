@@ -39,6 +39,7 @@ public sealed class SettingsViewModel : ViewModelBase
     private double _terminalFontSize = 14;
     private bool _automaticSshReconnect = true;
     private bool _autoCheckExtensionUpdates = true;
+    private bool _allowPrereleaseExtensions;
     private string _candidateDataRoot = string.Empty;
     private string _storageFeedback = string.Empty;
     private bool _storageFeedbackIsError;
@@ -88,6 +89,9 @@ public sealed class SettingsViewModel : ViewModelBase
 
     /// <summary>设置初始化完成任务；主窗口显示和测试交互前必须等待，避免加载过程覆盖用户修改。</summary>
     public Task Initialization { get; }
+
+    /// <summary>设置成功保存后通知 Shell 更新当前进程使用的预发布扩展策略。</summary>
+    public event Action<bool>? ExtensionAllowPrereleaseSaved;
 
     public ObservableCollection<WatchDirectoryItemViewModel> WatchDirectories { get; } = new();
 
@@ -246,6 +250,12 @@ public sealed class SettingsViewModel : ViewModelBase
     {
         get => _autoCheckExtensionUpdates;
         set { if (SetProperty(ref _autoCheckExtensionUpdates, value)) MarkUnsaved(); }
+    }
+
+    public bool AllowPrereleaseExtensions
+    {
+        get => _allowPrereleaseExtensions;
+        set { if (SetProperty(ref _allowPrereleaseExtensions, value)) MarkUnsaved(); }
     }
 
     public string SelectedTheme
@@ -425,6 +435,7 @@ public sealed class SettingsViewModel : ViewModelBase
             TerminalFontSize = ssh.FontSize;
             AutomaticSshReconnect = ssh.ReconnectBehavior == SshReconnectBehavior.AutomaticThreeAttempts;
             AutoCheckExtensionUpdates = await _settings.GetExtensionAutoCheckUpdatesAsync();
+            AllowPrereleaseExtensions = await _settings.GetExtensionAllowPrereleaseAsync();
             _themePreviewError = null;
             HasUnsavedChanges = false;
         }
@@ -468,6 +479,7 @@ public sealed class SettingsViewModel : ViewModelBase
                 TerminalFontSize,
                 reconnectBehavior);
             await _settings.SetExtensionAutoCheckUpdatesAsync(AutoCheckExtensionUpdates);
+            await _settings.SetExtensionAllowPrereleaseAsync(AllowPrereleaseExtensions);
             _sshPreferencesSaved?.Invoke(new SshTerminalPreferences(
                 SshDefaultPort,
                 TerminalFontFamily.Trim(),
@@ -480,6 +492,7 @@ public sealed class SettingsViewModel : ViewModelBase
             _persistedTheme = SelectedTheme;
             HasUnsavedChanges = false;
             SetMessage("设置已保存。", isError: false);
+            ExtensionAllowPrereleaseSaved?.Invoke(AllowPrereleaseExtensions);
         }
         catch (Exception ex)
         {

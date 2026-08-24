@@ -80,8 +80,10 @@
                 <Border Style="{StaticResource CardStyle}" Margin="0,10,0,0">
                     <StackPanel>
                         <TextBlock Text="扩展策略" Style="{StaticResource SectionTitleStyle}"/>
-                        <TextBlock Text="关闭后，工作台启动时只读取本地已验证目录缓存；在扩展中心手动刷新仍会联网。" Style="{StaticResource MutedTextStyle}" TextWrapping="Wrap" Margin="0,0,0,12"/>
+                        <TextBlock Text="关闭自动检查后，工作台启动时只读取本地已验证目录缓存；在扩展中心手动刷新仍会联网。" Style="{StaticResource MutedTextStyle}" TextWrapping="Wrap" Margin="0,0,0,12"/>
                         <CheckBox Content="启动时自动检查扩展更新" IsChecked="{Binding AutoCheckExtensionUpdates}" AutomationProperties.Name="启动时自动检查扩展更新"/>
+                        <CheckBox Content="允许预发布扩展" IsChecked="{Binding AllowPrereleaseExtensions}" Margin="0,10,0,0" AutomationProperties.Name="允许预发布扩展"/>
+                        <TextBlock Text="开启后可发现并手动安装预发布版本；该选项不会自动把稳定版升级为预发布版。" Style="{StaticResource MutedTextStyle}" TextWrapping="Wrap" Margin="24,5,0,0"/>
                     </StackPanel>
                 </Border>
                 <Border Style="{StaticResource CardStyle}" Margin="0,10,0,0">

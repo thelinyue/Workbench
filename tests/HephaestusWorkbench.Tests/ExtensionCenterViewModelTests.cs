@@ -256,6 +256,25 @@ public sealed class ExtensionCenterViewModelTests
         Assert.Equal(2, service.LoadCount);
     }
 
+    [Fact]
+    public async Task SetAllowPrerelease_UpdatesSubsequentRefreshAndInstallPolicy()
+    {
+        var service = new FakeExtensionCenterService(CreateSnapshot());
+        var viewModel = new ExtensionCenterViewModel(service, _ => { }, new WorkbenchLogger(CreateRoot()));
+        await viewModel.InitializeAsync(autoCheckUpdates: true, allowPrerelease: false);
+        var workspace = viewModel.VisibleItems.Single(item => item.Id == "rule-editor");
+
+        viewModel.SetAllowPrerelease(true);
+        viewModel.RefreshCommand.Execute(null);
+        await service.ReloadAttempted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        await WaitUntilAsync(() => !viewModel.IsBusy);
+        viewModel.InstallCommand.Execute(workspace);
+        await service.InstallCompleted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+
+        Assert.True(service.LastRefreshAllowPrerelease);
+        Assert.True(service.LastInstallAllowPrerelease);
+    }
+
     private static ExtensionCenterSnapshot CreateSnapshot()
     {
         var analysisManifest = Manifest("log-analyzer", "日志分析", "2.0.0", ExtensionKind.Analysis);
@@ -409,6 +428,8 @@ public sealed class ExtensionCenterViewModelTests
         public TaskCompletionSource ToggleCompleted { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
         public TaskCompletionSource ReloadAttempted { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
         public ExtensionCenterInstallRequest? LastInstallRequest { get; private set; }
+        public bool? LastRefreshAllowPrerelease { get; private set; }
+        public bool? LastInstallAllowPrerelease { get; private set; }
         public (string Id, bool Enabled)? LastToggle { get; private set; }
         public bool FailLoadsAfterFirst { get; init; }
         public int LoadCount { get; private set; }
@@ -431,8 +452,22 @@ public sealed class ExtensionCenterViewModelTests
             CancellationToken cancellationToken = default)
             => LoadAsync(cancellationToken);
 
+        public Task<ExtensionCenterSnapshot> LoadAsync(
+            bool autoCheckUpdates,
+            bool allowPrerelease,
+            CancellationToken cancellationToken = default)
+            => LoadAsync(cancellationToken);
+
         public Task<ExtensionCenterSnapshot> RefreshAsync(CancellationToken cancellationToken = default)
             => LoadAsync(cancellationToken);
+
+        public Task<ExtensionCenterSnapshot> RefreshAsync(
+            bool allowPrerelease,
+            CancellationToken cancellationToken = default)
+        {
+            LastRefreshAllowPrerelease = allowPrerelease;
+            return LoadAsync(cancellationToken);
+        }
 
         public Task<ExtensionInstallResult> InstallAsync(
             ExtensionCenterInstallRequest request,
@@ -447,6 +482,15 @@ public sealed class ExtensionCenterViewModelTests
                 VersionDirectory = CreateRoot(),
                 AlreadyInstalled = false
             });
+        }
+
+        public Task<ExtensionInstallResult> InstallAsync(
+            ExtensionCenterInstallRequest request,
+            bool allowPrerelease,
+            CancellationToken cancellationToken = default)
+        {
+            LastInstallAllowPrerelease = allowPrerelease;
+            return InstallAsync(request, cancellationToken);
         }
 
         public Task SetEnabledAsync(string extensionId, bool enabled, CancellationToken cancellationToken = default)
