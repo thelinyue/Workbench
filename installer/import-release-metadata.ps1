@@ -13,7 +13,7 @@ param(
 
 $ErrorActionPreference = 'Stop'
 $PSNativeCommandUseErrorActionPreference = $true
-$maximumPackageBytes = 64L * 1024 * 1024
+$maximumPackageBytes = 209715200
 
 function Assert-InputFile([string]$Path, [string]$Description) {
     $resolved = [System.IO.Path]::GetFullPath($Path)
@@ -213,15 +213,97 @@ function Assert-Manifest(
     }
 }
 
+function Test-HasOnlySafeAsciiUriCharacters([string]$Value) {
+    $allowedPunctuation = "._~:/?@!$&'()*+,;=-"
+    for ($index = 0; $index -lt $Value.Length; $index++) {
+        $character = $Value[$index]
+        if ([int][char]$character -gt 0x7f) {
+            return $false
+        }
+        if ([char]::IsAsciiLetterOrDigit($character) -or $allowedPunctuation.Contains([string]$character)) {
+            continue
+        }
+        if ($character -ne '%' -or $index + 2 -ge $Value.Length -or
+            -not [System.Uri]::IsHexDigit($Value[$index + 1]) -or
+            -not [System.Uri]::IsHexDigit($Value[$index + 2])) {
+            return $false
+        }
+        $index += 2
+    }
+    return $true
+}
+
+function Test-StrictIpv4([string]$HostName) {
+    $octets = $HostName.Split('.')
+    if ($octets.Count -ne 4) {
+        return $false
+    }
+
+    foreach ($octet in $octets) {
+        $value = 0
+        if ($octet.Length -eq 0 -or ($octet.Length -gt 1 -and $octet[0] -eq '0') -or
+            -not [System.Text.RegularExpressions.Regex]::IsMatch($octet, '^[0-9]+$') -or
+            -not [int]::TryParse($octet, [ref]$value) -or $value -gt 255) {
+            return $false
+        }
+    }
+    return $true
+}
+
+function Test-AsciiDnsHost([string]$HostName) {
+    if (-not ($HostName.ToCharArray() | Where-Object { [char]::IsAsciiLetter($_) })) {
+        return $false
+    }
+
+    return @($HostName.Split('.') | Where-Object {
+        -not [System.Text.RegularExpressions.Regex]::IsMatch($_, '^[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?$')
+    }).Count -eq 0
+}
+
+function Test-SafeHttpsReleaseUrl([string]$Value) {
+    if ([string]::IsNullOrWhiteSpace($Value) -or -not (Test-HasOnlySafeAsciiUriCharacters $Value)) {
+        return $false
+    }
+
+    $uri = $null
+    if (-not [System.Uri]::TryCreate($Value, [System.UriKind]::Absolute, [ref]$uri) -or
+        $uri.Scheme -cne 'https' -or -not [string]::IsNullOrEmpty($uri.UserInfo) -or
+        -not [string]::IsNullOrEmpty($uri.Fragment) -or -not $uri.IsDefaultPort -or
+        $uri.HostNameType -eq [System.UriHostNameType]::IPv6) {
+        return $false
+    }
+
+    $schemeSeparator = $Value.IndexOf('://', [System.StringComparison]::Ordinal)
+    if ($schemeSeparator -lt 0) {
+        return $false
+    }
+    $authorityStart = $schemeSeparator + 3
+    $authorityEnd = $Value.IndexOfAny([char[]]@([char]'/', [char]'?', [char]'#'), $authorityStart)
+    $authority = if ($authorityEnd -lt 0) { $Value.Substring($authorityStart) } else { $Value.Substring($authorityStart, $authorityEnd - $authorityStart) }
+    if ($authority.EndsWith(':443', [System.StringComparison]::Ordinal)) {
+        $authority = $authority.Substring(0, $authority.Length - 4)
+    }
+    if ($authority.Length -eq 0 -or $authority.Length -gt 253 -or $authority.Contains(':') -or $authority.Contains('@')) {
+        return $false
+    }
+
+    return (Test-StrictIpv4 $authority) -or (Test-AsciiDnsHost $authority)
+}
 function Assert-SafeAssetFileName([string]$File, [string]$Description) {
-    $reserved = @('CON', 'PRN', 'AUX', 'NUL', 'COM1', 'COM2', 'COM3', 'COM4', 'COM5', 'COM6', 'COM7', 'COM8', 'COM9', 'LPT1', 'LPT2', 'LPT3', 'LPT4', 'LPT5', 'LPT6', 'LPT7', 'LPT8', 'LPT9')
+    $reserved = [System.Collections.Generic.HashSet[string]]::new(
+        [string[]]@(
+            'CON', 'PRN', 'AUX', 'NUL',
+            'COM1', 'COM2', 'COM3', 'COM4', 'COM5', 'COM6', 'COM7', 'COM8', 'COM9',
+            'LPT1', 'LPT2', 'LPT3', 'LPT4', 'LPT5', 'LPT6', 'LPT7', 'LPT8', 'LPT9',
+            'COM¹', 'COM²', 'COM³', 'LPT¹', 'LPT²', 'LPT³'),
+        [System.StringComparer]::OrdinalIgnoreCase)
     $deviceName = [System.IO.Path]::GetFileNameWithoutExtension($File).Split('.', 2)[0].TrimEnd(' ', '.')
     if ([string]::IsNullOrWhiteSpace($File) -or $File.Contains('/') -or $File.Contains('\') -or
         $File.Contains('..') -or [System.IO.Path]::IsPathRooted($File) -or
         $File -cne [System.IO.Path]::GetFileName($File) -or
         -not $File.EndsWith('.zip', [System.StringComparison]::OrdinalIgnoreCase) -or
-        $File.IndexOfAny([System.IO.Path]::GetInvalidFileNameChars()) -ge 0 -or
-        $reserved -contains $deviceName) {
+        ($File.ToCharArray() | Where-Object { [int][char]$_ -lt 32 -or [System.IO.Path]::GetInvalidFileNameChars() -ccontains $_ }) -or
+        $reserved.Contains($deviceName)) {
         throw "$Description必须是安全的 ZIP 文件名：$File。"
     }
 }
@@ -237,9 +319,8 @@ function Assert-ReleaseMetadataPackage(
     Assert-SafeAssetFileName $file "$Description file"
     $url = Get-RequiredString $Package 'url' $Description
     $uri = $null
-    if (-not [System.Uri]::TryCreate($url, [System.UriKind]::Absolute, [ref]$uri) -or
-        $uri.Scheme -cne 'https' -or -not [string]::IsNullOrEmpty($uri.UserInfo) -or
-        -not [string]::IsNullOrEmpty($uri.Fragment) -or
+    if (-not (Test-SafeHttpsReleaseUrl $url) -or
+        -not [System.Uri]::TryCreate($url, [System.UriKind]::Absolute, [ref]$uri) -or
         [System.Uri]::UnescapeDataString([System.IO.Path]::GetFileName($uri.AbsolutePath)) -cne $file) {
         throw "$Description url 必须是明确指向同名 ZIP 资产的 HTTPS 地址。"
     }

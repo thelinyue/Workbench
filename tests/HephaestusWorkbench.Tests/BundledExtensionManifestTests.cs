@@ -53,17 +53,29 @@ public sealed class BundledExtensionManifestTests
         Assert.Contains("kind", error.Message, StringComparison.OrdinalIgnoreCase);
     }
 
-    [Fact]
-    public void Parse_PackageAbove64MiB_IsRejectedBySharedResourceLimit()
+    [Theory]
+    [InlineData(67_108_865L)]
+    [InlineData(209_715_200L)]
+    public void Parse_PackageAtFrozenSharedResourceLimit_IsAccepted(long size)
     {
-        var oversized = 64L * 1024 * 1024 + 1;
+        var json = ValidJson().Replace("\"size\":1024", $"\"size\":{size}", StringComparison.Ordinal);
+
+        var document = BundledExtensionManifestParser.Parse(json);
+
+        Assert.Equal(209_715_200L, ExtensionPackageLimits.MaximumPackageBytes);
+        Assert.Equal(size, Assert.Single(document.Extensions).Release.Size);
+    }
+
+    [Fact]
+    public void Parse_PackageAboveFrozenSharedResourceLimit_IsRejected()
+    {
+        const long oversized = 209_715_201L;
         var json = ValidJson().Replace("\"size\":1024", $"\"size\":{oversized}", StringComparison.Ordinal);
 
         var error = Assert.Throws<InvalidDataException>(() => BundledExtensionManifestParser.Parse(json));
 
         Assert.Contains("size", error.Message, StringComparison.OrdinalIgnoreCase);
     }
-
     [Fact]
     public void Parse_NullRelease_IsReportedAsChineseContractError()
     {

@@ -392,6 +392,38 @@ public sealed class InstallerDefinitionTests
     }
 
     [Fact]
+    public void ReleaseMetadataImport_UsesFrozenPackageSizeLimit()
+    {
+        var script = ReadRepositoryFile("installer", "import-release-metadata.ps1");
+
+        Assert.Contains("$maximumPackageBytes = 209715200", script, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task ReleaseMetadataImport_RejectsNonDefaultHttpsPortWithoutWritingOutput()
+    {
+        var result = await RunReleaseMetadataImportAsync(metadata =>
+        {
+            var package = GetReleaseMetadataPackage(metadata);
+            package["url"] = "https://example.invalid:444/releases/log-analyzer-v2.0.0.zip";
+        });
+
+        Assert.NotEqual(0, result.ExitCode);
+        Assert.Contains("url", result.Output, StringComparison.OrdinalIgnoreCase);
+        Assert.False(result.OutputExists);
+    }
+
+    [Fact]
+    public async Task ReleaseMetadataImport_RejectsWindowsSuperscriptReservedAssetWithoutWritingOutput()
+    {
+        var result = await RunReleaseMetadataImportAsync(packageFileName: "COM¹.zip");
+
+        Assert.NotEqual(0, result.ExitCode);
+        Assert.Contains("file", result.Output, StringComparison.OrdinalIgnoreCase);
+        Assert.False(result.OutputExists);
+    }
+
+    [Fact]
     public async Task ReleaseMetadataImport_RejectsMetadataSchemaOtherThanV2OrMissingCompleteManifest()
     {
         var invalidSchema = await RunReleaseMetadataImportAsync(metadata => metadata["schemaVersion"] = 1);
@@ -507,6 +539,7 @@ public sealed class InstallerDefinitionTests
         Assert.Contains("ZIP manifest", result.Output, StringComparison.Ordinal);
         Assert.False(result.OutputExists);
     }
+
     [Fact]
     public async Task ReleaseMetadataImport_RejectsBlankReviewedDescriptionInsteadOfDerivingItFromMetadata()
     {
@@ -610,21 +643,25 @@ public sealed class InstallerDefinitionTests
         Action<JsonObject>? mutateZipManifest = null,
         int rootManifestCopies = 1,
         string extensionId = "log-analyzer",
-        string reviewedDescription = "人工审核：日志分析扩展。")
+        string reviewedDescription = "人工审核：日志分析扩展。",
+        string packageFileName = "log-analyzer-v2.0.0.zip")
     {
         var sandbox = Path.Combine(Path.GetTempPath(), $"hephaestus-release-metadata-import-{Guid.NewGuid():N}");
         Directory.CreateDirectory(sandbox);
         try
         {
             var metadataPath = Path.Combine(sandbox, "release-metadata.json");
-            var packagePath = Path.Combine(sandbox, "log-analyzer-v2.0.0.zip");
+            var packagePath = Path.Combine(sandbox, packageFileName);
             var outputPath = Path.Combine(sandbox, "bundled-extensions.json");
             var metadata = CreateReleaseMetadata();
-            var zipManifest = Assert.IsType<JsonObject>(GetReleaseMetadataPackage(metadata)["manifest"]).DeepClone().AsObject();
+            var package = GetReleaseMetadataPackage(metadata);
+            package["file"] = packageFileName;
+            package["url"] = $"https://example.invalid/releases/{Uri.EscapeDataString(packageFileName)}";
+            var zipManifest = Assert.IsType<JsonObject>(package["manifest"]).DeepClone().AsObject();
             mutateZipManifest?.Invoke(zipManifest);
             await WriteTemporaryExtensionZipAsync(packagePath, zipManifest, rootManifestCopies);
+            Assert.True(File.Exists(packagePath), $"测试 helper 未能创建指定 ZIP 文件：{packagePath}");
 
-            var package = GetReleaseMetadataPackage(metadata);
             package["size"] = new FileInfo(packagePath).Length;
             package["sha256"] = Convert.ToHexString(SHA256.HashData(await File.ReadAllBytesAsync(packagePath))).ToLowerInvariant();
             mutateMetadata?.Invoke(metadata);
