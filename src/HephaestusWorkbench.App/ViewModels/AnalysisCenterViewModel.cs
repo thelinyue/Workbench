@@ -32,6 +32,8 @@ public sealed class AnalysisCenterViewModel : ViewModelBase, IDisposable
     private string _message = string.Empty;
     private string? _operationMessage;
     private bool _isBulkOperationActive;
+    private AnalysisScopeOption? _selectedAnalysisScope;
+    private AnalysisScopeFilterOption? _selectedHistoryScopeFilter;
     private int _suppressStateRefresh;
     private int _pendingLoadOperations;
     private bool _disposed;
@@ -69,6 +71,28 @@ public sealed class AnalysisCenterViewModel : ViewModelBase, IDisposable
     }
 
     public ObservableCollection<AnalysisLogGroupViewModel> Items { get; } = new();
+    public ObservableCollection<AnalysisScopeOption> AvailableAnalysisScopes { get; } = new();
+    public ObservableCollection<AnalysisScopeFilterOption> HistoryScopeFilters { get; } = new();
+    public bool SupportsStorageAnalysis => AvailableAnalysisScopes.Count > 1;
+    public AnalysisScopeOption? SelectedAnalysisScope
+    {
+        get => _selectedAnalysisScope;
+        set
+        {
+            if (!SetProperty(ref _selectedAnalysisScope, value)) return;
+            OnPropertyChanged(nameof(SelectedAnalysisScopeText));
+        }
+    }
+    public string SelectedAnalysisScopeText => SelectedAnalysisScope?.DisplayName ?? "综合分析";
+    public AnalysisScopeFilterOption? SelectedHistoryScopeFilter
+    {
+        get => _selectedHistoryScopeFilter;
+        set
+        {
+            if (!SetProperty(ref _selectedHistoryScopeFilter, value)) return;
+            OnPropertyChanged(nameof(HistoryItems));
+        }
+    }
     public ICommand RefreshCommand { get; }
     public ICommand OpenRowReportCommand { get; }
     public ICommand AnalyzeAllPendingCommand { get; }
@@ -87,6 +111,7 @@ public sealed class AnalysisCenterViewModel : ViewModelBase, IDisposable
     /// </summary>
     public IEnumerable<AnalysisHistoryItemViewModel> HistoryItems => Items
         .SelectMany(group => group.Attempts.Select(attempt => new AnalysisHistoryItemViewModel(group, attempt)))
+        .Where(item => SelectedHistoryScopeFilter?.Scope is null || item.AnalysisScope == SelectedHistoryScopeFilter.Scope)
         .OrderByDescending(item => item.ActivityTime);
     public bool HasSelection => SelectedItem is not null;
     public int BulkEligibleCount => Items.Count(x => x.IsBulkEligible);
@@ -143,7 +168,9 @@ public sealed class AnalysisCenterViewModel : ViewModelBase, IDisposable
             var casesTask = _analysis.ListCasesAsync();
             var tasksTask = _analysis.ListTasksAsync();
             var reportsTask = _reportService.ListAsync(new ReportQuery());
-            await Task.WhenAll(casesTask, tasksTask, reportsTask);
+            var scopesTask = _analysis.GetSupportedScopesAsync();
+            await Task.WhenAll(casesTask, tasksTask, reportsTask, scopesTask);
+            ApplyAvailableScopes(scopesTask.Result);
 
             _allItems.Clear();
             _allItems.AddRange(BuildGroups(_inbox.Items, casesTask.Result, tasksTask.Result, reportsTask.Result));
@@ -218,6 +245,28 @@ public sealed class AnalysisCenterViewModel : ViewModelBase, IDisposable
             .Select(x => x.Build())
             .OrderByDescending(x => x.LastActivityTime)
             .ToArray();
+    }
+
+    /// <summary>
+    /// 分析中心根据活动扩展的 capability 显示范围选项。默认每次回到综合分析，
+    /// 不把用户上一次的“存储分析”选择持久化到设置，避免后续批量任务被误用。
+    /// </summary>
+    private void ApplyAvailableScopes(IReadOnlyList<AnalysisScope> scopes)
+    {
+        var supportsComprehensive = scopes.Contains(AnalysisScope.Comprehensive);
+        var supportsStorage = scopes.Contains(AnalysisScope.Storage);
+        AvailableAnalysisScopes.Clear();
+        if (supportsComprehensive) AvailableAnalysisScopes.Add(new AnalysisScopeOption(AnalysisScope.Comprehensive, "综合分析"));
+        if (supportsStorage) AvailableAnalysisScopes.Add(new AnalysisScopeOption(AnalysisScope.Storage, "存储分析"));
+        SelectedAnalysisScope = AvailableAnalysisScopes.FirstOrDefault(option => option.Scope == AnalysisScope.Comprehensive)
+            ?? AvailableAnalysisScopes.FirstOrDefault();
+
+        HistoryScopeFilters.Clear();
+        HistoryScopeFilters.Add(new AnalysisScopeFilterOption(null, "全部范围"));
+        HistoryScopeFilters.Add(new AnalysisScopeFilterOption(AnalysisScope.Comprehensive, "综合分析"));
+        if (supportsStorage) HistoryScopeFilters.Add(new AnalysisScopeFilterOption(AnalysisScope.Storage, "存储分析"));
+        SelectedHistoryScopeFilter = HistoryScopeFilters.First();
+        OnPropertyChanged(nameof(SupportsStorageAnalysis));
     }
 
     /// <summary>将聚合后的日志完整呈现给工程师，批量操作因此始终作用于全量列表。</summary>
@@ -407,9 +456,10 @@ public sealed class AnalysisCenterViewModel : ViewModelBase, IDisposable
         var inspection = await _inbox.InspectFileAsync(item.SourcePath);
         if (!inspection.IsValid || inspection.Item is null) return (AnalysisSubmissionResult.Skipped, null);
 
+        var scope = SelectedAnalysisScope?.Scope ?? AnalysisScope.Comprehensive;
         var task = waitForCompletion
-            ? await _analysis.StartAndWaitAsync(inspection.Item)
-            : await _analysis.StartAsync(inspection.Item);
+            ? await _analysis.StartAndWaitAsync(inspection.Item, scope)
+            : await _analysis.StartAsync(inspection.Item, scope);
         if (task is null) return (AnalysisSubmissionResult.Failed, null);
         var result = waitForCompletion && task.Status is not AnalysisTaskStatus.Completed
             ? AnalysisSubmissionResult.Failed
@@ -610,6 +660,12 @@ public sealed class AnalysisCenterViewModel : ViewModelBase, IDisposable
     }
 }
 
+/// <summary>供 XAML 选择器显示的分析范围；显示名固定在界面层，协议仍使用枚举映射。</summary>
+public sealed record AnalysisScopeOption(AnalysisScope Scope, string DisplayName);
+
+/// <summary>历史记录筛选项；空 Scope 表示不过滤。</summary>
+public sealed record AnalysisScopeFilterOption(AnalysisScope? Scope, string DisplayName);
+
 /// <summary>单次案例、任务和报告的只读组合，供日志聚合和报告生命周期处理使用。</summary>
 public sealed class AnalysisAttemptViewModel : ViewModelBase
 {
@@ -625,6 +681,8 @@ public sealed class AnalysisAttemptViewModel : ViewModelBase
     public ReportSummary? Report { get; }
     public string PluginId => Report?.PluginId ?? Task?.PluginId ?? string.Empty;
     public string PluginName => Report?.PluginName ?? Task?.PluginId ?? "未知插件";
+    public AnalysisScope AnalysisScope => Task?.AnalysisScope ?? AnalysisScope.Comprehensive;
+    public string AnalysisScopeText => AnalysisScope == AnalysisScope.Storage ? "存储分析" : "综合分析";
     public object StatusValue => (object?)Task?.Status ?? Case.Status;
     public string ErrorMessage => Task?.ErrorMessage ?? Case.ErrorMessage ?? string.Empty;
     public bool HasError => !string.IsNullOrWhiteSpace(ErrorMessage);
@@ -653,6 +711,8 @@ public sealed class AnalysisHistoryItemViewModel : ViewModelBase
     public string DeviceId => Group.DeviceId;
     public DateTime ActivityTime => Attempt.ActivityTime;
     public string StatusText { get; }
+    public AnalysisScope AnalysisScope => Attempt.AnalysisScope;
+    public string AnalysisScopeText => Attempt.AnalysisScopeText;
     public object StatusValue => Attempt.StatusValue;
     public string ErrorMessage => Attempt.ErrorMessage;
     public bool HasError => Attempt.HasError;

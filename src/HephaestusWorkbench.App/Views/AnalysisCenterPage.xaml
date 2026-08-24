@@ -27,6 +27,7 @@
                             <TextBlock Text="{Binding StatusText}" FontSize="12"/>
                         </Border>
                         <TextBlock Text="{Binding LastActivityTime, StringFormat={}{0:yyyy-MM-dd HH:mm}}" Style="{StaticResource MutedTextStyle}" Margin="0,4,0,0"/>
+                        <TextBlock Text="{Binding CurrentAttempt.AnalysisScopeText}" Style="{StaticResource MutedTextStyle}" Margin="0,2,0,0"/>
                     </StackPanel>
                     <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center" HorizontalAlignment="Right">
                         <Button Content="{Binding SingleAnalysisText}" Style="{StaticResource CompactButtonStyle}" Command="{Binding DataContext.AnalyzeSingleCommand, ElementName=Root}" CommandParameter="{Binding}"/>
@@ -62,6 +63,7 @@
                             <TextBlock Text="{Binding StatusText}" FontSize="12"/>
                         </Border>
                         <TextBlock Text="{Binding ActivityTime, StringFormat={}{0:yyyy-MM-dd HH:mm}}" Style="{StaticResource MutedTextStyle}" Margin="0,4,0,0"/>
+                        <TextBlock Text="{Binding AnalysisScopeText}" Style="{StaticResource MutedTextStyle}" Margin="0,2,0,0"/>
                     </StackPanel>
                     <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center" HorizontalAlignment="Right">
                         <Button Content="打开报告" Style="{StaticResource PrimaryButtonStyle}" Command="{Binding DataContext.OpenRowReportCommand, ElementName=Root}" CommandParameter="{Binding}" Margin="0,0,6,0"/>
@@ -99,7 +101,11 @@
                 <StackPanel>
                     <TextBlock Text="快速分析" FontWeight="SemiBold" FontSize="16"/>
                     <TextBlock Text="将 .tgz 或 .tgz.temp 诊断日志拖放到此处，或选择一个日志文件。" Style="{StaticResource MutedTextStyle}" Margin="0,5,0,0"/>
-                    <TextBlock Text="当前日志分析组件执行综合分析；不展示插件或唯一分析范围选择。" Style="{StaticResource MutedTextStyle}" Margin="0,3,0,0"/>
+                    <StackPanel Orientation="Horizontal" Margin="0,8,0,0" Visibility="{Binding SupportsStorageAnalysis, Converter={StaticResource BooleanToVisibilityConverter}}">
+                        <TextBlock Text="分析范围：" VerticalAlignment="Center" Style="{StaticResource MutedTextStyle}"/>
+                        <ComboBox Width="140" Margin="6,0,0,0" ItemsSource="{Binding AvailableAnalysisScopes}" DisplayMemberPath="DisplayName" SelectedItem="{Binding SelectedAnalysisScope}" AutomationProperties.Name="分析范围"/>
+                    </StackPanel>
+                    <TextBlock Text="{Binding SelectedAnalysisScopeText, StringFormat=当前将执行：{0}}" Style="{StaticResource MutedTextStyle}" Margin="0,3,0,0"/>
                 </StackPanel>
                 <Button Grid.Column="1" Content="选择日志文件" Style="{StaticResource PrimaryButtonStyle}" Click="OnSelectLogFileClick" VerticalAlignment="Center" AutomationProperties.Name="选择日志文件"/>
             </Grid>
@@ -111,7 +117,10 @@
                     <ListBox ItemsSource="{Binding PendingItems}" ItemTemplate="{StaticResource PendingAnalysisRowTemplate}" BorderThickness="0"/>
                 </TabItem>
                 <TabItem Header="历史记录">
-                    <ListBox ItemsSource="{Binding HistoryItems}" ItemTemplate="{StaticResource HistoryAnalysisRowTemplate}" BorderThickness="0"/>
+                    <DockPanel>
+                        <ComboBox DockPanel.Dock="Top" Width="130" HorizontalAlignment="Left" Margin="0,0,0,8" ItemsSource="{Binding HistoryScopeFilters}" DisplayMemberPath="DisplayName" SelectedItem="{Binding SelectedHistoryScopeFilter}" AutomationProperties.Name="历史分析范围筛选"/>
+                        <ListBox ItemsSource="{Binding HistoryItems}" ItemTemplate="{StaticResource HistoryAnalysisRowTemplate}" BorderThickness="0"/>
+                    </DockPanel>
                 </TabItem>
             </TabControl>
             <TextBlock Text="暂无日志分析记录" HorizontalAlignment="Center" VerticalAlignment="Center" Style="{StaticResource MutedTextStyle}" Visibility="{Binding ShowEmptyState, Converter={StaticResource BooleanToVisibilityConverter}}"/>

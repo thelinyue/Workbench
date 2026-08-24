@@ -4,6 +4,7 @@ using HephaestusWorkbench.Data;
 using HephaestusWorkbench.PluginSDK;
 using AnalysisTaskStatus = HephaestusWorkbench.Core.Models.TaskStatus;
 using ProtocolAnalysisScope = HephaestusWorkbench.PluginSDK.AnalysisScope;
+using AnalysisScope = HephaestusWorkbench.Core.Models.AnalysisScope;
 
 namespace HephaestusWorkbench.Services;
 
@@ -57,11 +58,19 @@ public sealed class CaseAnalysisService
         _hostCompatibility = new ExtensionHostCompatibility(hostVersion);
     }
 
-    public async Task<AnalysisTask?> StartAsync(LogInboxItem item, CancellationToken cancellationToken = default)
+    public async Task<AnalysisTask?> StartAsync(
+        LogInboxItem item,
+        AnalysisScope scope = AnalysisScope.Comprehensive,
+        CancellationToken cancellationToken = default)
     {
         if (!item.IsValidArchive)
         {
             _logger.Error($"日志无法创建案例：{item.ErrorMessage ?? "压缩包无效"}");
+            return null;
+        }
+        if (!Enum.IsDefined(scope))
+        {
+            _logger.Error($"不支持的分析范围：{scope}。");
             return null;
         }
 
@@ -73,13 +82,17 @@ public sealed class CaseAnalysisService
             .Where(entry => !entry.Enabled)
             .Select(entry => entry.Id)
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var requiredScopeCapability = GetScopeCapability(scope);
         var engines = (await _extensions.LoadAsync(cancellationToken))
             .Where(extension => IsAnalysisEngine(extension, extensionSettings.DefaultAnalysisCapability))
+            .Where(extension => extension.SupportsCapability(requiredScopeCapability))
             .Where(extension => !disabledIds.Contains(extension.Id))
             .ToArray();
         if (engines.Length == 0)
         {
-            _logger.Error("没有可用的日志分析扩展。请先在扩展中心安装并启用官方日志分析扩展。");
+            _logger.Error(scope == AnalysisScope.Storage
+                ? "当前系统诊断插件不支持存储分析。请升级或启用支持存储分析的系统诊断插件。"
+                : "没有可用的日志分析扩展。请先在扩展中心安装并启用官方系统诊断插件。");
             return null;
         }
         if (engines.Length > 1)
@@ -105,7 +118,8 @@ public sealed class CaseAnalysisService
             // LeaseCurrentVersion 可能观察到选择之后切换的新 current；必须核对具体版本并重新验证执行契约，
             // 不能把未经本次 capability/runtime/protocol 筛选的 manifest 交给后台。
             if (!IsSameSelectedVersion(engine, selectedLease.Manifest) ||
-                !IsAnalysisEngine(selectedLease.Manifest, extensionSettings.DefaultAnalysisCapability))
+                !IsAnalysisEngine(selectedLease.Manifest, extensionSettings.DefaultAnalysisCapability) ||
+                !selectedLease.Manifest.SupportsCapability(requiredScopeCapability))
             {
                 _logger.Error(
                     $"日志分析扩展 {engine.Id} 在选择后已从 {engine.Version} 切换到 {selectedLease.Version}，已拒绝创建案例。");
@@ -136,6 +150,7 @@ public sealed class CaseAnalysisService
                 Id = Guid.NewGuid().ToString("N"),
                 CaseId = caseId,
                 PluginId = selectedLease.Id,
+                AnalysisScope = scope,
                 Status = AnalysisTaskStatus.Waiting
             };
             await _lifecycle.CreateAsync(analysisCase, task, cancellationToken);
@@ -168,6 +183,38 @@ public sealed class CaseAnalysisService
            && string.Equals(extension.Runtime.Protocol, AnalysisProcessProtocol.Version, StringComparison.Ordinal)
            && extension.SupportsCapability(requiredCapability);
 
+    /// <summary>
+    /// 分析范围是宿主和插件共同约定的能力，而不是根据插件版本号推断。
+    /// 这里把业务枚举唯一映射到 manifest capability，避免 UI 选中了存储分析却把不支持的进程拉起。
+    /// </summary>
+    private static string GetScopeCapability(AnalysisScope scope) => scope switch
+    {
+        AnalysisScope.Comprehensive => "analysis.scope.comprehensive",
+        AnalysisScope.Storage => "analysis.scope.storage",
+        _ => throw new InvalidOperationException($"不支持的分析范围：{scope}。")
+    };
+
+    /// <summary>返回当前唯一可用分析引擎支持的范围，供分析中心决定是否展示范围选择器。</summary>
+    public async Task<IReadOnlyList<AnalysisScope>> GetSupportedScopesAsync(CancellationToken cancellationToken = default)
+    {
+        using var settingsLease = await _extensionSettings.AcquireSnapshotLeaseAsync(cancellationToken);
+        var disabledIds = settingsLease.Settings.Extensions
+            .Where(entry => !entry.Enabled)
+            .Select(entry => entry.Id)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var engines = (await _extensions.LoadAsync(cancellationToken))
+            .Where(extension => IsAnalysisEngine(extension, settingsLease.Settings.DefaultAnalysisCapability))
+            .Where(extension => !disabledIds.Contains(extension.Id))
+            .ToArray();
+        if (engines.Length != 1) return Array.Empty<AnalysisScope>();
+
+        var engine = engines[0];
+        var scopes = new List<AnalysisScope>();
+        if (engine.SupportsCapability(GetScopeCapability(AnalysisScope.Comprehensive))) scopes.Add(AnalysisScope.Comprehensive);
+        if (engine.SupportsCapability(GetScopeCapability(AnalysisScope.Storage))) scopes.Add(AnalysisScope.Storage);
+        return scopes;
+    }
+
     private static bool IsSameSelectedVersion(ExtensionManifest selected, ExtensionManifest leased)
         => string.Equals(selected.Id, leased.Id, StringComparison.Ordinal)
            && string.Equals(selected.Version, leased.Version, StringComparison.Ordinal)
@@ -176,9 +223,12 @@ public sealed class CaseAnalysisService
     /// <summary>
     /// 提交并等待一次分析完成，供需要立即展示新报告的重新分析操作使用。
     /// </summary>
-    public async Task<AnalysisTask?> StartAndWaitAsync(LogInboxItem item, CancellationToken cancellationToken = default)
+    public async Task<AnalysisTask?> StartAndWaitAsync(
+        LogInboxItem item,
+        AnalysisScope scope = AnalysisScope.Comprehensive,
+        CancellationToken cancellationToken = default)
     {
-        var task = await StartAsync(item, cancellationToken);
+        var task = await StartAsync(item, scope, cancellationToken);
         if (task is not null) await _taskCenter.WaitForCompletionAsync(task.Id, cancellationToken);
         return task;
     }

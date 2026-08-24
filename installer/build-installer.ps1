@@ -1,10 +1,11 @@
 param(
     [ValidateSet('Debug', 'Release')]
     [string]$Configuration = 'Release',
-    [string]$Version = '2.0.0',
+    [string]$Version = '2.0.1',
     [string]$InnoCompilerPath,
     [Parameter(Mandatory = $true)]
     [string]$ExtensionTrustAnchorPath,
+    [string]$BundledAssetsDirectory,
     [switch]$ValidateOnly
 )
 
@@ -18,6 +19,13 @@ $dist = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot 'dist'))
 $signatureVerifier = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot 'verify-ed25519.ps1'))
 $projectAssetsPath = [System.IO.Path]::GetFullPath((Join-Path $repoRoot 'src\HephaestusWorkbench.Services\obj\project.assets.json'))
 $maximumPackageBytes = 209715200
+$resolvedBundledAssetsDirectory = $null
+if (-not [string]::IsNullOrWhiteSpace($BundledAssetsDirectory)) {
+    $resolvedBundledAssetsDirectory = [System.IO.Path]::GetFullPath($BundledAssetsDirectory)
+    if (-not (Test-Path -LiteralPath $resolvedBundledAssetsDirectory -PathType Container)) {
+        throw "本地 Bundled Extension 资产目录不存在：$resolvedBundledAssetsDirectory"
+    }
+}
 $knownKinds = @('workspace', 'analysis', 'maintenance')
 if ($Version -cnotmatch '^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$') {
     throw "发布版本必须使用 X.Y.Z 三段式正式版本：$Version。"
@@ -274,7 +282,21 @@ foreach ($item in $bundledExtensions) {
     $release = $item.release
     $assetPath = Join-Path $bundleStaging $assetName
     Assert-ChildPath $bundleStaging $assetPath "Bundled Extension $($item.id) 资产"
-    Invoke-WebRequest -Uri ([string]$release.url) -OutFile $assetPath -TimeoutSec 120
+    if ($null -ne $resolvedBundledAssetsDirectory) {
+        $localAssetPath = Join-Path $resolvedBundledAssetsDirectory $assetName
+        Assert-ChildPath $resolvedBundledAssetsDirectory $localAssetPath "本地 Bundled Extension $($item.id) 资产"
+        if (-not (Test-Path -LiteralPath $localAssetPath -PathType Leaf)) {
+            throw "本地 Bundled Extension 资产不存在：$localAssetPath"
+        }
+        $localAsset = Get-Item -LiteralPath $localAssetPath
+        if ($localAsset.Attributes.HasFlag([System.IO.FileAttributes]::ReparsePoint)) {
+            throw "本地 Bundled Extension 资产不能是重解析点：$localAssetPath"
+        }
+        Copy-Item -LiteralPath $localAssetPath -Destination $assetPath -Force
+    }
+    else {
+        Invoke-WebRequest -Uri ([string]$release.url) -OutFile $assetPath -TimeoutSec 120
+    }
 
     $file = Get-Item -LiteralPath $assetPath
     if ($file.Attributes.HasFlag([System.IO.FileAttributes]::ReparsePoint)) {

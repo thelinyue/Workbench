@@ -9,7 +9,7 @@ public sealed class AppShellRegressionTests
     [Fact]
     public void AppVersionInfo_UsesInformationalVersionWithoutBuildMetadata()
     {
-        Assert.Equal("v2.0.0", AppVersionInfo.DisplayVersion);
+        Assert.Equal("v2.0.1", AppVersionInfo.DisplayVersion);
         Assert.Equal("v1.2.3", AppVersionInfo.ToDisplayVersion("1.2.3+build.42", new Version(9, 9, 9)));
     }
 

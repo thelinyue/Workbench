@@ -21,10 +21,10 @@ public sealed class InstallerDefinitionTests
         var innoSetup = ReadRepositoryFile("installer", "HephaestusWorkbench.iss");
         var workflow = ReadRepositoryFile(".github", "workflows", "release.yml");
 
-        Assert.Contains("<Version>2.0.0</Version>", props);
-        Assert.Contains("[string]$Version = '2.0.0'", buildScript);
-        Assert.Contains("#define MyAppVersion \"2.0.0\"", innoSetup);
-        Assert.Contains("default: \"2.0.0\"", workflow);
+        Assert.Contains("<Version>2.0.1</Version>", props);
+        Assert.Contains("[string]$Version = '2.0.1'", buildScript);
+        Assert.Contains("#define MyAppVersion \"2.0.1\"", innoSetup);
+        Assert.Contains("default: \"2.0.1\"", workflow);
     }
 
     [Fact]
@@ -398,10 +398,10 @@ public sealed class InstallerDefinitionTests
         Assert.Equal(reviewedDescription, extension.Description);
         Assert.Equal("thelinyue", extension.PublisherId);
         Assert.Equal("analysis", extension.Kind.ToString().ToLowerInvariant());
-        Assert.Equal("log-analyzer-v2.0.0.zip", extension.Asset);
-        Assert.Equal("2.0.0", extension.Release.Version);
-        Assert.Equal("2.0.0", extension.Release.MinHostVersion);
-        Assert.Equal("https://example.invalid/releases/log-analyzer-v2.0.0.zip", extension.Release.Url);
+        Assert.Equal("log-analyzer-v2.0.1.zip", extension.Asset);
+        Assert.Equal("2.0.1", extension.Release.Version);
+        Assert.Equal("2.0.1", extension.Release.MinHostVersion);
+        Assert.Equal("https://example.invalid/releases/log-analyzer-v2.0.1.zip", extension.Release.Url);
         Assert.NotEqual(0, extension.Release.Size);
         Assert.Equal(64, extension.Release.Sha256.Length);
         Assert.Equal("test-key", extension.Release.Signature.KeyId);
@@ -423,7 +423,7 @@ public sealed class InstallerDefinitionTests
         var result = await RunReleaseMetadataImportAsync(metadata =>
         {
             var package = GetReleaseMetadataPackage(metadata);
-            package["url"] = "https://example.invalid:444/releases/log-analyzer-v2.0.0.zip";
+            package["url"] = "https://example.invalid:444/releases/log-analyzer-v2.0.1.zip";
         });
 
         Assert.NotEqual(0, result.ExitCode);
@@ -471,7 +471,7 @@ public sealed class InstallerDefinitionTests
     public async Task ReleaseMetadataImport_RejectsZipManifestThatDiffersFromSelectedMetadataPackage()
     {
         var result = await RunReleaseMetadataImportAsync(
-            mutateZipManifest: manifest => manifest["version"] = "2.0.1");
+            mutateZipManifest: manifest => manifest["version"] = "2.1.0");
 
         Assert.NotEqual(0, result.ExitCode);
         Assert.Contains("ZIP manifest", result.Output, StringComparison.Ordinal);
@@ -682,7 +682,7 @@ public sealed class InstallerDefinitionTests
         int rootManifestCopies = 1,
         string extensionId = "log-analyzer",
         string reviewedDescription = "人工审核：日志分析扩展。",
-        string packageFileName = "log-analyzer-v2.0.0.zip")
+        string packageFileName = "log-analyzer-v2.0.1.zip")
     {
         var sandbox = Path.Combine(Path.GetTempPath(), $"hephaestus-release-metadata-import-{Guid.NewGuid():N}");
         Directory.CreateDirectory(sandbox);
@@ -808,11 +808,11 @@ public sealed class InstallerDefinitionTests
                         ["schemaVersion"] = 2,
                         ["id"] = "log-analyzer",
                         ["name"] = "日志分析",
-                        ["version"] = "2.0.0",
+                        ["version"] = "2.0.1",
                         ["kind"] = "analysis",
                         ["publisherId"] = "thelinyue",
                         ["hostApiVersion"] = "1.0",
-                        ["minHostVersion"] = "2.0.0",
+                        ["minHostVersion"] = "2.0.1",
                         ["runtime"] = new JsonObject
                         {
                             ["kind"] = "process",
@@ -823,8 +823,8 @@ public sealed class InstallerDefinitionTests
                         ["permissions"] = new JsonArray(),
                         ["dependencies"] = new JsonArray()
                     },
-                    ["file"] = "log-analyzer-v2.0.0.zip",
-                    ["url"] = "https://example.invalid/releases/log-analyzer-v2.0.0.zip",
+                    ["file"] = "log-analyzer-v2.0.1.zip",
+                    ["url"] = "https://example.invalid/releases/log-analyzer-v2.0.1.zip",
                     ["size"] = 1,
                     ["sha256"] = new string('0', 64),
                     ["keyId"] = "test-key",
@@ -1004,8 +1004,8 @@ public sealed class InstallerDefinitionTests
                     ["asset"] = "test-extension.zip",
                     ["release"] = new JsonObject
                     {
-                        ["version"] = "2.0.0",
-                        ["minHostVersion"] = "2.0.0",
+                        ["version"] = "2.0.1",
+                        ["minHostVersion"] = "2.0.1",
                         ["url"] = "https://example.invalid/test-extension.zip",
                         ["size"] = 1,
                         ["sha256"] = new string('0', 64),

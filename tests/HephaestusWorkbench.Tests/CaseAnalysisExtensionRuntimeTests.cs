@@ -35,6 +35,35 @@ public sealed class CaseAnalysisExtensionRuntimeTests
     }
 
     [Fact]
+    public async Task StartAndWaitAsync_WithStorageCapability_PersistsStorageScope()
+    {
+        await using var environment = await TestEnvironment.CreateAsync(
+            AnalysisExtensionTestSupport.Process(capabilities:
+            ["analysis.engine", "analysis.scope.comprehensive", "analysis.scope.storage"]));
+        var log = Path.Combine(environment.Root, "storage-capable.tgz");
+        await File.WriteAllTextAsync(log, "success");
+
+        var task = await environment.Analysis.StartAndWaitAsync(ValidItem(log), AnalysisScope.Storage);
+
+        Assert.NotNull(task);
+        Assert.Equal(AnalysisScope.Storage, task.AnalysisScope);
+        Assert.Equal(AnalysisTaskStatus.Completed, task.Status);
+    }
+
+    [Fact]
+    public async Task StartAsync_WithoutStorageCapability_RejectsStorageScopeBeforeCreatingLifecycle()
+    {
+        await using var environment = await TestEnvironment.CreateAsync(AnalysisExtensionTestSupport.Process());
+        var log = Path.Combine(environment.Root, "storage-unsupported.tgz");
+        await File.WriteAllTextAsync(log, "success");
+
+        var task = await environment.Analysis.StartAsync(ValidItem(log), AnalysisScope.Storage);
+
+        Assert.Null(task);
+        Assert.Empty(await environment.Cases.ListAsync());
+        Assert.Empty(await environment.Tasks.ListAsync());
+    }
+    [Fact]
     public async Task StartAsync_WhenNoAnalysisEngineExists_DoesNotCreateLifecycle()
     {
         await using var environment = await TestEnvironment.CreateAsync(

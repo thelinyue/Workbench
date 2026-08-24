@@ -1,5 +1,5 @@
 #ifndef MyAppVersion
-  #define MyAppVersion "2.0.0"
+  #define MyAppVersion "2.0.1"
 #endif
 #ifndef AppSource
   #error AppSource must be supplied by build-installer.ps1
