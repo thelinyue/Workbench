@@ -708,11 +708,15 @@ public sealed class InstallerDefinitionTests
                 metadata.ToJsonString(new JsonSerializerOptions { WriteIndented = true }),
                 new UTF8Encoding(false));
 
+            var utf8RunnerPath = await WriteUtf8PowerShellRunnerAsync(sandbox);
             var startInfo = new ProcessStartInfo
             {
                 FileName = "pwsh",
                 RedirectStandardOutput = true,
                 RedirectStandardError = true,
+                // PowerShell 7 向重定向管道写入 UTF-8；显式指定解码方式，避免英文 Windows runner 按 OEM 代码页读取中文错误。
+                StandardOutputEncoding = Encoding.UTF8,
+                StandardErrorEncoding = Encoding.UTF8,
                 UseShellExecute = false,
                 CreateNoWindow = true
             };
@@ -720,6 +724,7 @@ public sealed class InstallerDefinitionTests
             startInfo.ArgumentList.Add("-NoProfile");
             startInfo.ArgumentList.Add("-NonInteractive");
             startInfo.ArgumentList.Add("-File");
+            startInfo.ArgumentList.Add(utf8RunnerPath);
             startInfo.ArgumentList.Add(Path.Combine(FindRepositoryRoot(), "installer", "import-release-metadata.ps1"));
             startInfo.ArgumentList.Add("-ReleaseMetadataPath");
             startInfo.ArgumentList.Add(metadataPath);
@@ -748,6 +753,27 @@ public sealed class InstallerDefinitionTests
         {
             DeleteValidationSandbox(sandbox);
         }
+    }
+
+    /// <summary>
+    /// 创建 UTF-8 PowerShell 包装器，使英文 Windows runner 与本地系统代码页无关地保留中文发布错误语义。
+    /// </summary>
+    private static async Task<string> WriteUtf8PowerShellRunnerAsync(string sandbox)
+    {
+        var runnerPath = Path.Combine(sandbox, "invoke-utf8-powershell.ps1");
+        await File.WriteAllTextAsync(
+            runnerPath,
+            """
+            [Console]::InputEncoding = [System.Text.UTF8Encoding]::new($false)
+            [Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false)
+            $OutputEncoding = [Console]::OutputEncoding
+            $targetScript = $args[0]
+            $targetArguments = @($args | Select-Object -Skip 1)
+            & $targetScript @targetArguments
+            exit $LASTEXITCODE
+            """,
+            new UTF8Encoding(false));
+        return runnerPath;
     }
 
     /// <summary>创建只用于进程级测试的最终 ZIP；其中根级 manifest.json 是脚本必须读取的唯一身份源。</summary>
@@ -901,18 +927,23 @@ public sealed class InstallerDefinitionTests
             if (tamperPackage) packageBytes[0] ^= 0x5a;
             await File.WriteAllBytesAsync(packagePath, packageBytes);
 
+            var utf8RunnerPath = await WriteUtf8PowerShellRunnerAsync(sandbox);
             var startInfo = new ProcessStartInfo
             {
                 FileName = "pwsh",
                 WorkingDirectory = FindRepositoryRoot(),
                 RedirectStandardOutput = true,
                 RedirectStandardError = true,
+                // 验签失败信息包含中文安全语义，必须按照 pwsh 的 UTF-8 管道字节解码。
+                StandardOutputEncoding = Encoding.UTF8,
+                StandardErrorEncoding = Encoding.UTF8,
                 UseShellExecute = false,
                 CreateNoWindow = true
             };
             startInfo.ArgumentList.Add("-NoProfile");
             startInfo.ArgumentList.Add("-NonInteractive");
             startInfo.ArgumentList.Add("-File");
+            startInfo.ArgumentList.Add(utf8RunnerPath);
             startInfo.ArgumentList.Add(Path.Combine(FindRepositoryRoot(), "installer", "verify-ed25519.ps1"));
             startInfo.ArgumentList.Add("-PackagePath");
             startInfo.ArgumentList.Add(packagePath);

@@ -139,7 +139,7 @@ public sealed class ReportOpenServiceTests
     [Fact]
     public async Task OpenAsync_LaunchesIndexHtmlAndUpdatesLastOpenedAtAfterSuccess()
     {
-        var openedAt = new DateTimeOffset(2026, 8, 23, 16, 30, 0, TimeSpan.FromHours(8));
+        var openedAt = new DateTimeOffset(2026, 8, 23, 8, 30, 0, TimeSpan.Zero);
         await using var environment = await TestEnvironment.CreateAsync(openedAt: openedAt);
         var extractPath = environment.CreateExtractDirectory("case-success");
         var reportPath = await environment.CreateReportAsync(extractPath);
@@ -150,7 +150,7 @@ public sealed class ReportOpenServiceTests
         Assert.True(result.Success);
         Assert.Equal(Path.Combine(reportPath, "index.html"), result.ReportEntryPath);
         Assert.Equal(result.ReportEntryPath, Assert.Single(environment.Launcher.OpenedPaths));
-        Assert.Equal(openedAt.LocalDateTime, (await environment.Reports.GetAsync("report-success"))?.LastOpenedAt);
+        Assert.Equal(openedAt.UtcDateTime, (await environment.Reports.GetAsync("report-success"))?.LastOpenedAt);
     }
 
     private sealed class TestEnvironment : IAsyncDisposable
