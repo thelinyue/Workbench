@@ -145,6 +145,15 @@ public sealed class WorkbenchConfigurationService
                 ? AppSettingsConfig.LightTheme
                 : AppSettingsConfig.LightTheme;
         settings.CleanupRetentionDays = Math.Clamp(settings.CleanupRetentionDays, 1, 7);
+        settings.Ssh ??= new SshSettingsConfig();
+        settings.Ssh.DefaultPort = settings.Ssh.DefaultPort is >= 1 and <= 65535 ? settings.Ssh.DefaultPort : 22;
+        settings.Terminal ??= new TerminalSettingsConfig();
+        settings.Terminal.FontFamily = string.IsNullOrWhiteSpace(settings.Terminal.FontFamily)
+            ? "Cascadia Mono"
+            : settings.Terminal.FontFamily.Trim();
+        settings.Terminal.FontSize = Math.Clamp(settings.Terminal.FontSize, 10, 24);
+        if (!Enum.IsDefined(settings.ReconnectBehavior))
+            settings.ReconnectBehavior = SshReconnectBehavior.AutomaticThreeAttempts;
     }
 
 }

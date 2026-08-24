@@ -78,6 +78,40 @@ public sealed class SettingsService
         await _configuration.SaveAppSettingsAsync(settings, cancellationToken);
     }
 
+    public async Task<SshTerminalPreferences> GetSshTerminalPreferencesAsync(CancellationToken cancellationToken = default)
+    {
+        var settings = await _configuration.EnsureAppSettingsAsync(cancellationToken);
+        return new SshTerminalPreferences(
+            settings.Ssh.DefaultPort,
+            settings.Terminal.FontFamily,
+            settings.Terminal.FontSize,
+            settings.ReconnectBehavior);
+    }
+
+    public async Task SetSshTerminalPreferencesAsync(
+        int defaultPort,
+        string fontFamily,
+        double fontSize,
+        SshReconnectBehavior reconnectBehavior,
+        CancellationToken cancellationToken = default)
+    {
+        if (defaultPort is < 1 or > 65535)
+            throw new ArgumentOutOfRangeException(nameof(defaultPort), "SSH 默认端口必须在 1 到 65535 之间。");
+        if (string.IsNullOrWhiteSpace(fontFamily))
+            throw new ArgumentException("终端字体不能为空。", nameof(fontFamily));
+        if (fontSize is < 10 or > 24)
+            throw new ArgumentOutOfRangeException(nameof(fontSize), "终端字号必须在 10 到 24 之间。");
+        if (!Enum.IsDefined(reconnectBehavior))
+            throw new ArgumentOutOfRangeException(nameof(reconnectBehavior), "SSH 重连策略无效。");
+
+        var settings = await _configuration.EnsureAppSettingsAsync(cancellationToken);
+        settings.Ssh.DefaultPort = defaultPort;
+        settings.Terminal.FontFamily = fontFamily.Trim();
+        settings.Terminal.FontSize = fontSize;
+        settings.ReconnectBehavior = reconnectBehavior;
+        await _configuration.SaveAppSettingsAsync(settings, cancellationToken);
+    }
+
     private static string NormalizeTheme(string? theme)
         => string.Equals(theme, AppSettingsConfig.DarkTheme, StringComparison.OrdinalIgnoreCase)
             ? AppSettingsConfig.DarkTheme

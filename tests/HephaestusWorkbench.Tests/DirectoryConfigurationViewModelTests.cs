@@ -78,7 +78,7 @@ public sealed class DirectoryConfigurationViewModelTests
         var settings = new SettingsService(configuration, paths.InboxDirectory);
         var viewModel = new SettingsViewModel(settings, inbox, _ => null);
 
-        await WaitForAsync(() => viewModel.WatchDirectories.Count == 1);
+        await viewModel.Initialization;
         Assert.True(viewModel.WatchDirectories.Single().IsAccessible);
         Assert.False(viewModel.SaveCommand.CanExecute(null));
         Assert.False(viewModel.RemoveWatchDirectoryCommand.CanExecute(null));

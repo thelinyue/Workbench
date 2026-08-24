@@ -23,5 +23,6 @@
   <ItemGroup>
     <None Include="..\..\docs\plugin-development.md" Link="Documentation\plugin-development.md" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
     <Resource Include="Assets\AppIcon\app-icon.ico" />
+    <Content Include="Assets\Terminal\**\*" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>

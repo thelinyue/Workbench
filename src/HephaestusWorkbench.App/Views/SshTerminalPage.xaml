@@ -3,18 +3,177 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              AutomationProperties.Name="SSH 终端">
     <Grid>
-        <Border Background="{DynamicResource WorkbenchSurfaceBrush}"
-                BorderBrush="{DynamicResource WorkbenchBorderBrush}" BorderThickness="1" CornerRadius="8" Padding="32">
-            <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" MaxWidth="480">
-                <TextBlock Text="&#xE756;" FontFamily="Segoe Fluent Icons" FontSize="36"
-                           Foreground="{DynamicResource WorkbenchPrimaryBrush}" HorizontalAlignment="Center" />
-                <TextBlock Text="{Binding EmptyTitle}" FontSize="20" FontWeight="SemiBold"
-                           HorizontalAlignment="Center" Margin="0,18,0,0" />
-                <TextBlock Text="{Binding EmptyDescription}" Style="{StaticResource MutedTextStyle}"
-                           TextAlignment="Center" TextWrapping="Wrap" Margin="0,10,0,0" />
-                <Button Content="新建 SSH 连接" IsEnabled="False" Margin="0,22,0,0"
-                        ToolTip="SSH 连接能力将在 SSH Core 阶段启用" AutomationProperties.Name="新建 SSH 连接" />
-            </StackPanel>
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="260" />
+            <ColumnDefinition Width="14" />
+            <ColumnDefinition Width="*" />
+        </Grid.ColumnDefinitions>
+
+        <Border Grid.Column="0" Style="{StaticResource CardStyle}" Padding="12">
+            <Grid>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="*" />
+                </Grid.RowDefinitions>
+                <StackPanel>
+                    <TextBlock Text="已保存设备" Style="{StaticResource SectionTitleStyle}" />
+                    <TextBlock Text="保存设备不会自动保存密码或私钥口令。" Style="{StaticResource MutedTextStyle}"
+                               TextWrapping="Wrap" Margin="0,0,0,10" />
+                </StackPanel>
+                <ListBox Grid.Row="1" ItemsSource="{Binding SavedDevices}" BorderThickness="0"
+                         Background="Transparent" ScrollViewer.HorizontalScrollBarVisibility="Disabled">
+                    <ListBox.ItemTemplate>
+                        <DataTemplate>
+                            <Border BorderBrush="{DynamicResource WorkbenchBorderBrush}" BorderThickness="0,0,0,1" Padding="4,9">
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="Auto" />
+                                    </Grid.ColumnDefinitions>
+                                    <StackPanel Grid.Column="0">
+                                        <TextBlock Text="{Binding Name}" FontWeight="SemiBold" />
+                                        <TextBlock Style="{StaticResource MutedTextStyle}">
+                                            <Run Text="{Binding Username}" /><Run Text="@" /><Run Text="{Binding Host}" /><Run Text=":" /><Run Text="{Binding Port}" />
+                                        </TextBlock>
+                                    </StackPanel>
+                                    <Button Grid.Column="1" Content="连接" Padding="10,4" Margin="8,0,0,0"
+                                            Command="{Binding DataContext.ConnectDeviceCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                            CommandParameter="{Binding}" AutomationProperties.Name="连接已保存设备" />
+                                </Grid>
+                            </Border>
+                        </DataTemplate>
+                    </ListBox.ItemTemplate>
+                </ListBox>
+            </Grid>
         </Border>
+
+        <Grid Grid.Column="2">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="10" />
+                <RowDefinition Height="*" />
+            </Grid.RowDefinitions>
+
+            <Border Grid.Row="0" Style="{StaticResource CardStyle}" Padding="14">
+                <StackPanel>
+                    <DockPanel LastChildFill="False" Margin="0,0,0,10">
+                        <StackPanel DockPanel.Dock="Left">
+                            <TextBlock Text="新建 SSH 连接" Style="{StaticResource SectionTitleStyle}" Margin="0" />
+                            <TextBlock Text="每个终端标签使用独立 SSH 连接。" Style="{StaticResource MutedTextStyle}" Margin="0,3,0,0" />
+                        </StackPanel>
+                        <Button DockPanel.Dock="Right" Content="连接" Style="{StaticResource PrimaryButtonStyle}"
+                                Command="{Binding ConnectCommand}" AutomationProperties.Name="建立 SSH 连接" Margin="12,0,0,0" />
+                    </DockPanel>
+
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="1.1*" />
+                            <ColumnDefinition Width="1.5*" />
+                            <ColumnDefinition Width="82" />
+                            <ColumnDefinition Width="1.1*" />
+                            <ColumnDefinition Width="1.2*" />
+                        </Grid.ColumnDefinitions>
+                        <StackPanel Grid.Column="0" Margin="0,0,8,0">
+                            <TextBlock Text="名称" Style="{StaticResource MutedTextStyle}" Margin="0,0,0,4" />
+                            <TextBox Text="{Binding Name, UpdateSourceTrigger=PropertyChanged}" AutomationProperties.Name="SSH 连接名称" />
+                        </StackPanel>
+                        <StackPanel Grid.Column="1" Margin="0,0,8,0">
+                            <TextBlock Text="主机" Style="{StaticResource MutedTextStyle}" Margin="0,0,0,4" />
+                            <TextBox Text="{Binding Host, UpdateSourceTrigger=PropertyChanged}" AutomationProperties.Name="SSH 主机" />
+                        </StackPanel>
+                        <StackPanel Grid.Column="2" Margin="0,0,8,0">
+                            <TextBlock Text="端口" Style="{StaticResource MutedTextStyle}" Margin="0,0,0,4" />
+                            <TextBox Text="{Binding Port, UpdateSourceTrigger=PropertyChanged}" AutomationProperties.Name="SSH 端口" />
+                        </StackPanel>
+                        <StackPanel Grid.Column="3" Margin="0,0,8,0">
+                            <TextBlock Text="用户名" Style="{StaticResource MutedTextStyle}" Margin="0,0,0,4" />
+                            <TextBox Text="{Binding Username, UpdateSourceTrigger=PropertyChanged}" AutomationProperties.Name="SSH 用户名" />
+                        </StackPanel>
+                        <StackPanel Grid.Column="4">
+                            <TextBlock Text="认证方式" Style="{StaticResource MutedTextStyle}" Margin="0,0,0,4" />
+                            <ComboBox ItemsSource="{Binding AuthenticationOptions}" DisplayMemberPath="DisplayName" SelectedValuePath="Value"
+                                      SelectedValue="{Binding AuthenticationMethod}" AutomationProperties.Name="SSH 认证方式" ToolTip="选择密码认证或私钥认证" />
+                        </StackPanel>
+                    </Grid>
+
+                    <Grid Margin="0,10,0,0">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="1.5*" />
+                            <ColumnDefinition Width="2*" />
+                            <ColumnDefinition Width="1.5*" />
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <StackPanel Grid.Column="0" Margin="0,0,8,0">
+                            <StackPanel.Style>
+                                <Style TargetType="StackPanel"><Setter Property="Visibility" Value="Collapsed" />
+                                    <Style.Triggers><DataTrigger Binding="{Binding IsPasswordAuthentication}" Value="True"><Setter Property="Visibility" Value="Visible" /></DataTrigger></Style.Triggers>
+                                </Style>
+                            </StackPanel.Style>
+                            <TextBlock Text="密码" Style="{StaticResource MutedTextStyle}" Margin="0,0,0,4" />
+                            <PasswordBox PasswordChanged="PasswordBox_OnPasswordChanged" AutomationProperties.Name="SSH 密码" />
+                        </StackPanel>
+                        <StackPanel Grid.Column="0" Margin="0,0,8,0">
+                            <StackPanel.Style>
+                                <Style TargetType="StackPanel"><Setter Property="Visibility" Value="Collapsed" />
+                                    <Style.Triggers><DataTrigger Binding="{Binding IsPrivateKeyAuthentication}" Value="True"><Setter Property="Visibility" Value="Visible" /></DataTrigger></Style.Triggers>
+                                </Style>
+                            </StackPanel.Style>
+                            <TextBlock Text="私钥路径" Style="{StaticResource MutedTextStyle}" Margin="0,0,0,4" />
+                            <TextBox Text="{Binding PrivateKeyPath, UpdateSourceTrigger=PropertyChanged}" AutomationProperties.Name="SSH 私钥路径" />
+                        </StackPanel>
+                        <StackPanel Grid.Column="1" Margin="0,0,8,0">
+                            <StackPanel.Style>
+                                <Style TargetType="StackPanel"><Setter Property="Visibility" Value="Collapsed" />
+                                    <Style.Triggers><DataTrigger Binding="{Binding IsPrivateKeyAuthentication}" Value="True"><Setter Property="Visibility" Value="Visible" /></DataTrigger></Style.Triggers>
+                                </Style>
+                            </StackPanel.Style>
+                            <TextBlock Text="私钥口令（可选）" Style="{StaticResource MutedTextStyle}" Margin="0,0,0,4" />
+                            <PasswordBox PasswordChanged="PassphraseBox_OnPasswordChanged" AutomationProperties.Name="SSH 私钥口令" />
+                        </StackPanel>
+                        <CheckBox Grid.Column="3" Content="保存设备" IsChecked="{Binding SaveDevice}" VerticalAlignment="Bottom"
+                                  AutomationProperties.Name="保存 SSH 设备" Margin="8,0,12,7" />
+                        <CheckBox Grid.Column="4" Content="保存凭据" IsChecked="{Binding SaveCredential}" IsEnabled="{Binding SaveDevice}"
+                                  ToolTip="仅在明确勾选时写入 Windows Credential Manager" VerticalAlignment="Bottom"
+                                  AutomationProperties.Name="保存 SSH 凭据" Margin="0,0,0,7" />
+                    </Grid>
+                    <TextBlock Text="{Binding StatusMessage}" Foreground="{DynamicResource WorkbenchDangerBrush}" TextWrapping="Wrap" Margin="0,8,0,0" />
+                </StackPanel>
+            </Border>
+
+            <Border Grid.Row="2" Background="{DynamicResource WorkbenchSurfaceBrush}" BorderBrush="{DynamicResource WorkbenchBorderBrush}"
+                    BorderThickness="1" CornerRadius="6">
+                <Grid>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="42" />
+                        <RowDefinition Height="*" />
+                    </Grid.RowDefinitions>
+                    <ListBox x:Name="TerminalTabs" Grid.Row="0" ItemsSource="{Binding Tabs}" SelectedItem="{Binding SelectedTab}"
+                             SelectionChanged="TerminalTabs_OnSelectionChanged" BorderThickness="0,0,0,1"
+                             BorderBrush="{DynamicResource WorkbenchBorderBrush}" Background="{DynamicResource WorkbenchNavBrush}"
+                             ScrollViewer.HorizontalScrollBarVisibility="Auto" ScrollViewer.VerticalScrollBarVisibility="Disabled">
+                        <ListBox.ItemsPanel>
+                            <ItemsPanelTemplate><StackPanel Orientation="Horizontal" /></ItemsPanelTemplate>
+                        </ListBox.ItemsPanel>
+                        <ListBox.ItemTemplate>
+                            <DataTemplate>
+                                <StackPanel Orientation="Horizontal" Margin="4,0">
+                                    <TextBlock Text="{Binding Title}" VerticalAlignment="Center" Margin="6,0" />
+                                    <Button Content="&#xE711;" FontFamily="Segoe Fluent Icons" Padding="6,3" Margin="2,0"
+                                            Command="{Binding DataContext.CloseTabCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                            CommandParameter="{Binding}" ToolTip="关闭终端标签" AutomationProperties.Name="关闭终端标签" />
+                                </StackPanel>
+                            </DataTemplate>
+                        </ListBox.ItemTemplate>
+                    </ListBox>
+                    <ContentControl x:Name="TerminalHost" Grid.Row="1" />
+                    <StackPanel Grid.Row="1" HorizontalAlignment="Center" VerticalAlignment="Center"
+                                Visibility="{Binding HasTabs, Converter={StaticResource InverseBooleanToVisibilityConverter}}">
+                        <TextBlock Text="尚未建立 SSH 连接" FontSize="18" FontWeight="SemiBold" HorizontalAlignment="Center" />
+                        <TextBlock Text="填写上方连接信息，或连接左侧已保存设备。" Style="{StaticResource MutedTextStyle}" Margin="0,6,0,0" />
+                    </StackPanel>
+                </Grid>
+            </Border>
+        </Grid>
     </Grid>
 </UserControl>

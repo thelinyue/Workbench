@@ -72,6 +72,19 @@
                         <ComboBox ItemsSource="{Binding ThemeOptions}" DisplayMemberPath="DisplayName" SelectedValuePath="Value" SelectedValue="{Binding SelectedTheme, UpdateSourceTrigger=PropertyChanged}" Width="160" HorizontalAlignment="Left"/>
                     </StackPanel>
                 </Border>
+                <Border Style="{StaticResource CardStyle}" Margin="0,10,0,0">
+                    <StackPanel>
+                        <TextBlock Text="SSH 与终端" Style="{StaticResource SectionTitleStyle}"/>
+                        <TextBlock Text="这些偏好用于新建连接和新终端标签，不保存任何凭据。" Style="{StaticResource MutedTextStyle}" TextWrapping="Wrap" Margin="0,0,0,12"/>
+                        <TextBlock Text="默认端口" Style="{StaticResource MutedTextStyle}" Margin="0,0,0,5"/>
+                        <TextBox Text="{Binding SshDefaultPort, UpdateSourceTrigger=PropertyChanged}" Width="100" HorizontalAlignment="Left" AutomationProperties.Name="SSH 默认端口"/>
+                        <TextBlock Text="终端字体" Style="{StaticResource MutedTextStyle}" Margin="0,10,0,5"/>
+                        <TextBox Text="{Binding TerminalFontFamily, UpdateSourceTrigger=PropertyChanged}" AutomationProperties.Name="终端字体"/>
+                        <TextBlock Text="终端字号" Style="{StaticResource MutedTextStyle}" Margin="0,10,0,5"/>
+                        <TextBox Text="{Binding TerminalFontSize, UpdateSourceTrigger=PropertyChanged}" Width="100" HorizontalAlignment="Left" AutomationProperties.Name="终端字号"/>
+                        <CheckBox Content="暂态断线自动重连三次" IsChecked="{Binding AutomaticSshReconnect}" Margin="0,12,0,0" AutomationProperties.Name="暂态断线自动重连三次"/>
+                    </StackPanel>
+                </Border>
             </StackPanel>
 
             <Border x:Name="SettingsActionsPanel" Grid.Row="1" Grid.ColumnSpan="2" Style="{StaticResource CommandStripStyle}" Margin="0,2,0,0">

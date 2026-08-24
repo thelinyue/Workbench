@@ -36,6 +36,28 @@ public sealed class WorkbenchConfigurationTests
     }
 
     [Fact]
+    public async Task SettingsService_PersistsNormalizedSshTerminalPreferences()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "HephaestusWorkbenchTests", Guid.NewGuid().ToString("N"));
+        var paths = new DataPaths(root);
+        var settings = new SettingsService(new WorkbenchConfigurationService(paths), paths.InboxDirectory);
+        try
+        {
+            await settings.SetSshTerminalPreferencesAsync(2222, "  Consolas  ", 18, SshReconnectBehavior.Disabled);
+            var saved = await settings.GetSshTerminalPreferencesAsync();
+
+            Assert.Equal(2222, saved.DefaultPort);
+            Assert.Equal("Consolas", saved.FontFamily);
+            Assert.Equal(18, saved.FontSize);
+            Assert.Equal(SshReconnectBehavior.Disabled, saved.ReconnectBehavior);
+        }
+        finally
+        {
+            if (Directory.Exists(root)) Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task EnsureConfigFiles_CreatesSchemaV2FilesAndIsIdempotent()
     {
         var root = Path.Combine(Path.GetTempPath(), "HephaestusWorkbenchTests", Guid.NewGuid().ToString("N"));

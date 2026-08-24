@@ -3,6 +3,7 @@ using System.Windows;
 using HephaestusWorkbench.App.ViewModels;
 using HephaestusWorkbench.Core.Models;
 using HephaestusWorkbench.Core.Repositories;
+using HephaestusWorkbench.Core.Services;
 using HephaestusWorkbench.PluginSDK;
 using HephaestusWorkbench.App.Views;
 using HephaestusWorkbench.Data;
@@ -110,6 +111,11 @@ internal sealed class WorkbenchHost : IDisposable
         Reports = new ReportService(ReportsRepository, Analysis);
         Inbox = new LogInboxService(new LogFileParser(), new ArchiveValidator(), Configuration, Logger, Paths.InboxDirectory);
         Settings = new SettingsService(Configuration, Paths.InboxDirectory);
+        SshDevices = new SqliteSshDeviceRepository(_factory);
+        SshHostKeys = new SqliteSshHostKeyRepository(_factory);
+        SshHistory = new SqliteSshConnectionHistoryRepository(_factory);
+        Credentials = new WindowsCredentialStore();
+        SshTerminalService = new SshNetTerminalService(SshHostKeys, Credentials);
     }
 
     public DataPaths Paths { get; }
@@ -134,6 +140,11 @@ internal sealed class WorkbenchHost : IDisposable
     public ReportService Reports { get; }
     public LogInboxService Inbox { get; }
     public SettingsService Settings { get; }
+    public ISshDeviceRepository SshDevices { get; }
+    public ISshHostKeyRepository SshHostKeys { get; }
+    public ISshConnectionHistoryRepository SshHistory { get; }
+    public ICredentialStore Credentials { get; }
+    public ISshTerminalService SshTerminalService { get; }
     public AppSettingsConfig AppSettings { get; private set; } = new();
     public MainViewModel MainViewModel { get; private set; } = null!;
 
@@ -216,7 +227,16 @@ internal sealed class WorkbenchHost : IDisposable
             Logger,
             ThemeManager.ApplyTheme,
             ExtensionCenter,
-            OpenWorkspaceExtension);
+            OpenWorkspaceExtension,
+            new SshTerminalViewModel(
+                SshTerminalService,
+                SshDevices,
+                SshHostKeys,
+                SshHistory,
+                Credentials,
+                new WpfHostKeyConfirmationService(),
+                AppSettings,
+                Path.Combine(Paths.CacheDirectory, "TerminalWebView2")));
         await MainViewModel.InitializeAsync();
         Logger.Info("工作台初始化完成。");
     }

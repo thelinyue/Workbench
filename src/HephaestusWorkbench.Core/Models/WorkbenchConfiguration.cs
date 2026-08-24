@@ -26,5 +26,38 @@ public sealed class AppSettingsConfig
 
     public string Theme { get; set; } = LightTheme;
     public int CleanupRetentionDays { get; set; } = 7;
+    public SshSettingsConfig Ssh { get; set; } = new();
+    public TerminalSettingsConfig Terminal { get; set; } = new();
+    public SshReconnectBehavior ReconnectBehavior { get; set; } = SshReconnectBehavior.AutomaticThreeAttempts;
 
 }
+
+/// <summary>SSH 连接默认值，不包含设备身份或任何凭据。</summary>
+public sealed class SshSettingsConfig
+{
+    public int DefaultPort { get; set; } = 22;
+}
+
+/// <summary>内置 xterm.js 的显示偏好。</summary>
+public sealed class TerminalSettingsConfig
+{
+    public string FontFamily { get; set; } = "Cascadia Mono";
+    public double FontSize { get; set; } = 14;
+}
+
+/// <summary>交互终端在暂态断线后的有限重连策略。</summary>
+[JsonConverter(typeof(JsonStringEnumConverter))]
+public enum SshReconnectBehavior
+{
+    Disabled,
+    AutomaticThreeAttempts
+}
+
+
+
+/// <summary>设置页读取和保存的 SSH/终端偏好快照，不包含任何凭据。</summary>
+public sealed record SshTerminalPreferences(
+    int DefaultPort,
+    string FontFamily,
+    double FontSize,
+    SshReconnectBehavior ReconnectBehavior);

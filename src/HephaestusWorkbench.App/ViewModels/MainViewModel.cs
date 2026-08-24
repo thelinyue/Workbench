@@ -26,16 +26,17 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
         WorkbenchLogger logger,
         Func<string, string?> applyTheme,
         IExtensionCenterService extensions,
-        Action<ExtensionManifest> openWorkspace)
+        Action<ExtensionManifest> openWorkspace,
+        SshTerminalViewModel sshTerminal)
     {
         _inbox = inbox;
         _logger = logger;
         _directoryOpen = new DirectoryOpenService(logger);
         NavigationSections = ShellNavigation.CreateFixed();
         AnalysisCenter = new AnalysisCenterViewModel(inbox, analysis, reports, OpenExtractDirectory, logger);
-        SshTerminal = new SshTerminalViewModel();
+        SshTerminal = sshTerminal;
         OpenGlobalWarningCommand = new DelegateCommand(() => SelectNavigation("extensions"));
-        Settings = new SettingsViewModel(settings, inbox, applyTheme);
+        Settings = new SettingsViewModel(settings, inbox, applyTheme, SshTerminal.ApplyPreferences);
         Extensions = new ExtensionCenterViewModel(extensions, openWorkspace, logger);
         _selectedNavigationItem = FindNavigation("analysis");
         _currentPage = AnalysisCenter;
@@ -90,6 +91,8 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
     public async Task InitializeAsync()
     {
         await AnalysisCenter.InitializeAsync();
+        await Settings.Initialization;
+        await SshTerminal.InitializeAsync();
         // 默认启动页是分析中心；在线 Catalog 刷新不得阻塞主窗口出现，完成后通过 StateChanged 更新全局告警。
         _extensionRefreshTask = Extensions.InitializeAsync(_extensionRefreshCancellation.Token);
         RefreshGlobalWarning();
@@ -137,5 +140,6 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
         Extensions.StateChanged -= OnExtensionStateChanged;
         _logger.MessageWritten -= OnLogMessage;
         AnalysisCenter.Dispose();
+        SshTerminal.Dispose();
     }
 }

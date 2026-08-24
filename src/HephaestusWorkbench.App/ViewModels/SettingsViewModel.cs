@@ -15,6 +15,7 @@ public sealed class SettingsViewModel : ViewModelBase
     private readonly SettingsService _settings;
     private readonly LogInboxService _inbox;
     private readonly Func<string, string?> _applyTheme;
+    private readonly Action<SshTerminalPreferences>? _sshPreferencesSaved;
     private readonly List<string> _savedWatchDirectories = new();
     private string _newWatchDirectory = string.Empty;
     private WatchDirectoryItemViewModel? _selectedWatchDirectory;
@@ -27,17 +28,29 @@ public sealed class SettingsViewModel : ViewModelBase
     private string _selectedTheme = AppSettingsConfig.LightTheme;
     private string _persistedTheme = AppSettingsConfig.LightTheme;
     private string? _themePreviewError;
+    private int _sshDefaultPort = 22;
+    private string _terminalFontFamily = "Cascadia Mono";
+    private double _terminalFontSize = 14;
+    private bool _automaticSshReconnect = true;
 
-    public SettingsViewModel(SettingsService settings, LogInboxService inbox, Func<string, string?> applyTheme)
+    public SettingsViewModel(
+        SettingsService settings,
+        LogInboxService inbox,
+        Func<string, string?> applyTheme,
+        Action<SshTerminalPreferences>? sshPreferencesSaved = null)
     {
         _settings = settings;
         _inbox = inbox;
         _applyTheme = applyTheme;
+        _sshPreferencesSaved = sshPreferencesSaved;
         SaveCommand = new DelegateCommand(() => _ = SaveAsync(), CanSave);
         AddWatchDirectoryCommand = new DelegateCommand(AddWatchDirectory);
         RemoveWatchDirectoryCommand = new DelegateCommand(RemoveWatchDirectory, CanRemoveWatchDirectory);
-        _ = LoadAsync();
+        Initialization = LoadAsync();
     }
+
+    /// <summary>设置初始化完成任务；主窗口显示和测试交互前必须等待，避免加载过程覆盖用户修改。</summary>
+    public Task Initialization { get; }
 
     public ObservableCollection<WatchDirectoryItemViewModel> WatchDirectories { get; } = new();
 
@@ -132,6 +145,30 @@ public sealed class SettingsViewModel : ViewModelBase
     public ICommand SaveCommand { get; }
     public ICommand AddWatchDirectoryCommand { get; }
     public ICommand RemoveWatchDirectoryCommand { get; }
+
+    public int SshDefaultPort
+    {
+        get => _sshDefaultPort;
+        set { if (SetProperty(ref _sshDefaultPort, value)) MarkUnsaved(); }
+    }
+
+    public string TerminalFontFamily
+    {
+        get => _terminalFontFamily;
+        set { if (SetProperty(ref _terminalFontFamily, value)) MarkUnsaved(); }
+    }
+
+    public double TerminalFontSize
+    {
+        get => _terminalFontSize;
+        set { if (SetProperty(ref _terminalFontSize, value)) MarkUnsaved(); }
+    }
+
+    public bool AutomaticSshReconnect
+    {
+        get => _automaticSshReconnect;
+        set { if (SetProperty(ref _automaticSshReconnect, value)) MarkUnsaved(); }
+    }
 
     public string SelectedTheme
     {
@@ -230,6 +267,11 @@ public sealed class SettingsViewModel : ViewModelBase
 
             SelectedTheme = await _settings.GetThemeAsync();
             _persistedTheme = SelectedTheme;
+            var ssh = await _settings.GetSshTerminalPreferencesAsync();
+            SshDefaultPort = ssh.DefaultPort;
+            TerminalFontFamily = ssh.FontFamily;
+            TerminalFontSize = ssh.FontSize;
+            AutomaticSshReconnect = ssh.ReconnectBehavior == SshReconnectBehavior.AutomaticThreeAttempts;
             _themePreviewError = null;
             HasUnsavedChanges = false;
         }
@@ -264,6 +306,19 @@ public sealed class SettingsViewModel : ViewModelBase
 
             await _inbox.SetWatchDirectoriesAsync(CurrentWatchDirectories());
             await _settings.SetThemeAsync(SelectedTheme);
+            var reconnectBehavior = AutomaticSshReconnect
+                ? SshReconnectBehavior.AutomaticThreeAttempts
+                : SshReconnectBehavior.Disabled;
+            await _settings.SetSshTerminalPreferencesAsync(
+                SshDefaultPort,
+                TerminalFontFamily,
+                TerminalFontSize,
+                reconnectBehavior);
+            _sshPreferencesSaved?.Invoke(new SshTerminalPreferences(
+                SshDefaultPort,
+                TerminalFontFamily.Trim(),
+                TerminalFontSize,
+                reconnectBehavior));
 
             foreach (var directory in WatchDirectories) directory.RefreshAvailability();
             _savedWatchDirectories.Clear();
