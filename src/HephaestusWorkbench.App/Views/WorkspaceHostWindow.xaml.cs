@@ -24,30 +24,56 @@ public partial class WorkspaceHostWindow : Window
     private readonly ExtensionManifest _manifest;
     private readonly string _cacheDirectory;
     private readonly WorkbenchLogger _logger;
-    private readonly IDisposable _versionLease;
+    private readonly ExtensionVersionLease _versionLease;
     private CoreWebView2Environment? _environment;
     private bool _initialized;
     private bool _eventsAttached;
 
     public WorkspaceHostWindow(
-        ExtensionManifest manifest,
+        ExtensionVersionLease versionLease,
         string cacheDirectory,
-        WorkbenchLogger logger,
-        IDisposable versionLease)
+        WorkbenchLogger logger)
     {
-        _manifest = manifest ?? throw new ArgumentNullException(nameof(manifest));
+        _manifest = ValidateWorkspaceLease(versionLease);
         _cacheDirectory = string.IsNullOrWhiteSpace(cacheDirectory)
             ? throw new ArgumentException("Workspace Host 缓存目录不能为空。", nameof(cacheDirectory))
             : cacheDirectory;
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
-        _versionLease = versionLease ?? throw new ArgumentNullException(nameof(versionLease));
+        _versionLease = versionLease;
 
         InitializeComponent();
         // 禁止把宿主文件拖入不受信任页面，避免页面借浏览器默认行为读取本地文件。
         Browser.AllowExternalDrop = WorkspaceBrowserSecurityPolicy.AllowExternalDrop;
-        Title = manifest.Name;
+        Title = _manifest.Name;
         Loaded += OnLoaded;
         Closed += OnClosed;
+    }
+
+    /// <summary>
+    /// Workspace Host 只能消费 Registry 创建的同一份版本租约，不能分别接收 manifest 和授权对象。
+    /// 即使测试或未来宿主代码构造了不一致对象，也会在创建 WebView2 前按当前授权快照 fail-closed。
+    /// </summary>
+    internal static ExtensionManifest ValidateWorkspaceLease(ExtensionVersionLease versionLease)
+    {
+        ArgumentNullException.ThrowIfNull(versionLease);
+        var manifest = versionLease.Manifest;
+        var authorization = versionLease.Authorization;
+
+        if (string.IsNullOrWhiteSpace(authorization.KeyId))
+            throw new InvalidDataException("Workspace 扩展租约缺少受信任签名密钥身份。");
+        if (!string.Equals(authorization.PublisherId, manifest.PublisherId, StringComparison.Ordinal))
+            throw new InvalidDataException("Workspace 扩展租约的发布者与运行时授权不一致。");
+        if (!authorization.AllowedKinds.Contains(manifest.Kind))
+            throw new InvalidDataException("Workspace 扩展租约的类型超出运行时授权范围。");
+
+        var allowedPermissions = new HashSet<string>(authorization.Permissions, StringComparer.Ordinal);
+        foreach (var permission in manifest.Permissions)
+        {
+            if (!allowedPermissions.Contains(permission))
+                throw new InvalidDataException($"Workspace 扩展权限 {permission} 超出运行时授权范围。");
+        }
+
+        return manifest;
     }
 
     private async void OnLoaded(object sender, RoutedEventArgs e)

@@ -322,7 +322,7 @@ internal sealed class WorkbenchHost : IDisposable
                 throw new InvalidOperationException($"扩展 {manifest.Id} 的当前版本身份已变化，请刷新扩展中心后重试。");
             }
 
-            var window = new WorkspaceHostWindow(lease.Manifest, Paths.CacheDirectory, Logger, lease)
+            var window = new WorkspaceHostWindow(lease, Paths.CacheDirectory, Logger)
             {
                 Owner = System.Windows.Application.Current.MainWindow
             };

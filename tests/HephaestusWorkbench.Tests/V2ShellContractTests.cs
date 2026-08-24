@@ -96,7 +96,7 @@ public sealed class V2ShellContractTests
         var main = File.ReadAllText(Path.Combine(FindAppDirectory(), "ViewModels", "MainViewModel.cs"));
 
         Assert.Contains("LeaseCurrentVersion", app);
-        Assert.Contains("new WorkspaceHostWindow(lease.Manifest, Paths.CacheDirectory, Logger, lease)", app);
+        Assert.Contains("new WorkspaceHostWindow(lease, Paths.CacheDirectory, Logger)", app);
         Assert.DoesNotContain("window.Closed", app);
         Assert.Contains("CancellationTokenSource", main);
         Assert.Contains(".Cancel()", main);

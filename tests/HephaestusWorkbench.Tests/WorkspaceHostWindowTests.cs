@@ -1,6 +1,7 @@
 using System.Text.Json;
 using HephaestusWorkbench.App.Views;
 using HephaestusWorkbench.PluginSDK;
+using HephaestusWorkbench.Services;
 using Microsoft.Web.WebView2.Core;
 
 namespace HephaestusWorkbench.Tests;
@@ -19,6 +20,93 @@ public sealed class WorkspaceHostWindowTests
 
         Assert.Equal("受控的浏览器清理故障", exception.Message);
         Assert.True(lease.IsDisposed);
+    }
+
+    [Fact]
+    public void ValidateWorkspaceLease_ReturnsExactManifestHeldByLease()
+    {
+        using var environment = new WorkspaceManifestEnvironment();
+        var manifest = environment.CreateManifest(permissions: ["workspace.storage.read"]);
+        using var lease = CreateWorkspaceLease(manifest);
+
+        var resolvedManifest = WorkspaceHostWindow.ValidateWorkspaceLease(lease);
+
+        Assert.Same(manifest, resolvedManifest);
+    }
+
+    [Fact]
+    public void ValidateWorkspaceLease_RejectsNullLease()
+    {
+        Assert.Throws<ArgumentNullException>(
+            () => WorkspaceHostWindow.ValidateWorkspaceLease(null!));
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("   ")]
+    public void ValidateWorkspaceLease_RejectsMissingAuthorizationKeyId(string keyId)
+    {
+        using var environment = new WorkspaceManifestEnvironment();
+        var lease = CreateWorkspaceLease(environment.CreateManifest(), keyId: keyId);
+
+        var exception = Assert.Throws<InvalidDataException>(
+            () => WorkspaceHostWindow.ValidateWorkspaceLease(lease));
+
+        Assert.Contains("密钥", exception.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ValidateWorkspaceLease_RejectsPublisherMismatch()
+    {
+        using var environment = new WorkspaceManifestEnvironment();
+        var lease = CreateWorkspaceLease(
+            environment.CreateManifest(),
+            publisherId: "untrusted-publisher");
+
+        var exception = Assert.Throws<InvalidDataException>(
+            () => WorkspaceHostWindow.ValidateWorkspaceLease(lease));
+
+        Assert.Contains("发布者", exception.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ValidateWorkspaceLease_RejectsKindOutsideAuthorizationScope()
+    {
+        using var environment = new WorkspaceManifestEnvironment();
+        var lease = CreateWorkspaceLease(
+            environment.CreateManifest(),
+            allowedKinds: [ExtensionKind.Analysis]);
+
+        var exception = Assert.Throws<InvalidDataException>(
+            () => WorkspaceHostWindow.ValidateWorkspaceLease(lease));
+
+        Assert.Contains("类型", exception.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ValidateWorkspaceLease_RejectsPermissionOutsideAuthorizationScope()
+    {
+        using var environment = new WorkspaceManifestEnvironment();
+        var lease = CreateWorkspaceLease(
+            environment.CreateManifest(permissions: ["workspace.storage.read"]),
+            permissions: []);
+
+        var exception = Assert.Throws<InvalidDataException>(
+            () => WorkspaceHostWindow.ValidateWorkspaceLease(lease));
+
+        Assert.Contains("权限", exception.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Constructor_AcceptsOnlyTrustBoundLease()
+    {
+        var constructor = Assert.Single(typeof(WorkspaceHostWindow).GetConstructors());
+
+        Assert.Collection(
+            constructor.GetParameters(),
+            parameter => Assert.Equal(typeof(ExtensionVersionLease), parameter.ParameterType),
+            parameter => Assert.Equal(typeof(string), parameter.ParameterType),
+            parameter => Assert.Equal(typeof(WorkbenchLogger), parameter.ParameterType));
     }
 
     [Fact]
@@ -243,6 +331,21 @@ public sealed class WorkspaceHostWindowTests
         Assert.False(string.IsNullOrWhiteSpace(response.RequestId));
     }
 
+    private static ExtensionVersionLease CreateWorkspaceLease(
+        ExtensionManifest manifest,
+        string keyId = "test-key",
+        string? publisherId = null,
+        IReadOnlyList<ExtensionKind>? allowedKinds = null,
+        IReadOnlyList<string>? permissions = null)
+    {
+        var authorization = new ExtensionRuntimeAuthorization(
+            keyId,
+            publisherId ?? manifest.PublisherId,
+            allowedKinds ?? [manifest.Kind],
+            permissions ?? manifest.Permissions);
+        return new ExtensionVersionLease(manifest, authorization, static () => { });
+    }
+
     private static bool IsWithin(string root, string candidate)
     {
         var relative = Path.GetRelativePath(Path.GetFullPath(root), Path.GetFullPath(candidate));
@@ -290,7 +393,8 @@ public sealed class WorkspaceHostWindowTests
             ExtensionKind kind = ExtensionKind.Workspace,
             ExtensionRuntimeKind runtimeKind = ExtensionRuntimeKind.Web,
             string entry = "web/index.html",
-            IReadOnlyList<string>? capabilities = null)
+            IReadOnlyList<string>? capabilities = null,
+            IReadOnlyList<string>? permissions = null)
             => new()
             {
                 SchemaVersion = 2,
@@ -310,7 +414,7 @@ public sealed class WorkspaceHostWindowTests
                     Entry = entry
                 },
                 Capabilities = capabilities ?? ["workspace.page"],
-                Permissions = [],
+                Permissions = permissions ?? [],
                 Dependencies = [],
                 DirectoryPath = ExtensionPath
             };
