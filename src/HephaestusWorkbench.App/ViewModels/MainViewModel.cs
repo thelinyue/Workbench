@@ -1,4 +1,5 @@
 using HephaestusWorkbench.PluginSDK;
+using HephaestusWorkbench.Data;
 using HephaestusWorkbench.Services;
 using System.Windows.Input;
 using Wpf = System.Windows;
@@ -25,6 +26,10 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
         ReportService reports,
         WorkbenchLogger logger,
         Func<string, string?> applyTheme,
+        DataPaths paths,
+        BootstrapConfigurationStore bootstrapStore,
+        Func<string?> startReplacementProcess,
+        Action shutdownCurrentProcess,
         IExtensionCenterService extensions,
         Action<ExtensionManifest> openWorkspace,
         SshTerminalViewModel sshTerminal)
@@ -36,7 +41,16 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
         AnalysisCenter = new AnalysisCenterViewModel(inbox, analysis, reports, OpenExtractDirectory, logger);
         SshTerminal = sshTerminal;
         OpenGlobalWarningCommand = new DelegateCommand(() => SelectNavigation("extensions"));
-        Settings = new SettingsViewModel(settings, inbox, applyTheme, SshTerminal.ApplyPreferences);
+        Settings = new SettingsViewModel(
+            settings,
+            inbox,
+            applyTheme,
+            SshTerminal.ApplyPreferences,
+            paths,
+            bootstrapStore,
+            _directoryOpen,
+            startReplacementProcess,
+            shutdownCurrentProcess);
         Extensions = new ExtensionCenterViewModel(extensions, openWorkspace, logger);
         _selectedNavigationItem = FindNavigation("analysis");
         _currentPage = AnalysisCenter;

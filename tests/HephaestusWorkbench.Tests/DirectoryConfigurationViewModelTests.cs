@@ -119,7 +119,7 @@ public sealed class DirectoryConfigurationViewModelTests
             return null;
         });
 
-        await WaitForAsync(() => viewModel.WatchDirectories.Count == 1);
+        await viewModel.Initialization;
         viewModel.SelectedTheme = "Dark";
 
         Assert.Equal("Dark", appliedThemes.Last());

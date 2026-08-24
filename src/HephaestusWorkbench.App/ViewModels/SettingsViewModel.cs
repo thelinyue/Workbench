@@ -2,6 +2,7 @@ using System.Collections.ObjectModel;
 using System.IO;
 using System.Windows.Input;
 using HephaestusWorkbench.Core.Models;
+using HephaestusWorkbench.Data;
 using HephaestusWorkbench.Services;
 
 namespace HephaestusWorkbench.App.ViewModels;
@@ -16,6 +17,11 @@ public sealed class SettingsViewModel : ViewModelBase
     private readonly LogInboxService _inbox;
     private readonly Func<string, string?> _applyTheme;
     private readonly Action<SshTerminalPreferences>? _sshPreferencesSaved;
+    private readonly DataPaths? _paths;
+    private readonly BootstrapConfigurationStore? _bootstrapStore;
+    private readonly DirectoryOpenService? _directoryOpen;
+    private readonly Func<string?>? _startReplacementProcess;
+    private readonly Action? _shutdownCurrentProcess;
     private readonly List<string> _savedWatchDirectories = new();
     private string _newWatchDirectory = string.Empty;
     private WatchDirectoryItemViewModel? _selectedWatchDirectory;
@@ -32,20 +38,50 @@ public sealed class SettingsViewModel : ViewModelBase
     private string _terminalFontFamily = "Cascadia Mono";
     private double _terminalFontSize = 14;
     private bool _automaticSshReconnect = true;
+    private string _candidateDataRoot = string.Empty;
+    private string _storageFeedback = string.Empty;
+    private bool _storageFeedbackIsError;
+    private bool _dataRootChangeRegistered;
 
     public SettingsViewModel(
         SettingsService settings,
         LogInboxService inbox,
         Func<string, string?> applyTheme,
         Action<SshTerminalPreferences>? sshPreferencesSaved = null)
+        : this(settings, inbox, applyTheme, sshPreferencesSaved, null, null, null, null, null)
+    {
+    }
+
+    /// <summary>
+    /// 创建正式设置页模型。数据根切换只更新下一次启动读取的 bootstrap 指针，
+    /// 当前进程继续使用既有 <see cref="DataPaths"/>，不会迁移、复制或删除工作区数据。
+    /// </summary>
+    public SettingsViewModel(
+        SettingsService settings,
+        LogInboxService inbox,
+        Func<string, string?> applyTheme,
+        Action<SshTerminalPreferences>? sshPreferencesSaved,
+        DataPaths? paths,
+        BootstrapConfigurationStore? bootstrapStore,
+        DirectoryOpenService? directoryOpen,
+        Func<string?>? startReplacementProcess,
+        Action? shutdownCurrentProcess)
     {
         _settings = settings;
         _inbox = inbox;
         _applyTheme = applyTheme;
         _sshPreferencesSaved = sshPreferencesSaved;
+        _paths = paths;
+        _bootstrapStore = bootstrapStore;
+        _directoryOpen = directoryOpen;
+        _startReplacementProcess = startReplacementProcess;
+        _shutdownCurrentProcess = shutdownCurrentProcess;
         SaveCommand = new DelegateCommand(() => _ = SaveAsync(), CanSave);
         AddWatchDirectoryCommand = new DelegateCommand(AddWatchDirectory);
         RemoveWatchDirectoryCommand = new DelegateCommand(RemoveWatchDirectory, CanRemoveWatchDirectory);
+        OpenWorkspaceDirectoryCommand = new DelegateCommand(OpenWorkspaceDirectory, () => _paths is not null && _directoryOpen is not null);
+        RegisterDataRootChangeCommand = new DelegateCommand(() => _ = RegisterDataRootChangeAsync(), () => _bootstrapStore is not null);
+        RestartApplicationCommand = new DelegateCommand(RestartApplication, () => _dataRootChangeRegistered);
         Initialization = LoadAsync();
     }
 
@@ -145,6 +181,41 @@ public sealed class SettingsViewModel : ViewModelBase
     public ICommand SaveCommand { get; }
     public ICommand AddWatchDirectoryCommand { get; }
     public ICommand RemoveWatchDirectoryCommand { get; }
+    public ICommand OpenWorkspaceDirectoryCommand { get; }
+    public ICommand RegisterDataRootChangeCommand { get; }
+    public ICommand RestartApplicationCommand { get; }
+
+    public string CurrentDataRoot => _paths?.Root ?? string.Empty;
+
+    public string CandidateDataRoot
+    {
+        get => _candidateDataRoot;
+        set
+        {
+            if (!SetProperty(ref _candidateDataRoot, value)) return;
+            _dataRootChangeRegistered = false;
+            (RestartApplicationCommand as DelegateCommand)?.RaiseCanExecuteChanged();
+            SetStorageFeedback(string.Empty, isError: false);
+        }
+    }
+
+    public string StorageFeedback
+    {
+        get => _storageFeedback;
+        private set
+        {
+            if (!SetProperty(ref _storageFeedback, value)) return;
+            OnPropertyChanged(nameof(HasStorageFeedback));
+        }
+    }
+
+    public bool StorageFeedbackIsError
+    {
+        get => _storageFeedbackIsError;
+        private set => SetProperty(ref _storageFeedbackIsError, value);
+    }
+
+    public bool HasStorageFeedback => !string.IsNullOrWhiteSpace(StorageFeedback);
 
     public int SshDefaultPort
     {
@@ -249,6 +320,80 @@ public sealed class SettingsViewModel : ViewModelBase
     {
         MessageIsError = isError;
         Message = message;
+    }
+
+    private void SetStorageFeedback(string message, bool isError)
+    {
+        StorageFeedbackIsError = isError;
+        StorageFeedback = message;
+    }
+
+    private void OpenWorkspaceDirectory()
+    {
+        if (_paths is null || _directoryOpen is null) return;
+        var result = _directoryOpen.OpenWorkspaceDirectory(_paths.Root);
+        SetStorageFeedback(
+            result.Succeeded ? "已打开当前工作空间目录。" : $"无法打开工作空间目录：{result.ErrorMessage}",
+            isError: !result.Succeeded);
+    }
+
+    private async Task RegisterDataRootChangeAsync()
+    {
+        if (_bootstrapStore is null) return;
+
+        _dataRootChangeRegistered = false;
+        (RestartApplicationCommand as DelegateCommand)?.RaiseCanExecuteChanged();
+        try
+        {
+            if (string.IsNullOrWhiteSpace(CandidateDataRoot))
+            {
+                SetStorageFeedback("请选择一个空目录作为新的数据目录。", isError: true);
+                return;
+            }
+
+            var candidate = Path.GetFullPath(CandidateDataRoot.Trim());
+            if (!Directory.Exists(candidate))
+            {
+                SetStorageFeedback($"所选数据目录不存在或无法访问：{candidate}", isError: true);
+                return;
+            }
+
+            if (Directory.EnumerateFileSystemEntries(candidate).Any())
+            {
+                SetStorageFeedback($"所选数据目录必须为空：{candidate}", isError: true);
+                return;
+            }
+
+            await _bootstrapStore.WriteAsync(candidate);
+            CandidateDataRoot = candidate;
+            _dataRootChangeRegistered = true;
+            (RestartApplicationCommand as DelegateCommand)?.RaiseCanExecuteChanged();
+            SetStorageFeedback($"新的数据目录已登记，将在重启后生效：{candidate}", isError: false);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException or NotSupportedException)
+        {
+            SetStorageFeedback($"数据目录登记失败：{ex.Message}", isError: true);
+        }
+    }
+
+    private void RestartApplication()
+    {
+        if (!_dataRootChangeRegistered || _startReplacementProcess is null || _shutdownCurrentProcess is null) return;
+        try
+        {
+            var error = _startReplacementProcess();
+            if (!string.IsNullOrWhiteSpace(error))
+            {
+                SetStorageFeedback($"重新启动失败：{error}", isError: true);
+                return;
+            }
+
+            _shutdownCurrentProcess();
+        }
+        catch (Exception ex)
+        {
+            SetStorageFeedback($"重新启动失败：{ex.Message}", isError: true);
+        }
     }
 
     private async Task LoadAsync()

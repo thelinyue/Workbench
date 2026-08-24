@@ -59,6 +59,18 @@ public partial class SettingsPage : System.Windows.Controls.UserControl
         }
     }
 
+    private void BrowseDataRoot_Click(object sender, System.Windows.RoutedEventArgs e)
+    {
+        if (DataContext is not SettingsViewModel viewModel) return;
+        using var dialog = new Forms.FolderBrowserDialog
+        {
+            Description = "请选择一个空目录作为新的数据目录",
+            UseDescriptionForTitle = true,
+            SelectedPath = viewModel.CandidateDataRoot
+        };
+        if (dialog.ShowDialog() == Forms.DialogResult.OK) viewModel.CandidateDataRoot = dialog.SelectedPath;
+    }
+
     private void BrowseWatchDirectory_Click(object sender, System.Windows.RoutedEventArgs e)
     {
         if (DataContext is not SettingsViewModel viewModel) return;

@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.IO;
 using System.Windows;
 using HephaestusWorkbench.App.ViewModels;
@@ -67,8 +68,9 @@ internal sealed class WorkbenchHost : IDisposable
 {
     private readonly SqliteConnectionFactory _factory;
 
-    private WorkbenchHost(string dataRoot)
+    private WorkbenchHost(string dataRoot, BootstrapConfigurationStore bootstrapStore)
     {
+        BootstrapStore = bootstrapStore;
         Paths = new DataPaths(dataRoot);
         Paths.EnsureCreated();
         Logger = new WorkbenchLogger(dataRoot);
@@ -129,6 +131,7 @@ internal sealed class WorkbenchHost : IDisposable
             MaintenanceOperations);
     }
 
+    public BootstrapConfigurationStore BootstrapStore { get; }
     public DataPaths Paths { get; }
     public WorkbenchLogger Logger { get; }
     public IAnalysisCaseRepository CasesRepository { get; }
@@ -200,7 +203,7 @@ internal sealed class WorkbenchHost : IDisposable
             await bootstrapStore.WriteAsync(dataRoot);
         }
 
-        var host = new WorkbenchHost(dataRoot);
+        var host = new WorkbenchHost(dataRoot, bootstrapStore);
         try
         {
             await host.InitializeAsync();
@@ -245,6 +248,10 @@ internal sealed class WorkbenchHost : IDisposable
             Reports,
             Logger,
             ThemeManager.ApplyTheme,
+            Paths,
+            BootstrapStore,
+            StartReplacementProcess,
+            () => System.Windows.Application.Current.Shutdown(0),
             ExtensionCenter,
             OpenWorkspaceExtension,
             new SshTerminalViewModel(
@@ -259,6 +266,26 @@ internal sealed class WorkbenchHost : IDisposable
                 OpenMaintenanceWorkspace));
         await MainViewModel.InitializeAsync();
         Logger.Info("工作台初始化完成。");
+    }
+
+    /// <summary>
+    /// 先启动使用新 bootstrap 指针的替代进程；只有启动成功后，设置页才会关闭当前进程。
+    /// 返回值为空表示启动成功，非空值为可直接展示的中文失败原因。
+    /// </summary>
+    private static string? StartReplacementProcess()
+    {
+        try
+        {
+            var executable = Environment.ProcessPath;
+            if (string.IsNullOrWhiteSpace(executable)) return "无法确定当前工作台程序路径。";
+            return Process.Start(new ProcessStartInfo(executable) { UseShellExecute = true }) is null
+                ? "系统未能启动新的工作台进程。"
+                : null;
+        }
+        catch (Exception ex)
+        {
+            return ex.Message;
+        }
     }
 
     /// <summary>

@@ -17,9 +17,14 @@
 
             <Border x:Name="WatchDirectoriesCard" Grid.Row="0" Grid.Column="0" Style="{StaticResource CardStyle}" Margin="0,0,10,10" VerticalAlignment="Top">
                 <StackPanel>
+                    <TextBlock Text="工作空间" Style="{StaticResource SectionTitleStyle}"/>
+                    <TextBlock Text="当前运行中的数据目录只读展示；切换目录请在“存储”区域登记，并重启工作台。" Style="{StaticResource MutedTextStyle}" TextWrapping="Wrap" Margin="0,0,0,8"/>
+                    <TextBlock Text="{Binding CurrentDataRoot}" TextWrapping="Wrap" AutomationProperties.Name="当前工作空间目录"/>
+                    <Button Content="打开目录" Command="{Binding OpenWorkspaceDirectoryCommand}" HorizontalAlignment="Left" AutomationProperties.Name="打开工作空间目录" Margin="0,10,0,0"/>
+                    <Separator Margin="0,16,0,14"/>
                     <Grid>
                         <StackPanel>
-                            <TextBlock Text="工作区" Style="{StaticResource MutedTextStyle}" Margin="0,0,0,3"/>
+                            <TextBlock Text="日志监控" Style="{StaticResource MutedTextStyle}" Margin="0,0,0,3"/>
                             <TextBlock Text="日志监控目录" Style="{StaticResource SectionTitleStyle}" Margin="0"/>
                         </StackPanel>
                         <TextBlock Text="{Binding WatchDirectoryCountText}" Style="{StaticResource MutedTextStyle}" HorizontalAlignment="Right" VerticalAlignment="Center"/>
@@ -83,6 +88,20 @@
                         <TextBlock Text="终端字号" Style="{StaticResource MutedTextStyle}" Margin="0,10,0,5"/>
                         <TextBox Text="{Binding TerminalFontSize, UpdateSourceTrigger=PropertyChanged}" Width="100" HorizontalAlignment="Left" AutomationProperties.Name="终端字号"/>
                         <CheckBox Content="暂态断线自动重连三次" IsChecked="{Binding AutomaticSshReconnect}" Margin="0,12,0,0" AutomationProperties.Name="暂态断线自动重连三次"/>
+                    </StackPanel>
+                </Border>
+                <Border Style="{StaticResource CardStyle}" Margin="0,10,0,0">
+                    <StackPanel>
+                        <TextBlock Text="存储" Style="{StaticResource SectionTitleStyle}"/>
+                        <TextBlock Text="只允许登记空目录。当前工作空间不会迁移、复制或删除；新目录在重启后初始化并生效。" Style="{StaticResource MutedTextStyle}" TextWrapping="Wrap" Margin="0,0,0,12"/>
+                        <TextBlock Text="新的数据目录" Style="{StaticResource MutedTextStyle}" Margin="0,0,0,5"/>
+                        <TextBox Text="{Binding CandidateDataRoot, UpdateSourceTrigger=PropertyChanged}" AutomationProperties.Name="新的数据目录"/>
+                        <StackPanel Orientation="Horizontal" Margin="0,10,0,0">
+                            <Button Content="浏览" Click="BrowseDataRoot_Click" Width="88" AutomationProperties.Name="浏览新的数据目录"/>
+                            <Button Content="登记目录" Command="{Binding RegisterDataRootChangeCommand}" Style="{StaticResource PrimaryButtonStyle}" Width="100" AutomationProperties.Name="登记新的数据目录" Margin="0"/>
+                        </StackPanel>
+                        <TextBlock Text="{Binding StorageFeedback}" Style="{StaticResource InlineFeedbackStyle}" TextWrapping="Wrap" Visibility="{Binding HasStorageFeedback, Converter={StaticResource BooleanToVisibilityConverter}}" AutomationProperties.LiveSetting="Polite"/>
+                        <Button Content="立即重启" Command="{Binding RestartApplicationCommand}" HorizontalAlignment="Left" Margin="0,12,0,0" AutomationProperties.Name="立即重启工作台"/>
                     </StackPanel>
                 </Border>
             </StackPanel>
