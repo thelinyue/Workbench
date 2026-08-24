@@ -13,7 +13,7 @@ public sealed class ExtensionRegistryTests
         using var layout = new ExtensionTestLayout();
         layout.WriteManifest("sample", "1.0.0");
         layout.WriteCurrent("sample", "1.0.0", ExtensionTestLayout.HashA, ExtensionActivationState.Healthy);
-        var registry = new ExtensionRegistry(layout.ExtensionsRoot, new StubHealthChecker());
+        var registry = new ExtensionRegistry(layout.ExtensionsRoot, new StubHealthChecker(), layout.TrustStore);
 
         var active = await registry.LoadAsync();
 
@@ -30,7 +30,7 @@ public sealed class ExtensionRegistryTests
         layout.WriteManifest("sample", "1.0.0");
         layout.WriteCurrent("sample", "1.0.0", ExtensionTestLayout.HashA, ExtensionActivationState.Healthy);
         var rootWithSeparator = layout.ExtensionsRoot + Path.DirectorySeparatorChar;
-        var registry = new ExtensionRegistry(rootWithSeparator, new StubHealthChecker());
+        var registry = new ExtensionRegistry(rootWithSeparator, new StubHealthChecker(), layout.TrustStore);
 
         var active = await registry.LoadAsync();
 
@@ -43,7 +43,7 @@ public sealed class ExtensionRegistryTests
     {
         using var layout = new ExtensionTestLayout();
         layout.WriteManifest("orphan", "1.0.0");
-        var registry = new ExtensionRegistry(layout.ExtensionsRoot, new StubHealthChecker());
+        var registry = new ExtensionRegistry(layout.ExtensionsRoot, new StubHealthChecker(), layout.TrustStore);
 
         var active = await registry.LoadAsync();
 
@@ -59,7 +59,7 @@ public sealed class ExtensionRegistryTests
         layout.WriteManifest("sample", "2.0.0");
         layout.WriteCurrent("sample", "2.0.0", ExtensionTestLayout.HashB, ExtensionActivationState.Pending);
         layout.WriteBackup("sample", "1.0.0", ExtensionTestLayout.HashA, ExtensionActivationState.Healthy);
-        var registry = new ExtensionRegistry(layout.ExtensionsRoot, new StubHealthChecker());
+        var registry = new ExtensionRegistry(layout.ExtensionsRoot, new StubHealthChecker(), layout.TrustStore);
 
         var active = await registry.LoadAsync();
 
@@ -76,7 +76,7 @@ public sealed class ExtensionRegistryTests
         using var layout = new ExtensionTestLayout();
         layout.WriteManifest("sample", "2.0.0");
         layout.WriteCurrent("sample", "2.0.0", ExtensionTestLayout.HashB, ExtensionActivationState.Pending);
-        var registry = new ExtensionRegistry(layout.ExtensionsRoot, new StubHealthChecker());
+        var registry = new ExtensionRegistry(layout.ExtensionsRoot, new StubHealthChecker(), layout.TrustStore);
 
         var active = await registry.LoadAsync();
 
@@ -100,10 +100,10 @@ public sealed class ExtensionRegistryTests
             var pending = ExtensionCurrentParser.Parse(await File.ReadAllTextAsync(layout.CurrentPath("sample")));
             observedPending = pending.State == ExtensionActivationState.Pending && pending.Version == "2.0.0";
         });
-        var registry = new ExtensionRegistry(layout.ExtensionsRoot, checker);
+        var registry = new ExtensionRegistry(layout.ExtensionsRoot, checker, layout.TrustStore);
         await registry.LoadAsync();
 
-        var activated = await registry.ActivateAsync("sample", "2.0.0", ExtensionTestLayout.HashB);
+        var activated = await registry.ActivateAsync(layout.CreateVerification("sample", "2.0.0", ExtensionTestLayout.HashB, ExtensionTestTrust.DefaultKeyId));
 
         Assert.True(observedPending);
         Assert.Equal("2.0.0", activated.Version);
@@ -127,11 +127,17 @@ public sealed class ExtensionRegistryTests
         layout.WriteManifest("sample", "2.0.0", candidatePublisherId, candidateKind);
         layout.WriteCurrent("sample", "1.0.0", ExtensionTestLayout.HashA, ExtensionActivationState.Healthy);
         var checker = new StubHealthChecker();
-        var registry = new ExtensionRegistry(layout.ExtensionsRoot, checker);
+        var trustStore = ExtensionTestTrust.CreateStoreForPublishers(
+            (ExtensionTestTrust.DefaultKeyId, "thelinyue"),
+            ("other-key", "other-publisher"));
+        var registry = new ExtensionRegistry(layout.ExtensionsRoot, checker, trustStore);
         await registry.LoadAsync();
+        var candidateKeyId = string.Equals(candidatePublisherId, "other-publisher", StringComparison.Ordinal)
+            ? "other-key"
+            : ExtensionTestTrust.DefaultKeyId;
 
         var exception = await Assert.ThrowsAsync<InvalidOperationException>(() =>
-            registry.ActivateAsync("sample", "2.0.0", ExtensionTestLayout.HashB));
+            registry.ActivateAsync(layout.CreateVerification("sample", "2.0.0", ExtensionTestLayout.HashB, candidateKeyId)));
         var current = ExtensionCurrentParser.Parse(await File.ReadAllTextAsync(layout.CurrentPath("sample")));
 
         Assert.Contains("身份冲突", exception.Message, StringComparison.Ordinal);
@@ -149,10 +155,10 @@ public sealed class ExtensionRegistryTests
         layout.WriteCurrent("sample", "2.0.0", ExtensionTestLayout.HashB, ExtensionActivationState.Healthy);
         layout.WriteBackup("sample", "1.0.0", ExtensionTestLayout.HashA, ExtensionActivationState.Healthy);
         var checker = new StubHealthChecker();
-        var registry = new ExtensionRegistry(layout.ExtensionsRoot, checker);
+        var registry = new ExtensionRegistry(layout.ExtensionsRoot, checker, layout.TrustStore);
         await registry.LoadAsync();
 
-        var activated = await registry.ActivateAsync("sample", "2.0.0", ExtensionTestLayout.HashB);
+        var activated = await registry.ActivateAsync(layout.CreateVerification("sample", "2.0.0", ExtensionTestLayout.HashB, ExtensionTestTrust.DefaultKeyId));
 
         Assert.Equal("2.0.0", activated.Version);
         Assert.Equal(1, checker.CallCount);
@@ -171,14 +177,14 @@ public sealed class ExtensionRegistryTests
         layout.WriteManifest("sample", "1.0.0");
         layout.WriteManifest("sample", "2.0.0");
         layout.WriteCurrent("sample", "1.0.0", ExtensionTestLayout.HashA, ExtensionActivationState.Healthy);
-        var firstRegistry = new ExtensionRegistry(layout.ExtensionsRoot, new StubHealthChecker());
+        var firstRegistry = new ExtensionRegistry(layout.ExtensionsRoot, new StubHealthChecker(), layout.TrustStore);
         var laterChecker = new StubHealthChecker();
-        var laterRegistry = new ExtensionRegistry(layout.ExtensionsRoot, laterChecker);
+        var laterRegistry = new ExtensionRegistry(layout.ExtensionsRoot, laterChecker, layout.TrustStore);
         await firstRegistry.LoadAsync();
         await laterRegistry.LoadAsync();
 
-        await firstRegistry.ActivateAsync("sample", "2.0.0", ExtensionTestLayout.HashB);
-        var activated = await laterRegistry.ActivateAsync("sample", "2.0.0", ExtensionTestLayout.HashB);
+        await firstRegistry.ActivateAsync(layout.CreateVerification("sample", "2.0.0", ExtensionTestLayout.HashB, ExtensionTestTrust.DefaultKeyId));
+        var activated = await laterRegistry.ActivateAsync(layout.CreateVerification("sample", "2.0.0", ExtensionTestLayout.HashB, ExtensionTestTrust.DefaultKeyId));
 
         Assert.Equal("2.0.0", activated.Version);
         Assert.Equal(1, laterChecker.CallCount);
@@ -196,12 +202,14 @@ public sealed class ExtensionRegistryTests
         layout.WriteManifest("sample", "1.0.0");
         layout.WriteManifest("sample", "2.0.0");
         layout.WriteCurrent("sample", "1.0.0", ExtensionTestLayout.HashA, ExtensionActivationState.Healthy);
-        var registry = new ExtensionRegistry(layout.ExtensionsRoot, new StubHealthChecker((_, _) =>
-            throw new InvalidOperationException("正式加载失败")));
+        var registry = new ExtensionRegistry(
+            layout.ExtensionsRoot,
+            new StubHealthChecker((_, _) => throw new InvalidOperationException("正式加载失败")),
+            layout.TrustStore);
         await registry.LoadAsync();
 
         var error = await Assert.ThrowsAsync<InvalidOperationException>(() =>
-            registry.ActivateAsync("sample", "2.0.0", ExtensionTestLayout.HashB));
+            registry.ActivateAsync(layout.CreateVerification("sample", "2.0.0", ExtensionTestLayout.HashB, ExtensionTestTrust.DefaultKeyId)));
 
         Assert.Contains("激活", error.Message, StringComparison.Ordinal);
         Assert.Contains("回滚", error.Message, StringComparison.Ordinal);
@@ -219,10 +227,10 @@ public sealed class ExtensionRegistryTests
         layout.WriteManifest("sample", "1.0.0");
         layout.WriteCurrent("sample", "1.0.0", ExtensionTestLayout.HashA, ExtensionActivationState.Healthy);
         var checker = new StubHealthChecker();
-        var registry = new ExtensionRegistry(layout.ExtensionsRoot, checker);
+        var registry = new ExtensionRegistry(layout.ExtensionsRoot, checker, layout.TrustStore);
 
         var error = await Assert.ThrowsAsync<InvalidOperationException>(() =>
-            registry.ActivateAsync("sample", "1.0.0", ExtensionTestLayout.HashB));
+            registry.ActivateAsync(layout.CreateVerification("sample", "1.0.0", ExtensionTestLayout.HashB, ExtensionTestTrust.DefaultKeyId)));
 
         Assert.Contains("相同扩展版本", error.Message, StringComparison.Ordinal);
         Assert.Contains("SHA-256", error.Message, StringComparison.Ordinal);
@@ -244,7 +252,7 @@ public sealed class ExtensionRegistryTests
             WriteManifestAt(outsideExtension, "sample", "1.0.0");
             WriteCurrentAt(outsideExtension, "sample", "1.0.0", ExtensionTestLayout.HashA, ExtensionActivationState.Healthy);
             CreateJunction(linkDirectory, outsideExtension);
-            var registry = new ExtensionRegistry(layout.ExtensionsRoot, new StubHealthChecker());
+            var registry = new ExtensionRegistry(layout.ExtensionsRoot, new StubHealthChecker(), layout.TrustStore);
 
             var active = await registry.LoadAsync();
 
@@ -266,10 +274,10 @@ public sealed class ExtensionRegistryTests
         layout.WriteManifest("sample", "2.0.0");
         layout.WriteCurrent("sample", "2.0.0", ExtensionTestLayout.HashB, ExtensionActivationState.Pending);
         var checker = new StubHealthChecker();
-        var registry = new ExtensionRegistry(layout.ExtensionsRoot, checker);
+        var registry = new ExtensionRegistry(layout.ExtensionsRoot, checker, layout.TrustStore);
         await registry.LoadAsync();
 
-        var activated = await registry.ActivateAsync("sample", "2.0.0", ExtensionTestLayout.HashB);
+        var activated = await registry.ActivateAsync(layout.CreateVerification("sample", "2.0.0", ExtensionTestLayout.HashB, ExtensionTestTrust.DefaultKeyId));
 
         Assert.Equal("2.0.0", activated.Version);
         Assert.Equal(1, checker.CallCount);
@@ -286,13 +294,13 @@ public sealed class ExtensionRegistryTests
         layout.WriteManifest("sample", "2.0.0");
         layout.WriteCurrent("sample", "1.0.0", ExtensionTestLayout.HashA, ExtensionActivationState.Healthy);
         var checker = new StubHealthChecker((_, token) => Task.Delay(Timeout.InfiniteTimeSpan, token));
-        var registry = new ExtensionRegistry(layout.ExtensionsRoot, checker);
+        var registry = new ExtensionRegistry(layout.ExtensionsRoot, checker, layout.TrustStore);
         await registry.LoadAsync();
         using var cancellation = new CancellationTokenSource();
         cancellation.CancelAfter(TimeSpan.FromMilliseconds(100));
 
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
-            registry.ActivateAsync("sample", "2.0.0", ExtensionTestLayout.HashB, cancellation.Token));
+            registry.ActivateAsync(layout.CreateVerification("sample", "2.0.0", ExtensionTestLayout.HashB, ExtensionTestTrust.DefaultKeyId), cancellation.Token));
 
         var current = ExtensionCurrentParser.Parse(await File.ReadAllTextAsync(layout.CurrentPath("sample")));
         Assert.Equal("1.0.0", current.Version);
@@ -349,6 +357,7 @@ public sealed class ExtensionRegistryTests
             Id = id,
             Version = version,
             PackageSha256 = hash,
+            TrustedKeyId = ExtensionTestTrust.DefaultKeyId,
             State = state
         }));
     }
@@ -391,6 +400,8 @@ internal sealed class ExtensionTestLayout : IDisposable
 
     public string ExtensionsRoot { get; }
 
+    public IExtensionTrustStore TrustStore => ExtensionTestTrust.CreateStore();
+
     public string VersionDirectory(string id, string version) => Path.Combine(ExtensionsRoot, id, version);
 
     public string CurrentPath(string id) => Path.Combine(ExtensionsRoot, id, "current.json");
@@ -426,8 +437,30 @@ internal sealed class ExtensionTestLayout : IDisposable
               "dependencies": []
             }
             """);
+        var packageHash = string.Equals(version, "1.0.0", StringComparison.Ordinal) ? HashA : HashB;
+        File.WriteAllText(
+            Path.Combine(directory, "package.json"),
+            JsonSerializer.Serialize(new { schemaVersion = 2, sha256 = packageHash }));
         if (kind == ExtensionKind.Workspace)
             File.WriteAllText(Path.Combine(directory, "index.html"), "fixture");
+    }
+
+    public ExtensionPackageVerificationResult CreateVerification(
+        string id,
+        string version,
+        string packageSha256,
+        string trustedKeyId)
+    {
+        var versionDirectory = VersionDirectory(id, version);
+        var manifest = ExtensionManifestParser.Parse(
+            File.ReadAllText(Path.Combine(versionDirectory, "manifest.json")),
+            versionDirectory);
+        return new ExtensionPackageVerificationResult
+        {
+            Manifest = manifest,
+            PackageSha256 = packageSha256,
+            TrustedKeyId = trustedKeyId
+        };
     }
 
     public void WriteCurrent(string id, string version, string hash, ExtensionActivationState state)
@@ -450,6 +483,7 @@ internal sealed class ExtensionTestLayout : IDisposable
             Id = id,
             Version = version,
             PackageSha256 = hash,
+            TrustedKeyId = ExtensionTestTrust.DefaultKeyId,
             State = state
         }));
     }

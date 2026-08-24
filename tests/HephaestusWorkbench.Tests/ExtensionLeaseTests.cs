@@ -13,7 +13,7 @@ public sealed class ExtensionLeaseTests
         layout.WriteManifest("sample", "1.0.0");
         layout.WriteManifest("sample", "2.0.0");
         layout.WriteCurrent("sample", "1.0.0", ExtensionTestLayout.HashA, ExtensionActivationState.Healthy);
-        var registry = new ExtensionRegistry(layout.ExtensionsRoot, new PassingHealthChecker());
+        var registry = new ExtensionRegistry(layout.ExtensionsRoot, new PassingHealthChecker(), layout.TrustStore);
         await registry.LoadAsync();
 
         var lease = registry.LeaseCurrentVersion("sample");
@@ -40,7 +40,7 @@ public sealed class ExtensionLeaseTests
         layout.WriteManifest("sample", "2.0.0");
         layout.WriteCurrent("sample", "2.0.0", ExtensionTestLayout.HashB, ExtensionActivationState.Healthy);
         layout.WriteBackup("sample", "1.0.0", ExtensionTestLayout.HashA, ExtensionActivationState.Healthy);
-        var registry = new ExtensionRegistry(layout.ExtensionsRoot, new PassingHealthChecker());
+        var registry = new ExtensionRegistry(layout.ExtensionsRoot, new PassingHealthChecker(), layout.TrustStore);
         await registry.LoadAsync();
 
         Assert.False(registry.CanDeleteVersion("sample", "2.0.0"));

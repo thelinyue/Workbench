@@ -10,13 +10,20 @@ public sealed class ExtensionVersionLease : IDisposable
 {
     private Action? _release;
 
-    internal ExtensionVersionLease(ExtensionManifest manifest, Action release)
+    internal ExtensionVersionLease(
+        ExtensionManifest manifest,
+        ExtensionRuntimeAuthorization authorization,
+        Action release)
     {
-        Manifest = manifest;
+        Manifest = manifest ?? throw new ArgumentNullException(nameof(manifest));
+        Authorization = authorization ?? throw new ArgumentNullException(nameof(authorization));
         _release = release;
     }
 
     public ExtensionManifest Manifest { get; }
+
+    /// <summary>宿主在创建本次租约时重新解析得到的只读信任授权快照。</summary>
+    public ExtensionRuntimeAuthorization Authorization { get; }
 
     public string Id => Manifest.Id;
 

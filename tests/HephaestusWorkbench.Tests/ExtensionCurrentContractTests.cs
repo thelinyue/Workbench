@@ -16,6 +16,7 @@ public sealed class ExtensionCurrentContractTests
             Id = "log-analyzer",
             Version = "2.0.0",
             PackageSha256 = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            TrustedKeyId = ExtensionTestTrust.DefaultKeyId,
             State = state
         };
 
@@ -24,5 +25,6 @@ public sealed class ExtensionCurrentContractTests
         Assert.Contains("\"schemaVersion\":2", json, StringComparison.Ordinal);
         Assert.Contains($"\"state\":\"{expectedState}\"", json, StringComparison.Ordinal);
         Assert.Contains("\"packageSha256\":", json, StringComparison.Ordinal);
+        Assert.Contains("\"trustedKeyId\":", json, StringComparison.Ordinal);
     }
 }

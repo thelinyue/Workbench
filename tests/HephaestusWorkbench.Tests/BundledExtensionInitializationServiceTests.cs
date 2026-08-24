@@ -256,9 +256,21 @@ public sealed class BundledExtensionInitializationServiceTests
                     Permissions = []
                 }
             };
+            var otherTrustedKey = new TrustedPublisherKey
+            {
+                KeyId = "other-test-key",
+                PublisherId = "other-publisher",
+                PublicKeyBase64 = Convert.ToBase64String(new byte[32]),
+                Scope = new ExtensionTrustScope
+                {
+                    AllowedKinds = [ExtensionKind.Analysis],
+                    Permissions = []
+                }
+            };
+            var trustStore = new ExtensionTrustStore([trustedKey, otherTrustedKey]);
             var healthChecker = new ExtensionHealthChecker();
-            _registry = new ExtensionRegistry(ExtensionsRoot, healthChecker);
-            var verifier = new ExtensionPackageVerifier(new ExtensionTrustStore([trustedKey]));
+            _registry = new ExtensionRegistry(ExtensionsRoot, healthChecker, trustStore);
+            var verifier = new ExtensionPackageVerifier(trustStore);
             var installer = new ExtensionInstaller(ExtensionsRoot, verifier, _registry);
             Service = new BundledExtensionInitializationService(
                 BundleRoot,
@@ -304,6 +316,9 @@ public sealed class BundledExtensionInitializationServiceTests
             Directory.CreateDirectory(Path.Combine(directory, "bin"));
             File.WriteAllText(Path.Combine(directory, "bin", "log-analyzer.exe"), "existing");
             File.WriteAllText(Path.Combine(directory, "manifest.json"), BuildManifest(version, publisherId, kind, minHostVersion));
+            File.WriteAllText(
+                Path.Combine(directory, "package.json"),
+                JsonSerializer.Serialize(new { schemaVersion = 2, sha256 = new string('a', 64) }));
             Directory.CreateDirectory(Path.GetDirectoryName(CurrentPath)!);
             File.WriteAllText(CurrentPath, JsonSerializer.Serialize(new ExtensionCurrentDocument
             {
@@ -311,6 +326,9 @@ public sealed class BundledExtensionInitializationServiceTests
                 Id = "log-analyzer",
                 Version = version,
                 PackageSha256 = new string('a', 64),
+                TrustedKeyId = string.Equals(publisherId, "other-publisher", StringComparison.Ordinal)
+                    ? "other-test-key"
+                    : "test-key",
                 State = ExtensionActivationState.Healthy
             }));
         }

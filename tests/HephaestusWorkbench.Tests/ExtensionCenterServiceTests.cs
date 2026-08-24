@@ -407,7 +407,10 @@ public sealed class ExtensionCenterServiceTests
             Paths = new DataPaths(Root);
             Logger = new WorkbenchLogger(Root);
             Logger.MessageWritten += (_, message) => LogMessages.Add(message);
-            Registry = new ExtensionRegistry(Paths.ExtensionsDirectory, new ExtensionHealthChecker());
+            var trustStore = ExtensionTestTrust.CreateStoreForPublishers(
+                (ExtensionTestTrust.DefaultKeyId, "thelinyue"),
+                ("other-key", "other-publisher"));
+            Registry = new ExtensionRegistry(Paths.ExtensionsDirectory, new ExtensionHealthChecker(), trustStore);
             Settings = new ExtensionSettingsStore(Paths);
             Handler = new StubHandler(catalogJson, packageBytes);
             Verifier = new RecordingVerifier();
@@ -458,12 +461,18 @@ public sealed class ExtensionCenterServiceTests
             var entryPath = Path.Combine(versionDirectory, entry.Replace('/', Path.DirectorySeparatorChar));
             Directory.CreateDirectory(Path.GetDirectoryName(entryPath)!);
             await File.WriteAllTextAsync(entryPath, "fixture");
+            await File.WriteAllTextAsync(
+                Path.Combine(versionDirectory, "package.json"),
+                JsonSerializer.Serialize(new { schemaVersion = 2, sha256 = new string('c', 64) }));
             var current = new ExtensionCurrentDocument
             {
                 SchemaVersion = 2,
                 Id = id,
                 Version = version,
                 PackageSha256 = new string('c', 64),
+                TrustedKeyId = string.Equals(publisherId, "other-publisher", StringComparison.Ordinal)
+                    ? "other-key"
+                    : ExtensionTestTrust.DefaultKeyId,
                 State = ExtensionActivationState.Healthy
             };
             await File.WriteAllTextAsync(

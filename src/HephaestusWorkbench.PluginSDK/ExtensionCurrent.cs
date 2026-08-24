@@ -12,8 +12,8 @@ public enum ExtensionActivationState
 }
 
 /// <summary>
-/// Extensions/&lt;id&gt;/current.json 的 v2 契约。packageSha256 用于拒绝相同 ID/版本对应不同内容。
-/// 回滚版本保存在同目录的 current.json.bak，并使用相同结构读取。
+/// Extensions/&lt;id&gt;/current.json 的 v2 契约。packageSha256 用于拒绝相同 ID/版本对应不同内容，
+/// trustedKeyId 绑定安装时实际完成验签的宿主信任密钥。回滚版本保存在同目录的 current.json.bak，并使用相同结构读取。
 /// </summary>
 public sealed class ExtensionCurrentDocument
 {
@@ -28,6 +28,9 @@ public sealed class ExtensionCurrentDocument
 
     [JsonPropertyName("packageSha256")]
     public required string PackageSha256 { get; init; }
+
+    [JsonPropertyName("trustedKeyId")]
+    public required string TrustedKeyId { get; init; }
 
     [JsonPropertyName("state")]
     public required ExtensionActivationState State { get; init; }
@@ -55,6 +58,11 @@ public static class ExtensionCurrentParser
             current = JsonSerializer.Deserialize<ExtensionCurrentDocument>(json, SerializerOptions)
                 ?? throw new JsonException("扩展 current.json 内容为空。");
         }
+        catch (JsonException exception) when (
+            exception.Message.Contains("trustedKeyId", StringComparison.Ordinal))
+        {
+            throw new ExtensionContractException("扩展 current.json 缺少或无法读取 trustedKeyId。", exception);
+        }
         catch (JsonException exception)
         {
             throw new ExtensionContractException($"扩展 current.json 不符合 v2 结构：{exception.Message}");
@@ -68,6 +76,8 @@ public static class ExtensionCurrentParser
             throw new ExtensionContractException("扩展 current.json version 无效。");
         if (!ExtensionContractValues.IsSha256(current.PackageSha256))
             throw new ExtensionContractException("扩展 current.json packageSha256 无效。");
+        if (string.IsNullOrWhiteSpace(current.TrustedKeyId))
+            throw new ExtensionContractException("扩展 current.json 缺少 trustedKeyId。");
 
         return current;
     }

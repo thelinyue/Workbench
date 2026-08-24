@@ -81,8 +81,8 @@ internal sealed class WorkbenchHost : IDisposable
         Configuration = new WorkbenchConfigurationService(Paths);
         ExtensionSettings = new ExtensionSettingsStore(Paths);
         var extensionHealthChecker = new ExtensionHealthChecker();
-        ExtensionRegistry = new ExtensionRegistry(Paths.ExtensionsDirectory, extensionHealthChecker);
         ExtensionTrustStore = new ExtensionTrustStore();
+        ExtensionRegistry = new ExtensionRegistry(Paths.ExtensionsDirectory, extensionHealthChecker, ExtensionTrustStore);
         ExtensionPackageVerifier = new ExtensionPackageVerifier(ExtensionTrustStore);
         var hostVersion = AppVersionInfo.DisplayVersion.TrimStart('v');
         var extensionHostCompatibility = new ExtensionHostCompatibility(hostVersion);

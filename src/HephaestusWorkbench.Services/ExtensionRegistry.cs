@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using HephaestusWorkbench.PluginSDK;
 
 namespace HephaestusWorkbench.Services;
@@ -14,22 +15,32 @@ public sealed class ExtensionRegistry
     {
         WriteIndented = true
     };
+    private static readonly JsonSerializerOptions PackageMetadataSerializerOptions = new()
+    {
+        PropertyNameCaseInsensitive = false,
+        UnmappedMemberHandling = JsonUnmappedMemberHandling.Disallow
+    };
 
     private readonly string _extensionsRoot;
     private readonly IExtensionHealthChecker _healthChecker;
+    private readonly IExtensionTrustStore _trustStore;
     private readonly SemaphoreSlim _mutationGate = new(1, 1);
     private readonly object _stateGate = new();
-    private readonly Dictionary<string, ExtensionManifest> _active = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, ActiveExtensionVersion> _active = new(StringComparer.Ordinal);
     private readonly Dictionary<(string Id, string Version), int> _leaseCounts = new();
     private readonly List<string> _issues = new();
 
-    public ExtensionRegistry(string extensionsRoot, IExtensionHealthChecker healthChecker)
+    public ExtensionRegistry(
+        string extensionsRoot,
+        IExtensionHealthChecker healthChecker,
+        IExtensionTrustStore trustStore)
     {
         if (string.IsNullOrWhiteSpace(extensionsRoot))
             throw new ArgumentException("扩展目录根路径不能为空。", nameof(extensionsRoot));
 
         _extensionsRoot = Path.TrimEndingDirectorySeparator(Path.GetFullPath(extensionsRoot));
         _healthChecker = healthChecker ?? throw new ArgumentNullException(nameof(healthChecker));
+        _trustStore = trustStore ?? throw new ArgumentNullException(nameof(trustStore));
     }
 
     public IReadOnlyList<string> Issues
@@ -47,7 +58,7 @@ public sealed class ExtensionRegistry
         await _mutationGate.WaitAsync(cancellationToken);
         try
         {
-            var active = new Dictionary<string, ExtensionManifest>(StringComparer.Ordinal);
+            var active = new Dictionary<string, ActiveExtensionVersion>(StringComparer.Ordinal);
             var issues = new List<string>();
 
             EnsureExtensionsRootIsSafe();
@@ -65,22 +76,44 @@ public sealed class ExtensionRegistry
                         if (!File.Exists(currentPath))
                             continue;
 
-                        var current = await ReadCurrentAsync(currentPath, cancellationToken);
-                        ValidateDirectoryIdentity(extensionDirectory, current);
-
-                        ExtensionManifest manifest;
-                        if (current.State == ExtensionActivationState.Pending)
+                        ExtensionCurrentDocument current;
+                        try
                         {
-                            var backupPath = Path.Combine(extensionDirectory, "current.json.bak");
+                            current = await ReadCurrentAsync(currentPath, cancellationToken);
+                            ValidateDirectoryIdentity(extensionDirectory, current);
+                        }
+                        catch (Exception currentException) when (currentException is not OperationCanceledException)
+                        {
+                            // pending 从不执行；即使其 trustedKeyId 因崩溃写入不完整，也应优先尝试独立验证 healthy backup。
+                            if (!await IsPendingDocumentAsync(currentPath, cancellationToken))
+                                throw;
+
                             try
                             {
-                                var backup = await ReadCurrentAsync(backupPath, cancellationToken);
-                                ValidateDirectoryIdentity(extensionDirectory, backup);
-                                if (backup.State != ExtensionActivationState.Healthy)
-                                    throw new InvalidOperationException("回滚文档不是 healthy 状态。");
+                                var recovered = await RecoverHealthyBackupAsync(
+                                    extensionDirectory,
+                                    currentPath,
+                                    cancellationToken);
+                                active[recovered.Manifest.Id] = recovered;
+                            }
+                            catch (Exception rollbackException) when (rollbackException is not OperationCanceledException)
+                            {
+                                issues.Add(
+                                    $"扩展 {Path.GetFileName(extensionDirectory)} 的 current.json 处于待验证状态且结构不完整，" +
+                                    $"但没有可用的健康回滚版本：{rollbackException.Message}；pending 错误：{currentException.Message}");
+                            }
+                            continue;
+                        }
 
-                                manifest = await ReadMatchingManifestAsync(extensionDirectory, backup, cancellationToken);
-                                await WriteCurrentAtomicAsync(currentPath, backup, cancellationToken);
+                        ActiveExtensionVersion loaded;
+                        if (current.State == ExtensionActivationState.Pending)
+                        {
+                            try
+                            {
+                                loaded = await RecoverHealthyBackupAsync(
+                                    extensionDirectory,
+                                    currentPath,
+                                    cancellationToken);
                             }
                             catch (Exception exception) when (exception is not OperationCanceledException)
                             {
@@ -90,10 +123,10 @@ public sealed class ExtensionRegistry
                         }
                         else
                         {
-                            manifest = await ReadMatchingManifestAsync(extensionDirectory, current, cancellationToken);
+                            loaded = await ReadAuthorizedVersionAsync(extensionDirectory, current, cancellationToken);
                         }
 
-                        active[manifest.Id] = manifest;
+                        active[loaded.Manifest.Id] = loaded;
                     }
                     catch (Exception exception) when (exception is not OperationCanceledException)
                     {
@@ -110,7 +143,10 @@ public sealed class ExtensionRegistry
 
                 _issues.Clear();
                 _issues.AddRange(issues);
-                return _active.Values.OrderBy(item => item.Id, StringComparer.Ordinal).ToArray();
+                return _active.Values
+                    .Select(item => item.Manifest)
+                    .OrderBy(item => item.Id, StringComparer.Ordinal)
+                    .ToArray();
             }
         }
         finally
@@ -120,16 +156,25 @@ public sealed class ExtensionRegistry
     }
 
     /// <summary>
-    /// 激活已落盘的版本：先保存旧 current.json 为 backup，再写 pending 并执行正式加载验证；
-    /// 验证成功写 healthy，任一步失败则恢复原健康版本。
+    /// 激活已落盘的版本：仅供同程序集安装事务传入验签结果中的 trustedKeyId；
+    /// 先保存旧 current.json 为 backup，再写 pending 并执行正式加载验证，任一步失败则恢复原健康版本。
     /// </summary>
-    public async Task<ExtensionManifest> ActivateAsync(
-        string id,
-        string version,
-        string packageSha256,
+    internal async Task<ExtensionManifest> ActivateAsync(
+        ExtensionPackageVerificationResult verification,
         CancellationToken cancellationToken = default)
     {
-        var pending = ValidateRequestedCurrent(id, version, packageSha256);
+        if (verification?.Manifest is null ||
+            string.IsNullOrWhiteSpace(verification.PackageSha256) ||
+            string.IsNullOrWhiteSpace(verification.TrustedKeyId))
+        {
+            throw new InvalidDataException("扩展激活必须接收完整的验签结果。");
+        }
+
+        var pending = ValidateRequestedCurrent(
+            verification.Manifest.Id,
+            verification.Manifest.Version,
+            verification.PackageSha256,
+            verification.TrustedKeyId);
         await _mutationGate.WaitAsync(cancellationToken);
         try
         {
@@ -137,10 +182,11 @@ public sealed class ExtensionRegistry
             EnsureExtensionDirectoryIsSafe(extensionDirectory);
             var currentPath = Path.Combine(extensionDirectory, "current.json");
             var backupPath = Path.Combine(extensionDirectory, "current.json.bak");
-            var candidate = await ReadMatchingManifestAsync(extensionDirectory, pending, cancellationToken);
+            var candidate = await ReadAuthorizedVersionAsync(extensionDirectory, pending, cancellationToken);
+            EnsureVerificationBinding(candidate.Manifest, verification.Manifest);
 
             ExtensionCurrentDocument? rollback = null;
-            ExtensionManifest? rollbackManifest = null;
+            ActiveExtensionVersion? rollbackVersion = null;
             if (File.Exists(currentPath))
             {
                 var existing = await ReadCurrentAsync(currentPath, cancellationToken);
@@ -148,18 +194,18 @@ public sealed class ExtensionRegistry
                 RejectDifferentHashForSameVersion(existing, pending);
                 if (existing.State == ExtensionActivationState.Healthy)
                 {
-                    var activeManifest = await ReadMatchingManifestAsync(extensionDirectory, existing, cancellationToken);
-                    EnsureIdentityContinuity(candidate, activeManifest);
+                    var activeVersion = await ReadAuthorizedVersionAsync(extensionDirectory, existing, cancellationToken);
+                    EnsureIdentityContinuity(candidate.Manifest, activeVersion.Manifest);
                     if (IsSamePackage(existing, pending))
                     {
                         // 幂等激活仍执行正式健康检查，但不能重写 current/backup，否则会用活动版本覆盖真正的回滚版本。
-                        await _healthChecker.CheckAsync(candidate, cancellationToken);
+                        await _healthChecker.CheckAsync(candidate.Manifest, cancellationToken);
                         lock (_stateGate)
                             _active[pending.Id] = candidate;
-                        return candidate;
+                        return candidate.Manifest;
                     }
 
-                    rollbackManifest = activeManifest;
+                    rollbackVersion = activeVersion;
                     rollback = existing;
                 }
                 else if (!IsSamePackage(existing, pending))
@@ -176,8 +222,8 @@ public sealed class ExtensionRegistry
                 RejectDifferentHashForSameVersion(existingBackup, pending);
                 if (rollback is null && existingBackup.State == ExtensionActivationState.Healthy)
                 {
-                    rollbackManifest = await ReadMatchingManifestAsync(extensionDirectory, existingBackup, cancellationToken);
-                    EnsureIdentityContinuity(candidate, rollbackManifest);
+                    rollbackVersion = await ReadAuthorizedVersionAsync(extensionDirectory, existingBackup, cancellationToken);
+                    EnsureIdentityContinuity(candidate.Manifest, rollbackVersion.Manifest);
                     rollback = existingBackup;
                 }
             }
@@ -188,17 +234,18 @@ public sealed class ExtensionRegistry
             try
             {
                 await WriteCurrentAtomicAsync(currentPath, pending, cancellationToken);
-                await _healthChecker.CheckAsync(candidate, cancellationToken);
+                await _healthChecker.CheckAsync(candidate.Manifest, cancellationToken);
 
                 var healthy = CreateCurrent(
                     pending.Id,
                     pending.Version,
                     pending.PackageSha256,
+                    pending.TrustedKeyId,
                     ExtensionActivationState.Healthy);
                 await WriteCurrentAtomicAsync(currentPath, healthy, cancellationToken);
                 lock (_stateGate)
                     _active[pending.Id] = candidate;
-                return candidate;
+                return candidate.Manifest;
             }
             catch (Exception activationException)
             {
@@ -207,10 +254,10 @@ public sealed class ExtensionRegistry
                     if (rollback is not null)
                     {
                         await WriteCurrentAtomicAsync(currentPath, rollback, CancellationToken.None);
-                        if (rollbackManifest is not null)
+                        if (rollbackVersion is not null)
                         {
                             lock (_stateGate)
-                                _active[pending.Id] = rollbackManifest;
+                                _active[pending.Id] = rollbackVersion;
                         }
                     }
                     else
@@ -249,13 +296,15 @@ public sealed class ExtensionRegistry
     {
         lock (_stateGate)
         {
-            if (!_active.TryGetValue(id, out var manifest))
+            if (!_active.TryGetValue(id, out var active))
                 throw new InvalidOperationException($"扩展 {id} 当前没有可租用的 healthy 版本。");
 
-            var key = (manifest.Id, manifest.Version);
+            // 新任务不能复用 LoadAsync 时的授权快照；密钥撤销或范围收紧必须立即阻止新租约。
+            var authorization = ResolveRuntimeAuthorization(active.TrustedKeyId, active.Manifest);
+            var key = (active.Manifest.Id, active.Manifest.Version);
             _leaseCounts.TryGetValue(key, out var count);
             _leaseCounts[key] = count + 1;
-            return new ExtensionVersionLease(manifest, () => ReleaseLease(key));
+            return new ExtensionVersionLease(active.Manifest, authorization, () => ReleaseLease(key));
         }
     }
 
@@ -283,6 +332,22 @@ public sealed class ExtensionRegistry
                !DocumentProtectsVersion(Path.Combine(extensionDirectory, "current.json.bak"), id, version);
     }
 
+    private static void EnsureVerificationBinding(
+        ExtensionManifest installed,
+        ExtensionManifest verified)
+    {
+        if (string.Equals(installed.Id, verified.Id, StringComparison.Ordinal) &&
+            string.Equals(installed.Version, verified.Version, StringComparison.Ordinal) &&
+            string.Equals(installed.PublisherId, verified.PublisherId, StringComparison.Ordinal) &&
+            installed.Kind == verified.Kind)
+        {
+            return;
+        }
+
+        throw new InvalidOperationException(
+            $"扩展 {installed.Id} 的落盘 manifest 与验签结果身份不一致，已拒绝激活。");
+    }
+
     /// <summary>
     /// 候选版本在激活锁内必须与当前健康版本保持发布者和类别连续，避免下载、验签期间活动版本变化后被覆盖。
     /// </summary>
@@ -299,9 +364,13 @@ public sealed class ExtensionRegistry
             $"当前活动版本为 {active.PublisherId}/{active.Kind}。已拒绝激活。");
     }
 
-    private static ExtensionCurrentDocument ValidateRequestedCurrent(string id, string version, string packageSha256)
+    private static ExtensionCurrentDocument ValidateRequestedCurrent(
+        string id,
+        string version,
+        string packageSha256,
+        string trustedKeyId)
     {
-        var document = CreateCurrent(id, version, packageSha256, ExtensionActivationState.Pending);
+        var document = CreateCurrent(id, version, packageSha256, trustedKeyId, ExtensionActivationState.Pending);
         return ExtensionCurrentParser.Parse(JsonSerializer.Serialize(document));
     }
 
@@ -309,6 +378,7 @@ public sealed class ExtensionRegistry
         string id,
         string version,
         string packageSha256,
+        string trustedKeyId,
         ExtensionActivationState state)
         => new()
         {
@@ -316,8 +386,43 @@ public sealed class ExtensionRegistry
             Id = id,
             Version = version,
             PackageSha256 = packageSha256,
+            TrustedKeyId = trustedKeyId,
             State = state
         };
+
+    private async Task<ActiveExtensionVersion> RecoverHealthyBackupAsync(
+        string extensionDirectory,
+        string currentPath,
+        CancellationToken cancellationToken)
+    {
+        var backupPath = Path.Combine(extensionDirectory, "current.json.bak");
+        var backup = await ReadCurrentAsync(backupPath, cancellationToken);
+        ValidateDirectoryIdentity(extensionDirectory, backup);
+        if (backup.State != ExtensionActivationState.Healthy)
+            throw new InvalidOperationException("回滚文档不是 healthy 状态。");
+
+        var loaded = await ReadAuthorizedVersionAsync(extensionDirectory, backup, cancellationToken);
+        await WriteCurrentAtomicAsync(currentPath, backup, cancellationToken);
+        return loaded;
+    }
+
+    private static async Task<bool> IsPendingDocumentAsync(
+        string currentPath,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            using var document = JsonDocument.Parse(await File.ReadAllTextAsync(currentPath, cancellationToken));
+            return document.RootElement.ValueKind == JsonValueKind.Object &&
+                   document.RootElement.TryGetProperty("state", out var state) &&
+                   state.ValueKind == JsonValueKind.String &&
+                   string.Equals(state.GetString(), "pending", StringComparison.Ordinal);
+        }
+        catch (JsonException)
+        {
+            return false;
+        }
+    }
 
     private async Task<ExtensionCurrentDocument> ReadCurrentAsync(
         string path,
@@ -355,6 +460,79 @@ public sealed class ExtensionRegistry
         }
 
         return manifest;
+    }
+
+    /// <summary>
+    /// 同时核对版本目录的宿主 package.json、manifest 与当前 Trust Store，形成可供活动状态保存的最小绑定。
+    /// package.json 的 SHA-256 必须与 current.json 一致，避免活动指针与实际安装包元数据脱节。
+    /// </summary>
+    private async Task<ActiveExtensionVersion> ReadAuthorizedVersionAsync(
+        string extensionDirectory,
+        ExtensionCurrentDocument current,
+        CancellationToken cancellationToken)
+    {
+        var manifest = await ReadMatchingManifestAsync(extensionDirectory, current, cancellationToken);
+        var versionDirectory = Path.Combine(extensionDirectory, current.Version);
+        var metadataPath = Path.Combine(versionDirectory, "package.json");
+        if (!File.Exists(metadataPath))
+            throw new FileNotFoundException($"扩展 {current.Id} {current.Version} 缺少宿主 package.json。", metadataPath);
+        RejectReparsePointIfExists(metadataPath, "扩展版本 package.json");
+
+        PackageMetadata metadata;
+        try
+        {
+            metadata = JsonSerializer.Deserialize<PackageMetadata>(
+                           await File.ReadAllTextAsync(metadataPath, cancellationToken),
+                           PackageMetadataSerializerOptions)
+                       ?? throw new JsonException("package.json 内容为空。");
+        }
+        catch (JsonException exception)
+        {
+            throw new InvalidOperationException($"扩展 {current.Id} {current.Version} 的 package.json 无效：{exception.Message}", exception);
+        }
+
+        if (metadata.SchemaVersion != 2 ||
+            string.IsNullOrWhiteSpace(metadata.Sha256) ||
+            metadata.Sha256.Length != 64 ||
+            !metadata.Sha256.All(Uri.IsHexDigit))
+        {
+            throw new InvalidOperationException($"扩展 {current.Id} {current.Version} 的 package.json 不符合 schema v2。");
+        }
+        if (!string.Equals(metadata.Sha256, current.PackageSha256, StringComparison.OrdinalIgnoreCase))
+            throw new InvalidOperationException(
+                $"扩展 {current.Id} 的相同扩展版本 {current.Version} 存在 package.json SHA-256 与 current.json 不一致。");
+
+        _ = ResolveRuntimeAuthorization(current.TrustedKeyId, manifest);
+        return new ActiveExtensionVersion(manifest, current.TrustedKeyId);
+    }
+
+    /// <summary>
+    /// 使用宿主当前信任表重新解析签名身份，并把发布者、类别和权限逐项绑定到 manifest。
+    /// Catalog 与 manifest 都不能自行恢复已撤销或超出范围的授权。
+    /// </summary>
+    private ExtensionRuntimeAuthorization ResolveRuntimeAuthorization(
+        string trustedKeyId,
+        ExtensionManifest manifest)
+    {
+        if (!_trustStore.TryGetTrustedKey(trustedKeyId, out var trustedKey))
+            throw new InvalidOperationException($"扩展 {manifest.Id} 的签名 keyId 未知或已从宿主信任表移除：{trustedKeyId}。");
+        if (!string.Equals(trustedKey.PublisherId, manifest.PublisherId, StringComparison.Ordinal))
+            throw new InvalidOperationException($"扩展 {manifest.Id} 的发布者与受信任签名密钥不一致。");
+        if (!trustedKey.Scope.AllowedKinds.Contains(manifest.Kind))
+            throw new InvalidOperationException($"扩展 {manifest.Id} 的类别 {manifest.Kind} 超出签名密钥授权范围。");
+
+        var allowedPermissions = new HashSet<string>(trustedKey.Scope.Permissions, StringComparer.Ordinal);
+        foreach (var permission in manifest.Permissions)
+        {
+            if (!allowedPermissions.Contains(permission))
+                throw new InvalidOperationException($"扩展 {manifest.Id} 请求的权限 {permission} 超出签名密钥授权范围。");
+        }
+
+        return new ExtensionRuntimeAuthorization(
+            trustedKey.KeyId,
+            trustedKey.PublisherId,
+            trustedKey.Scope.AllowedKinds,
+            trustedKey.Scope.Permissions);
     }
 
     private static void ValidateDirectoryIdentity(string extensionDirectory, ExtensionCurrentDocument current)
@@ -404,7 +582,8 @@ public sealed class ExtensionRegistry
     private static bool IsSamePackage(ExtensionCurrentDocument left, ExtensionCurrentDocument right)
         => string.Equals(left.Id, right.Id, StringComparison.Ordinal) &&
            string.Equals(left.Version, right.Version, StringComparison.Ordinal) &&
-           string.Equals(left.PackageSha256, right.PackageSha256, StringComparison.OrdinalIgnoreCase);
+           string.Equals(left.PackageSha256, right.PackageSha256, StringComparison.OrdinalIgnoreCase) &&
+           string.Equals(left.TrustedKeyId, right.TrustedKeyId, StringComparison.Ordinal);
 
     private static void RejectDifferentHashForSameVersion(
         ExtensionCurrentDocument existing,
@@ -480,5 +659,16 @@ public sealed class ExtensionRegistry
             else
                 _leaseCounts[key] = count - 1;
         }
+    }
+
+    private sealed record ActiveExtensionVersion(ExtensionManifest Manifest, string TrustedKeyId);
+
+    private sealed class PackageMetadata
+    {
+        [JsonPropertyName("schemaVersion")]
+        public int SchemaVersion { get; init; }
+
+        [JsonPropertyName("sha256")]
+        public required string Sha256 { get; init; }
     }
 }

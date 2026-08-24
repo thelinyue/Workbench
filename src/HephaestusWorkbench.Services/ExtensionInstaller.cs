@@ -144,8 +144,12 @@ public sealed class ExtensionInstaller
             Release = request.Release
         };
         var verified = await _packageVerifier.VerifyAsync(verificationRequest, cancellationToken);
-        if (verified?.Manifest is null || string.IsNullOrWhiteSpace(verified.PackageSha256))
-            throw new InvalidDataException("扩展包验签服务没有返回有效的 manifest 或 SHA-256。");
+        if (verified?.Manifest is null ||
+            string.IsNullOrWhiteSpace(verified.PackageSha256) ||
+            string.IsNullOrWhiteSpace(verified.TrustedKeyId))
+        {
+            throw new InvalidDataException("扩展包验签服务没有返回有效的 manifest、SHA-256 或受信任 keyId。");
+        }
 
         var localPackageSha256 = Convert.ToHexString(SHA256.HashData(packageBytes)).ToLowerInvariant();
         if (!string.Equals(localPackageSha256, verified.PackageSha256, StringComparison.OrdinalIgnoreCase))
@@ -172,9 +176,7 @@ public sealed class ExtensionInstaller
                     packageBytes,
                     cancellationToken);
                 var existingManifest = await ActivateWithContentionRetryAsync(
-                    verified.Manifest.Id,
-                    verified.Manifest.Version,
-                    localPackageSha256,
+                    verified,
                     cancellationToken);
                 return new ExtensionInstallResult
                 {
@@ -217,9 +219,7 @@ public sealed class ExtensionInstaller
             }
 
             var manifest = await ActivateWithContentionRetryAsync(
-                verified.Manifest.Id,
-                verified.Manifest.Version,
-                localPackageSha256,
+                verified,
                 cancellationToken);
             return new ExtensionInstallResult
             {
@@ -270,9 +270,7 @@ public sealed class ExtensionInstaller
     /// 不同宿主进程可能在同版本目录竞态恢复后短暂同时读取 current.json；仅对文件占用类 IOException（包括 Registry 的事务包装）做有限重试。
     /// </summary>
     private async Task<ExtensionManifest> ActivateWithContentionRetryAsync(
-        string id,
-        string version,
-        string packageSha256,
+        ExtensionPackageVerificationResult verification,
         CancellationToken cancellationToken)
     {
         const int maximumAttempts = 3;
@@ -280,7 +278,7 @@ public sealed class ExtensionInstaller
         {
             try
             {
-                return await _registry.ActivateAsync(id, version, packageSha256, cancellationToken);
+                return await _registry.ActivateAsync(verification, cancellationToken);
             }
             catch (Exception exception) when (attempt < maximumAttempts && IsActivationFileContention(exception))
             {

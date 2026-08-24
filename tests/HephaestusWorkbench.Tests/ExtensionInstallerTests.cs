@@ -35,6 +35,7 @@ public sealed class ExtensionInstallerTests
         Assert.Equal(ExtensionActivationState.Healthy, current.State);
         Assert.Equal("2.0.0", current.Version);
         Assert.Equal(Sha256(request.PackageBytes), current.PackageSha256);
+        Assert.Equal(ExtensionTestTrust.DefaultKeyId, current.TrustedKeyId);
         Assert.Empty(environment.StagingDirectories());
     }
 
@@ -49,6 +50,20 @@ public sealed class ExtensionInstallerTests
         var exception = await Assert.ThrowsAsync<InvalidDataException>(() => environment.Installer.InstallAsync(request));
 
         Assert.Contains(message, exception.Message, StringComparison.Ordinal);
+        Assert.False(Directory.Exists(Path.Combine(environment.ExtensionsRoot, "sample")));
+        Assert.Empty(environment.StagingDirectories());
+    }
+
+    [Fact]
+    public async Task InstallAsync_WhenVerifierReturnsBlankTrustedKeyId_RejectsBeforeCreatingStaging()
+    {
+        using var environment = new InstallerTestEnvironment();
+        var request = environment.CreateRequest(BuildPackage(("manifest.json", BuildManifest("sample", "2.0.0"))));
+        environment.OverrideVerifierTrustedKeyId(string.Empty);
+
+        var error = await Assert.ThrowsAsync<InvalidDataException>(() => environment.Installer.InstallAsync(request));
+
+        Assert.Contains("keyId", error.Message, StringComparison.Ordinal);
         Assert.False(Directory.Exists(Path.Combine(environment.ExtensionsRoot, "sample")));
         Assert.Empty(environment.StagingDirectories());
     }
@@ -315,7 +330,7 @@ public sealed class ExtensionInstallerTests
         var request = environment.CreateRequest(BuildPackage(
             ("manifest.json", BuildManifest("sample", "2.0.0")),
             ("bin/tool.exe", new string('x', 8 * 1024 * 1024))));
-        var otherRegistry = new ExtensionRegistry(environment.ExtensionsRoot, new StubHealthChecker(null));
+        var otherRegistry = new ExtensionRegistry(environment.ExtensionsRoot, new StubHealthChecker(null), environment.TrustStore);
         var otherInstaller = new ExtensionInstaller(environment.ExtensionsRoot, environment.Verifier, otherRegistry);
 
         var firstTask = Task.Run(() => environment.Installer.InstallAsync(request));
@@ -615,13 +630,15 @@ public sealed class ExtensionInstallerTests
             ExtensionsRoot = Path.Combine(Root, "Extensions");
             Directory.CreateDirectory(ExtensionsRoot);
             Verifier = new StubPackageVerifier(verifierError, onVerify);
-            Registry = new ExtensionRegistry(ExtensionsRoot, new StubHealthChecker(failingHealthVersion));
+            TrustStore = ExtensionTestTrust.CreateStore(publisherId: "test-publisher");
+            Registry = new ExtensionRegistry(ExtensionsRoot, new StubHealthChecker(failingHealthVersion), TrustStore);
             Installer = new ExtensionInstaller(ExtensionsRoot, Verifier, Registry, stagingCleaner, versionDirectoryMover);
         }
 
         public string Root { get; }
         public string ExtensionsRoot { get; }
         public StubPackageVerifier Verifier { get; }
+        public IExtensionTrustStore TrustStore { get; }
         public ExtensionRegistry Registry { get; }
         public ExtensionInstaller Installer { get; }
 
@@ -677,6 +694,17 @@ public sealed class ExtensionInstallerTests
                 Manifest = result.Manifest,
                 TrustedKeyId = result.TrustedKeyId,
                 PackageSha256 = sha256
+            };
+        }
+
+        public void OverrideVerifierTrustedKeyId(string trustedKeyId)
+        {
+            var result = Verifier.Result ?? throw new InvalidOperationException("测试未配置验签结果。");
+            Verifier.Result = new ExtensionPackageVerificationResult
+            {
+                Manifest = result.Manifest,
+                TrustedKeyId = trustedKeyId,
+                PackageSha256 = result.PackageSha256
             };
         }
 
@@ -741,6 +769,7 @@ public sealed class ExtensionInstallerTests
                     id,
                     version,
                     packageSha256 = sha256,
+                    trustedKeyId = ExtensionTestTrust.DefaultKeyId,
                     state = "healthy"
                 }));
         }

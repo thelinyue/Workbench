@@ -23,7 +23,7 @@ internal static class AnalysisExtensionTestSupport
         foreach (var definition in definitions)
             Install(paths.ExtensionsDirectory, definition);
 
-        var registry = new ExtensionRegistry(paths.ExtensionsDirectory, new PassingHealthChecker());
+        var registry = new ExtensionRegistry(paths.ExtensionsDirectory, new PassingHealthChecker(), ExtensionTestTrust.CreateStore());
         await registry.LoadAsync();
         return registry;
     }
@@ -47,6 +47,7 @@ internal static class AnalysisExtensionTestSupport
             Id = id,
             Version = version,
             PackageSha256 = packageHash,
+            TrustedKeyId = ExtensionTestTrust.DefaultKeyId,
             State = ExtensionActivationState.Healthy
         };
         File.WriteAllText(
@@ -89,6 +90,9 @@ internal static class AnalysisExtensionTestSupport
             dependencies = Array.Empty<object>()
         };
         File.WriteAllText(Path.Combine(versionDirectory, "manifest.json"), JsonSerializer.Serialize(manifest));
+        File.WriteAllText(
+            Path.Combine(versionDirectory, "package.json"),
+            JsonSerializer.Serialize(new { schemaVersion = 2, sha256 = PackageHash }));
 
         var current = new ExtensionCurrentDocument
         {
@@ -96,6 +100,7 @@ internal static class AnalysisExtensionTestSupport
             Id = definition.Id,
             Version = definition.Version,
             PackageSha256 = PackageHash,
+            TrustedKeyId = ExtensionTestTrust.DefaultKeyId,
             State = ExtensionActivationState.Healthy
         };
         File.WriteAllText(
