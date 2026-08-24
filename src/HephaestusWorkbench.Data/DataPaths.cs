@@ -23,6 +23,7 @@ public sealed class DataPaths
         CasesDirectory = Path.Combine(StorageRoot, "Cases");
         InboxDirectory = Path.Combine(StorageRoot, "Inbox");
         ExtensionsDirectory = Path.Combine(StorageRoot, "Extensions");
+        OperationsDirectory = Path.Combine(StorageRoot, "Operations");
         RulesDirectory = Path.Combine(StorageRoot, "Rules");
         OfficialRulesDirectory = Path.Combine(RulesDirectory, "Official");
         OfficialRulesFile = Path.Combine(OfficialRulesDirectory, "main.json");
@@ -52,6 +53,8 @@ public sealed class DataPaths
     public string CasesDirectory { get; }
     public string InboxDirectory { get; }
     public string ExtensionsDirectory { get; }
+    /// <summary>维护操作的 stdout/stderr 文件根目录；数据库仅保存相对于数据根目录的路径。</summary>
+    public string OperationsDirectory { get; }
     public string RulesDirectory { get; }
     public string OfficialRulesDirectory { get; }
     public string OfficialRulesFile { get; }
@@ -83,6 +86,7 @@ public sealed class DataPaths
         Directory.CreateDirectory(CasesDirectory);
         Directory.CreateDirectory(InboxDirectory);
         Directory.CreateDirectory(ExtensionsDirectory);
+        Directory.CreateDirectory(OperationsDirectory);
         Directory.CreateDirectory(RulesDirectory);
         Directory.CreateDirectory(OfficialRulesDirectory);
         Directory.CreateDirectory(LocalRulesDirectory);

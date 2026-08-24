@@ -27,6 +27,8 @@ public sealed record class PreflightResult
     public required string RemoteUsername { get; init; }
     public bool IsRoot { get; init; }
     public bool IsPasswordlessSudoAvailable { get; init; }
+    public IReadOnlyDictionary<string, string> SystemInformation { get; init; } = new Dictionary<string, string>();
+    public IReadOnlyDictionary<string, string> DiscoveryValues { get; init; } = new Dictionary<string, string>();
     public IReadOnlyList<StableMaintenanceTarget> StableTargets { get; init; } = Array.Empty<StableMaintenanceTarget>();
     public IReadOnlyList<string> Errors { get; init; } = Array.Empty<string>();
     public IReadOnlyList<string> Warnings { get; init; } = Array.Empty<string>();
@@ -111,6 +113,14 @@ public sealed record class ExecutionPlan
 
 /// <summary>策略判断结果。错误文本可直接用于中文日志或后续确认界面。</summary>
 public sealed record MaintenancePolicyDecision(bool IsAllowed, IReadOnlyList<string> Errors);
+
+/// <summary>执行入口参数；高风险确认文本和自动执行标志必须在执行前策略复核中使用。</summary>
+public sealed record class MaintenanceExecutionRequest
+{
+    public required ExecutionPlan Plan { get; init; }
+    public string? ConfirmationDisplayName { get; init; }
+    public bool Automatic { get; init; }
+}
 
 /// <summary>持久化的一次维护操作；stdout/stderr 内容始终保存在外部文件。</summary>
 public sealed record class MaintenanceOperation

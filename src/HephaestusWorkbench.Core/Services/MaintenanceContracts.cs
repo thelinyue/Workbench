@@ -20,10 +20,10 @@ public interface IMaintenancePolicy
     MaintenancePolicyDecision VerifyExecution(ExecutionPlan plan, PreflightResult preflight, string? confirmationDisplayName, bool automatic);
 }
 
-/// <summary>Maintenance-M1 只冻结执行边界；真实 SSH exec 实现由后续里程碑提供。</summary>
+/// <summary>执行计划前必须重新 Discovery 并通过 Host Policy；远端状态不明时不得自动重放。</summary>
 public interface IMaintenanceExecutor
 {
     IAsyncEnumerable<MaintenanceOperationEvent> ExecuteAsync(
-        ExecutionPlan plan,
+        MaintenanceExecutionRequest request,
         CancellationToken cancellationToken = default);
 }
