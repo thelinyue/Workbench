@@ -3,6 +3,8 @@ param(
     [string]$Configuration = 'Release',
     [string]$Version = '2.0.0',
     [string]$InnoCompilerPath,
+    [Parameter(Mandatory = $true)]
+    [string]$ExtensionTrustAnchorPath,
     [switch]$ValidateOnly
 )
 
@@ -14,6 +16,7 @@ $appPublish = Join-Path $stagingRoot 'app'
 $bundleStaging = Join-Path $stagingRoot 'bundle'
 $dist = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot 'dist'))
 $maximumPackageBytes = 64L * 1024 * 1024
+$knownKinds = @('workspace', 'analysis', 'maintenance')
 if ($Version -cnotmatch '^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$') {
     throw "发布版本必须使用 X.Y.Z 三段式正式版本：$Version。"
 }
@@ -53,6 +56,66 @@ function Compare-SemanticCore([string]$Left, [string]$Right) {
     return 0
 }
 
+# 正式安装包的扩展签名信任边界只能由发布管线显式注入，绝不从源码或网络回退。
+if ([string]::IsNullOrWhiteSpace($ExtensionTrustAnchorPath)) {
+    throw '必须通过 -ExtensionTrustAnchorPath 显式提供正式扩展信任锚。'
+}
+$extensionTrustAnchorPath = [System.IO.Path]::GetFullPath($ExtensionTrustAnchorPath)
+if (-not (Test-Path -LiteralPath $extensionTrustAnchorPath -PathType Leaf)) {
+    throw "未找到正式扩展信任锚：$extensionTrustAnchorPath"
+}
+try {
+    $trustAnchorDocument = Get-Content -LiteralPath $extensionTrustAnchorPath -Raw -Encoding UTF8 | ConvertFrom-Json
+}
+catch {
+    throw "正式扩展信任锚不是有效 JSON：$($_.Exception.Message)"
+}
+Assert-ExactProperties $trustAnchorDocument @('schemaVersion', 'trustedPublishers') '正式扩展信任锚'
+if ($trustAnchorDocument.schemaVersion -isnot [long] -or $trustAnchorDocument.schemaVersion -ne 2) {
+    throw '正式扩展信任锚 schemaVersion 必须是整数 2。'
+}
+if ($trustAnchorDocument.trustedPublishers -isnot [System.Array]) {
+    throw '正式扩展信任锚 trustedPublishers 必须是 JSON 数组。'
+}
+$trustedPublishers = @($trustAnchorDocument.trustedPublishers)
+if ($trustedPublishers.Count -eq 0) {
+    throw '正式扩展信任锚 trustedPublishers 不能为空。'
+}
+
+$trustedPublishersByKeyId = [System.Collections.Generic.Dictionary[string, object]]::new([System.StringComparer]::Ordinal)
+foreach ($publisher in $trustedPublishers) {
+    Assert-ExactProperties $publisher @('keyId', 'publisherId', 'publicKey', 'scope') '正式扩展信任锚 trustedPublishers 项'
+    Assert-ExactProperties $publisher.scope @('allowedKinds', 'permissions') '正式扩展信任锚 scope'
+    if ($publisher.keyId -isnot [string] -or [string]::IsNullOrWhiteSpace($publisher.keyId)) {
+        throw '正式扩展信任锚 keyId 必须是非空字符串。'
+    }
+    if (-not $trustedPublishersByKeyId.TryAdd([string]$publisher.keyId, $publisher)) {
+        throw "正式扩展信任锚存在重复 keyId：$($publisher.keyId)。"
+    }
+    if ($publisher.publisherId -isnot [string] -or [string]::IsNullOrWhiteSpace($publisher.publisherId)) {
+        throw "正式扩展信任锚 keyId $($publisher.keyId) 的 publisherId 必须是非空字符串。"
+    }
+    if ($publisher.publicKey -isnot [string] -or
+        $publisher.publicKey -cnotmatch '^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$') {
+        throw "正式扩展信任锚 keyId $($publisher.keyId) 的 publicKey 必须是有效 Base64。"
+    }
+    try { $publicKeyBytes = [System.Convert]::FromBase64String($publisher.publicKey) }
+    catch { throw "正式扩展信任锚 keyId $($publisher.keyId) 的 publicKey 必须是有效 Base64。" }
+    if ($publicKeyBytes.Length -ne 32) {
+        throw "正式扩展信任锚 keyId $($publisher.keyId) 的 publicKey 必须解码为 32 字节。"
+    }
+    if ($publisher.scope.allowedKinds -isnot [System.Array]) {
+        throw "正式扩展信任锚 keyId $($publisher.keyId) 的 allowedKinds 必须是 JSON 数组。"
+    }
+    $allowedKinds = @($publisher.scope.allowedKinds)
+    if ($allowedKinds.Count -eq 0 -or @($allowedKinds | Where-Object { $_ -isnot [string] -or $knownKinds -cnotcontains $_ }).Count -gt 0) {
+        throw "正式扩展信任锚 keyId $($publisher.keyId) 的 allowedKinds 必须包含受支持的扩展类型。"
+    }
+    if ($publisher.scope.permissions -isnot [System.Array] -or
+        @($publisher.scope.permissions | Where-Object { $_ -isnot [string] -or [string]::IsNullOrWhiteSpace($_) }).Count -gt 0) {
+        throw "正式扩展信任锚 keyId $($publisher.keyId) 的 permissions 必须是字符串数组。"
+    }
+}
 $bundleManifestPath = [System.IO.Path]::GetFullPath((Join-Path $repoRoot 'distribution\bundled-extensions.json'))
 if (-not (Test-Path -LiteralPath $bundleManifestPath -PathType Leaf)) {
     throw "未找到 Bundled Extension 锁定清单：$bundleManifestPath"
@@ -81,7 +144,6 @@ if ($bundledExtensions.Count -eq 0) {
 
 $ids = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::Ordinal)
 $assets = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
-$knownKinds = @('workspace', 'analysis', 'maintenance')
 $WindowsReservedNames = @('CON', 'PRN', 'AUX', 'NUL', 'COM1', 'COM2', 'COM3', 'COM4', 'COM5', 'COM6', 'COM7', 'COM8', 'COM9', 'LPT1', 'LPT2', 'LPT3', 'LPT4', 'LPT5', 'LPT6', 'LPT7', 'LPT8', 'LPT9', 'COM¹', 'COM²', 'COM³', 'LPT¹', 'LPT²', 'LPT³')
 $invalidFileNameChars = [System.IO.Path]::GetInvalidFileNameChars()
 foreach ($item in $bundledExtensions) {
@@ -147,9 +209,23 @@ foreach ($item in $bundledExtensions) {
     }
 }
 
+# Bundled Extension 必须由正式信任锚中的发布者签名，避免安装包在首次启动时拒绝自身离线扩展。
+foreach ($item in $bundledExtensions) {
+    $keyId = [string]$item.release.signature.keyId
+    if (-not $trustedPublishersByKeyId.ContainsKey($keyId)) {
+        throw "Bundled Extension $($item.id) 的 Ed25519 keyId 不在正式扩展信任锚中：$keyId。"
+    }
+    $trustedPublisher = $trustedPublishersByKeyId[$keyId]
+    if ([string]$item.publisherId -cne [string]$trustedPublisher.publisherId) {
+        throw "Bundled Extension $($item.id) 的 publisherId 与正式扩展信任锚不一致。"
+    }
+    if (@($trustedPublisher.scope.allowedKinds) -cnotcontains [string]$item.kind) {
+        throw "Bundled Extension $($item.id) 的 kind 不在正式扩展信任锚 allowedKinds 范围内。"
+    }
+}
 # ValidateOnly 也必须完成每一个扩展及其嵌套 release/signature 的全部契约校验后才能返回。
 if ($ValidateOnly) {
-    Write-Host 'Bundled Extension 锁定清单契约校验通过。'
+    Write-Host 'Bundled Extension 锁定清单契约校验通过，正式扩展信任锚匹配。'
     return
 }
 
@@ -211,7 +287,7 @@ Write-Host '正在还原 win-x64 发布依赖……'
 if ($LASTEXITCODE -ne 0) { throw "应用还原失败，退出码：$LASTEXITCODE" }
 
 Write-Host '正在发布必须携带 BundledExtensions 的 self-contained 主程序……'
-& dotnet publish $appProject -c $Configuration -r win-x64 --self-contained true --no-restore -p:Version=$Version -p:RequireBundledExtensions=true -p:DebugType=None -p:DebugSymbols=false -o $appPublish
+& dotnet publish $appProject -c $Configuration -r win-x64 --self-contained true --no-restore -p:Version=$Version -p:RequireBundledExtensions=true -p:ExtensionTrustAnchorPath=$ExtensionTrustAnchorPath -p:DebugType=None -p:DebugSymbols=false -o $appPublish
 if ($LASTEXITCODE -ne 0) { throw "应用发布失败，退出码：$LASTEXITCODE" }
 Copy-Item -LiteralPath $bundleStaging -Destination (Join-Path $appPublish 'BundledExtensions') -Recurse
 

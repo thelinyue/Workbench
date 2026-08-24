@@ -92,6 +92,34 @@ public sealed class InstallerDefinitionTests
     }
 
     [Fact]
+    public void AppProject_EmbedsExternalTrustAnchorAndFailsFormalBuildWhenItsInputIsMissing()
+    {
+        var project = ReadRepositoryFile("src", "HephaestusWorkbench.App", "HephaestusWorkbench.App.csproj");
+
+        // 信任锚只能由发布管线显式注入；正式 Bundle 构建不能退回到源码或占位锚。
+        Assert.Contains("ExtensionTrustAnchorPath", project, StringComparison.Ordinal);
+        Assert.Contains("<EmbeddedResource Include=\"$(ExtensionTrustAnchorPath)\">", project, StringComparison.Ordinal);
+        Assert.Contains("<LogicalName>HephaestusWorkbench.ExtensionTrustAnchor.json</LogicalName>", project, StringComparison.Ordinal);
+        Assert.Contains("'$(RequireBundledExtensions)' == 'true'", project, StringComparison.Ordinal);
+        Assert.Contains("<Error", project, StringComparison.Ordinal);
+        Assert.Contains("信任锚", project, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void FormalInstaller_RequiresExplicitTrustAnchorAndPassesItToPublish()
+    {
+        var script = ReadRepositoryFile("installer", "build-installer.ps1");
+
+        Assert.Contains("[string]$ExtensionTrustAnchorPath", script, StringComparison.Ordinal);
+        Assert.Contains("trustedPublishers", script, StringComparison.Ordinal);
+        Assert.Contains("publicKey", script, StringComparison.Ordinal);
+        Assert.Contains("allowedKinds", script, StringComparison.Ordinal);
+        Assert.Contains("-p:ExtensionTrustAnchorPath=$ExtensionTrustAnchorPath", script, StringComparison.Ordinal);
+        Assert.Contains("信任锚", script, StringComparison.Ordinal);
+        Assert.DoesNotContain("默认信任锚", script, StringComparison.Ordinal);
+        Assert.DoesNotContain("占位信任锚", script, StringComparison.Ordinal);
+    }
+    [Fact]
     public void FormalInstaller_FailsClosedUntilRealLockedManifestIsPublished()
     {
         var script = ReadRepositoryFile("installer", "build-installer.ps1");
@@ -135,6 +163,51 @@ public sealed class InstallerDefinitionTests
     }
 
     [Fact]
+    public async Task FormalInstaller_ValidateOnlyRejectsEmptyTrustAnchorPublishersInChinese()
+    {
+        var result = await RunInstallerValidationAsync(
+            _ => { },
+            anchor => anchor["trustedPublishers"] = new JsonArray());
+
+        Assert.NotEqual(0, result.ExitCode);
+        Assert.Contains("信任锚", result.Output, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task FormalInstaller_ValidateOnlyRejectsBundleSignatureKeyOutsideTrustAnchorInChinese()
+    {
+        var result = await RunInstallerValidationAsync(manifest =>
+        {
+            var release = Assert.IsType<JsonObject>(GetFirstExtension(manifest)["release"]);
+            var signature = Assert.IsType<JsonObject>(release["signature"]);
+            signature["keyId"] = "untrusted-key";
+        });
+
+        Assert.NotEqual(0, result.ExitCode);
+        Assert.Contains("信任锚", result.Output, StringComparison.Ordinal);
+        Assert.Contains("keyId", result.Output, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task FormalInstaller_ValidateOnlyRejectsBundlePublisherMismatchWithTrustAnchorInChinese()
+    {
+        var result = await RunInstallerValidationAsync(manifest => GetFirstExtension(manifest)["publisherId"] = "other-publisher");
+
+        Assert.NotEqual(0, result.ExitCode);
+        Assert.Contains("信任锚", result.Output, StringComparison.Ordinal);
+        Assert.Contains("publisherId", result.Output, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task FormalInstaller_ValidateOnlyRejectsBundleKindOutsideTrustAnchorScopeInChinese()
+    {
+        var result = await RunInstallerValidationAsync(manifest => GetFirstExtension(manifest)["kind"] = "maintenance");
+
+        Assert.NotEqual(0, result.ExitCode);
+        Assert.Contains("信任锚", result.Output, StringComparison.Ordinal);
+        Assert.Contains("allowedKinds", result.Output, StringComparison.Ordinal);
+    }
+    [Fact]
     public async Task FormalInstaller_ValidateOnlyRejectsIncorrectFieldCasingInChinese()
     {
         var result = await RunInstallerValidationAsync(manifest =>
@@ -168,6 +241,20 @@ public sealed class InstallerDefinitionTests
         Assert.Contains("publisherId 无效", result.Output, StringComparison.Ordinal);
     }
 
+    [Fact]
+    public void FormalRelease_WritesTrustAnchorSecretOnlyToRunnerTempAndPassesItsPathToInstaller()
+    {
+        var workflow = ReadRepositoryFile(".github", "workflows", "release.yml");
+        var buildJob = ExtractYamlMapping(workflow, "build", 2);
+        var installerStep = ExtractYamlStep(buildJob, "生成正式安装包");
+
+        Assert.Contains("secrets.EXTENSION_TRUST_ANCHOR_BASE64", buildJob, StringComparison.Ordinal);
+        Assert.Contains("RUNNER_TEMP", buildJob, StringComparison.Ordinal);
+        Assert.Contains("FromBase64String", buildJob, StringComparison.Ordinal);
+        Assert.Contains("-ExtensionTrustAnchorPath", installerStep, StringComparison.Ordinal);
+        Assert.DoesNotContain("EXTENSION_TRUST_ANCHOR_BASE64", installerStep, StringComparison.Ordinal);
+        Assert.DoesNotContain("extension-trust-anchor.json", ExtractYamlStep(buildJob, "上传候选安装包 Artifact"), StringComparison.OrdinalIgnoreCase);
+    }
     [Fact]
     public void FormalRelease_PublishJobUsesOnlyProtectedBuildArtifacts()
     {
@@ -326,13 +413,16 @@ public sealed class InstallerDefinitionTests
     /// <summary>
     /// 在临时仓库布局中启动真实 pwsh 进程，确保脚本仍只从自身仓库的 distribution 目录读取清单。
     /// </summary>
-    private static async Task<InstallerValidationResult> RunInstallerValidationAsync(Action<JsonObject> mutateManifest)
+    private static async Task<InstallerValidationResult> RunInstallerValidationAsync(
+        Action<JsonObject> mutateManifest,
+        Action<JsonObject>? mutateTrustAnchor = null)
     {
         var sandbox = Path.Combine(Path.GetTempPath(), $"hephaestus-installer-validation-{Guid.NewGuid():N}");
         var installerDirectory = Path.Combine(sandbox, "installer");
         var distributionDirectory = Path.Combine(sandbox, "distribution");
         var sandboxScript = Path.Combine(installerDirectory, "build-installer.ps1");
         var validationScript = Path.Combine(installerDirectory, "validate-installer.ps1");
+        var trustAnchorPath = Path.Combine(sandbox, "extension-trust-anchor.json");
         Directory.CreateDirectory(installerDirectory);
         Directory.CreateDirectory(distributionDirectory);
         File.Copy(Path.Combine(FindRepositoryRoot(), "installer", "build-installer.ps1"), sandboxScript);
@@ -340,16 +430,23 @@ public sealed class InstallerDefinitionTests
             validationScript,
             """
             [Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false)
-            & (Join-Path $PSScriptRoot 'build-installer.ps1') -ValidateOnly
+            $trustAnchorPath = Join-Path (Split-Path -Parent $PSScriptRoot) 'extension-trust-anchor.json'
+            & (Join-Path $PSScriptRoot 'build-installer.ps1') -ValidateOnly -ExtensionTrustAnchorPath $trustAnchorPath
             exit $LASTEXITCODE
             """,
             new UTF8Encoding(false));
 
         var manifest = CreateValidBundledExtensionManifest();
+        var trustAnchor = CreateTrustAnchorFor(manifest);
         mutateManifest(manifest);
+        mutateTrustAnchor?.Invoke(trustAnchor);
         await File.WriteAllTextAsync(
             Path.Combine(distributionDirectory, "bundled-extensions.json"),
             manifest.ToJsonString(new JsonSerializerOptions { WriteIndented = true }),
+            new UTF8Encoding(false));
+        await File.WriteAllTextAsync(
+            trustAnchorPath,
+            trustAnchor.ToJsonString(new JsonSerializerOptions { WriteIndented = true }),
             new UTF8Encoding(false));
 
         var startInfo = new ProcessStartInfo
@@ -429,6 +526,31 @@ public sealed class InstallerDefinitionTests
             }
         };
 
+    /// <summary>为临时 Bundle 生成匹配的测试锚；其中公钥仅是确定性的 32 字节测试数据。</summary>
+    private static JsonObject CreateTrustAnchorFor(JsonObject manifest)
+    {
+        var extension = GetFirstExtension(manifest);
+        var release = Assert.IsType<JsonObject>(extension["release"]);
+        var signature = Assert.IsType<JsonObject>(release["signature"]);
+        return new JsonObject
+        {
+            ["schemaVersion"] = 2,
+            ["trustedPublishers"] = new JsonArray
+            {
+                new JsonObject
+                {
+                    ["keyId"] = Assert.IsAssignableFrom<JsonValue>(signature["keyId"]).GetValue<string>(),
+                    ["publisherId"] = Assert.IsAssignableFrom<JsonValue>(extension["publisherId"]).GetValue<string>(),
+                    ["publicKey"] = Convert.ToBase64String(Enumerable.Range(0, 32).Select(value => (byte)value).ToArray()),
+                    ["scope"] = new JsonObject
+                    {
+                        ["allowedKinds"] = new JsonArray(Assert.IsAssignableFrom<JsonValue>(extension["kind"]).GetValue<string>()),
+                        ["permissions"] = new JsonArray("workspace.readText")
+                    }
+                }
+            }
+        };
+    }
     private sealed record InstallerValidationResult(
         int ExitCode,
         string Output,

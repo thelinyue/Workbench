@@ -83,7 +83,10 @@ internal sealed class WorkbenchHost : IDisposable
         Configuration = new WorkbenchConfigurationService(Paths);
         ExtensionSettings = new ExtensionSettingsStore(Paths);
         var extensionHealthChecker = new ExtensionHealthChecker();
-        ExtensionTrustStore = new ExtensionTrustStore();
+        ExtensionTrustStore = ExtensionTrustAnchorLoader.LoadEmbedded(
+            typeof(WorkbenchHost).Assembly,
+            "HephaestusWorkbench.ExtensionTrustAnchor.json",
+            RequireBundledExtensions);
         ExtensionRegistry = new ExtensionRegistry(Paths.ExtensionsDirectory, extensionHealthChecker, ExtensionTrustStore);
         ExtensionPackageVerifier = new ExtensionPackageVerifier(ExtensionTrustStore);
         var hostVersion = AppVersionInfo.DisplayVersion.TrimStart('v');

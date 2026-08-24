@@ -50,6 +50,9 @@ public sealed class V2ShellContractTests
         Assert.Contains("ExtensionInstaller", app);
         Assert.Contains("BundledExtensionInitializationService", app);
         Assert.Contains("ExtensionCatalogClient", app);
+        Assert.Contains("ExtensionTrustAnchorLoader.LoadEmbedded", app);
+        Assert.Contains("HephaestusWorkbench.ExtensionTrustAnchor.json", app);
+        Assert.DoesNotContain("ExtensionTrustStore = new ExtensionTrustStore", app, StringComparison.Ordinal);
         Assert.Contains("new TaskCenter(TasksRepository, Logger)", app);
         Assert.DoesNotContain("EnsurePluginConfigAsync", app);
         Assert.DoesNotContain("PluginProvisioningService", app);

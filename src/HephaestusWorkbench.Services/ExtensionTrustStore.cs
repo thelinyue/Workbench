@@ -90,6 +90,10 @@ public sealed class ExtensionTrustStore : IExtensionTrustStore
             throw new InvalidDataException($"扩展信任密钥 {trustedKey.KeyId} 缺少 publisherId。");
         if (trustedKey.Scope?.AllowedKinds is null || trustedKey.Scope.Permissions is null)
             throw new InvalidDataException($"扩展信任密钥 {trustedKey.KeyId} 缺少授权范围。");
+        if (trustedKey.Scope.AllowedKinds.Count == 0)
+            throw new InvalidDataException($"扩展信任密钥 {trustedKey.KeyId} 的 allowedKinds 不能为空。");
+        if (trustedKey.Scope.AllowedKinds.Any(kind => !Enum.IsDefined(kind)))
+            throw new InvalidDataException($"扩展信任密钥 {trustedKey.KeyId} 包含未知扩展类别。");
 
         try
         {
