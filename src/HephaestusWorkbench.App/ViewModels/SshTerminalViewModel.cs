@@ -45,6 +45,7 @@ public sealed class SshTerminalViewModel : ViewModelBase, IAsyncDisposable, IDis
         IHostKeyConfirmationService confirmation,
         AppSettingsConfig settings,
         string cacheRoot,
+        Action<SshDevice>? openMaintenance = null,
         Func<TimeSpan, CancellationToken, Task>? delay = null)
     {
         _devices = devices;
@@ -63,6 +64,12 @@ public sealed class SshTerminalViewModel : ViewModelBase, IAsyncDisposable, IDis
         {
             if (parameter is TerminalTabViewModel tab) _ = CloseTabAsync(tab);
         });
+        OpenMaintenanceCommand = new DelegateCommand(
+            parameter =>
+            {
+                if (parameter is SshDevice device) openMaintenance?.Invoke(device);
+            },
+            parameter => parameter is SshDevice && openMaintenance is not null);
     }
 
     public ObservableCollection<SshDevice> SavedDevices { get; } = [];
@@ -75,6 +82,8 @@ public sealed class SshTerminalViewModel : ViewModelBase, IAsyncDisposable, IDis
     public ICommand ConnectCommand { get; }
     public ICommand ConnectDeviceCommand { get; }
     public ICommand CloseTabCommand { get; }
+    /// <summary>从 SSH 设备上下文打开宿主维护窗口，不增加新的一级导航。</summary>
+    public ICommand OpenMaintenanceCommand { get; }
 
     public string Name { get => _name; set => SetProperty(ref _name, value); }
     public string Host { get => _host; set => SetProperty(ref _host, value); }

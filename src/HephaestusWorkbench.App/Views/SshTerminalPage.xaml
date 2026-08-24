@@ -36,9 +36,15 @@
                                             <Run Text="{Binding Username}" /><Run Text="@" /><Run Text="{Binding Host}" /><Run Text=":" /><Run Text="{Binding Port}" />
                                         </TextBlock>
                                     </StackPanel>
-                                    <Button Grid.Column="1" Content="连接" Padding="10,4" Margin="8,0,0,0"
-                                            Command="{Binding DataContext.ConnectDeviceCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
-                                            CommandParameter="{Binding}" AutomationProperties.Name="连接已保存设备" />
+                                    <StackPanel Grid.Column="1" Margin="8,0,0,0">
+                                        <Button Content="连接" Padding="10,4"
+                                                Command="{Binding DataContext.ConnectDeviceCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                                CommandParameter="{Binding}" AutomationProperties.Name="连接已保存设备" />
+                                        <Button Content="维护记录" Padding="10,4" Margin="0,5,0,0"
+                                                Command="{Binding DataContext.OpenMaintenanceCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                                CommandParameter="{Binding}" AutomationProperties.Name="打开设备维护记录"
+                                                ToolTip="查看该设备的维护计划与操作历史" />
+                                    </StackPanel>
                                 </Grid>
                             </Border>
                         </DataTemplate>

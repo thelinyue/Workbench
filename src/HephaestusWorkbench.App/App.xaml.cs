@@ -114,8 +114,19 @@ internal sealed class WorkbenchHost : IDisposable
         SshDevices = new SqliteSshDeviceRepository(_factory);
         SshHostKeys = new SqliteSshHostKeyRepository(_factory);
         SshHistory = new SqliteSshConnectionHistoryRepository(_factory);
+        MaintenanceOperations = new SqliteMaintenanceOperationRepository(_factory);
         Credentials = new WindowsCredentialStore();
         SshTerminalService = new SshNetTerminalService(SshHostKeys, Credentials);
+        CommandExecutionService = new SshNetCommandExecutionService(SshHostKeys, Credentials);
+        MaintenanceDiscovery = new LinuxMaintenanceDiscoveryService(CommandExecutionService);
+        MaintenancePolicy = new MaintenancePolicy();
+        MaintenanceExecutor = new MaintenanceExecutor(
+            Paths,
+            SshDevices,
+            MaintenanceDiscovery,
+            MaintenancePolicy,
+            CommandExecutionService,
+            MaintenanceOperations);
     }
 
     public DataPaths Paths { get; }
@@ -143,8 +154,13 @@ internal sealed class WorkbenchHost : IDisposable
     public ISshDeviceRepository SshDevices { get; }
     public ISshHostKeyRepository SshHostKeys { get; }
     public ISshConnectionHistoryRepository SshHistory { get; }
+    public IMaintenanceOperationRepository MaintenanceOperations { get; }
     public ICredentialStore Credentials { get; }
     public ISshTerminalService SshTerminalService { get; }
+    public ICommandExecutionService CommandExecutionService { get; }
+    public IMaintenanceDiscoveryService MaintenanceDiscovery { get; }
+    public IMaintenancePolicy MaintenancePolicy { get; }
+    public IMaintenanceExecutor MaintenanceExecutor { get; }
     public AppSettingsConfig AppSettings { get; private set; } = new();
     public MainViewModel MainViewModel { get; private set; } = null!;
 
@@ -207,6 +223,9 @@ internal sealed class WorkbenchHost : IDisposable
         var recoveredTasks = await LifecycleRepository.RecoverInterruptedAsync(DateTime.Now);
         if (recoveredTasks > 0)
             Logger.Info($"已恢复上次未完成的分析任务：{recoveredTasks} 个。");
+        var recoveredMaintenanceOperations = await MaintenanceOperations.RecoverInterruptedAsync(DateTime.Now);
+        if (recoveredMaintenanceOperations > 0)
+            Logger.Info($"检测到上次未确认结束的维护操作：{recoveredMaintenanceOperations} 个，已统一标记为 OutcomeUnknown，未自动重放。");
 
         await Configuration.EnsureWorkspaceAsync();
         AppSettings = await Configuration.EnsureAppSettingsAsync();
@@ -236,7 +255,8 @@ internal sealed class WorkbenchHost : IDisposable
                 Credentials,
                 new WpfHostKeyConfirmationService(),
                 AppSettings,
-                Path.Combine(Paths.CacheDirectory, "TerminalWebView2")));
+                Path.Combine(Paths.CacheDirectory, "TerminalWebView2"),
+                OpenMaintenanceWorkspace));
         await MainViewModel.InitializeAsync();
         Logger.Info("工作台初始化完成。");
     }
@@ -264,6 +284,28 @@ internal sealed class WorkbenchHost : IDisposable
 #else
     private const bool RequireBundledExtensions = false;
 #endif
+
+    /// <summary>
+    /// 从 SSH 设备上下文打开维护窗口。此入口当前只提供该设备的操作历史；
+    /// 未来由受信宿主代码生成计划时，仍复用同一窗口并传入不可变 ExecutionPlan。
+    /// </summary>
+    private void OpenMaintenanceWorkspace(SshDevice device)
+    {
+        ArgumentNullException.ThrowIfNull(device);
+        var viewModel = new MaintenanceWorkspaceViewModel(
+            device.Id,
+            null,
+            MaintenanceExecutor,
+            MaintenanceOperations,
+            Paths,
+            text => System.Windows.Clipboard.SetText(text));
+        var window = new MaintenanceWorkspaceWindow(viewModel)
+        {
+            Owner = System.Windows.Application.Current.MainWindow,
+            Title = $"{device.Name} · 维护记录"
+        };
+        window.Show();
+    }
 
     /// <summary>
     /// Workspace 扩展只能进入宿主固定窗口。窗口持有实际打开版本的租约，关闭前该版本不能被清理。

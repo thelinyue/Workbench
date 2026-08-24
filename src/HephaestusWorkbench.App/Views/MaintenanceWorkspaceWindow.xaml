@@ -1,0 +1,273 @@
+<Window x:Class="HephaestusWorkbench.App.Views.MaintenanceWorkspaceWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="受控维护"
+        Width="1280"
+        Height="820"
+        MinWidth="980"
+        MinHeight="680"
+        WindowStartupLocation="CenterOwner"
+        Background="{DynamicResource WorkbenchBackgroundBrush}"
+        AutomationProperties.Name="受控维护窗口">
+    <Grid Margin="20">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="16" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+
+        <DockPanel Grid.Row="0" LastChildFill="True">
+            <StackPanel DockPanel.Dock="Left">
+                <TextBlock Text="受控维护" FontSize="24" FontWeight="SemiBold" />
+                <TextBlock Text="只执行宿主生成并复核的不可编辑计划；维护扩展不能直接获得 SSH 或系统权限。"
+                           Style="{StaticResource MutedTextStyle}"
+                           TextWrapping="Wrap"
+                           Margin="0,4,0,0" />
+            </StackPanel>
+            <Border DockPanel.Dock="Right"
+                    Background="{DynamicResource WorkbenchSurfaceBrush}"
+                    BorderBrush="{DynamicResource WorkbenchBorderBrush}"
+                    BorderThickness="1"
+                    CornerRadius="5"
+                    Padding="12,8"
+                    HorizontalAlignment="Right">
+                <StackPanel Orientation="Horizontal">
+                    <TextBlock Text="设备 " Style="{StaticResource MutedTextStyle}" />
+                    <TextBlock Text="{Binding DeviceId}" FontWeight="SemiBold" />
+                </StackPanel>
+            </Border>
+        </DockPanel>
+
+        <Grid Grid.Row="2">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="460" />
+                <ColumnDefinition Width="16" />
+                <ColumnDefinition Width="*" />
+            </Grid.ColumnDefinitions>
+
+            <Border Grid.Column="0"
+                    Style="{StaticResource CardStyle}"
+                    Padding="16"
+                    Visibility="{Binding HasPlan, Converter={StaticResource BooleanToVisibilityConverter}}">
+                <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                    <StackPanel>
+                        <DockPanel LastChildFill="False">
+                            <TextBlock Text="计划确认" Style="{StaticResource SectionTitleStyle}" DockPanel.Dock="Left" />
+                            <Border DockPanel.Dock="Right"
+                                    Background="{DynamicResource WorkbenchSurfaceAltBrush}"
+                                    BorderBrush="{DynamicResource WorkbenchBorderBrush}"
+                                    BorderThickness="1"
+                                    CornerRadius="4"
+                                    Padding="8,3">
+                                <TextBlock Text="{Binding PlanRiskText}" FontWeight="SemiBold" />
+                            </Border>
+                        </DockPanel>
+                        <TextBlock Text="{Binding PlanSummary}"
+                                   Style="{StaticResource MutedTextStyle}"
+                                   TextWrapping="Wrap"
+                                   Margin="0,0,0,14" />
+
+                        <TextBlock Text="不可编辑步骤" FontWeight="SemiBold" Margin="0,0,0,8" />
+                        <ItemsControl ItemsSource="{Binding PlanSteps}">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <Border Background="{DynamicResource WorkbenchSurfaceAltBrush}"
+                                            BorderBrush="{DynamicResource WorkbenchBorderBrush}"
+                                            BorderThickness="1"
+                                            CornerRadius="5"
+                                            Padding="12"
+                                            Margin="0,0,0,8">
+                                        <StackPanel>
+                                            <DockPanel LastChildFill="False">
+                                                <TextBlock Text="{Binding Name}" FontWeight="SemiBold" DockPanel.Dock="Left" />
+                                                <TextBlock Text="{Binding StatusText}" DockPanel.Dock="Right"
+                                                           Foreground="{DynamicResource WorkbenchMutedTextBrush}" />
+                                            </DockPanel>
+                                            <TextBox Text="{Binding CommandText}"
+                                                     IsReadOnly="True"
+                                                     TextWrapping="Wrap"
+                                                     AcceptsReturn="True"
+                                                     FontFamily="Cascadia Mono, Consolas"
+                                                     Margin="0,8,0,0"
+                                                     AutomationProperties.Name="不可编辑维护命令" />
+                                            <Button Content="复制命令"
+                                                    HorizontalAlignment="Left"
+                                                    Margin="0,8,0,0"
+                                                    Command="{Binding DataContext.CopyCommandCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                                                    CommandParameter="{Binding}"
+                                                    AutomationProperties.Name="复制维护命令" />
+                                        </StackPanel>
+                                    </Border>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+
+                        <Border Background="{DynamicResource WorkbenchSurfaceAltBrush}"
+                                BorderBrush="{DynamicResource WorkbenchBorderBrush}"
+                                BorderThickness="1"
+                                CornerRadius="5"
+                                Padding="12"
+                                Margin="0,8,0,0">
+                            <StackPanel>
+                                <TextBlock Text="执行确认" FontWeight="SemiBold" />
+                                <CheckBox Content="已核对不可编辑计划"
+                                          IsChecked="{Binding PlanAcknowledged}"
+                                          AutomationProperties.Name="确认已核对不可编辑维护计划"
+                                          Margin="0,8,0,0" />
+                                <StackPanel Visibility="{Binding RequiresConfirmationText, Converter={StaticResource BooleanToVisibilityConverter}}"
+                                            Margin="0,8,0,0">
+                                    <TextBlock Text="高风险计划：请输入目标设备名称，必须与计划完全一致。"
+                                               Foreground="{DynamicResource WorkbenchDangerBrush}"
+                                               TextWrapping="Wrap" />
+                                    <TextBox Text="{Binding ConfirmationText, UpdateSourceTrigger=PropertyChanged}"
+                                             Margin="0,8,0,0"
+                                             AutomationProperties.Name="高风险目标设备名称确认" />
+                                </StackPanel>
+                                <Button Content="确认并执行"
+                                        Style="{StaticResource PrimaryButtonStyle}"
+                                        Command="{Binding ExecuteCommand}"
+                                        HorizontalAlignment="Stretch"
+                                        Margin="0,12,0,0"
+                                        AutomationProperties.Name="确认并执行维护计划" />
+                            </StackPanel>
+                        </Border>
+
+                        <TextBlock Text="{Binding ExecutionStatusText}" FontWeight="SemiBold" Margin="0,12,0,0" />
+                        <TextBlock Text="{Binding StatusMessage}" TextWrapping="Wrap" Margin="0,4,0,0" />
+                        <TextBlock Text="{Binding ErrorMessage}"
+                                   Foreground="{DynamicResource WorkbenchDangerBrush}"
+                                   TextWrapping="Wrap"
+                                   Margin="0,4,0,0"
+                                   AutomationProperties.LiveSetting="Assertive" />
+                    </StackPanel>
+                </ScrollViewer>
+            </Border>
+
+            <Border Grid.Column="2" Style="{StaticResource CardStyle}" Padding="16">
+                <Grid>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="*" />
+                        <RowDefinition Height="12" />
+                        <RowDefinition Height="220" />
+                    </Grid.RowDefinitions>
+
+                    <StackPanel Grid.Row="0" Margin="0,0,0,10">
+                        <TextBlock Text="操作历史" Style="{StaticResource SectionTitleStyle}" />
+                        <TextBlock Text="仅显示当前设备的维护记录。结果未知的操作不会自动重放。"
+                                   Style="{StaticResource MutedTextStyle}"
+                                   TextWrapping="Wrap" />
+                    </StackPanel>
+
+                    <ListBox Grid.Row="1"
+                             ItemsSource="{Binding History}"
+                             ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                             AutomationProperties.Name="维护操作历史">
+                        <ListBox.ItemTemplate>
+                            <DataTemplate>
+                                <Border Background="{DynamicResource WorkbenchSurfaceAltBrush}"
+                                        BorderBrush="{DynamicResource WorkbenchBorderBrush}"
+                                        BorderThickness="1"
+                                        CornerRadius="5"
+                                        Padding="12">
+                                    <StackPanel>
+                                        <DockPanel LastChildFill="False">
+                                            <StackPanel DockPanel.Dock="Left">
+                                                <TextBlock Text="{Binding WorkflowId}" FontWeight="SemiBold" />
+                                                <TextBlock Style="{StaticResource MutedTextStyle}" TextWrapping="Wrap">
+                                                    <Run Text="操作 " /><Run Text="{Binding OperationId}" />
+                                                    <Run Text=" · 扩展版本 " /><Run Text="{Binding ExtensionVersion}" />
+                                                </TextBlock>
+                                            </StackPanel>
+                                            <StackPanel DockPanel.Dock="Right" HorizontalAlignment="Right">
+                                                <TextBlock Text="{Binding StatusText}" FontWeight="SemiBold" HorizontalAlignment="Right" />
+                                                <TextBlock Style="{StaticResource MutedTextStyle}" HorizontalAlignment="Right">
+                                                    <Run Text="开始 " /><Run Text="{Binding StartedAt, StringFormat={}{0:yyyy-MM-dd HH:mm:ss}}" />
+                                                </TextBlock>
+                                                <TextBlock Style="{StaticResource MutedTextStyle}" HorizontalAlignment="Right">
+                                                    <Run Text="结束 " /><Run Text="{Binding CompletedAt, StringFormat={}{0:yyyy-MM-dd HH:mm:ss}, TargetNullValue=—}" />
+                                                </TextBlock>
+                                            </StackPanel>
+                                        </DockPanel>
+                                        <TextBlock Text="{Binding OutcomeSummary}" TextWrapping="Wrap" Margin="0,8,0,0" />
+                                        <ItemsControl ItemsSource="{Binding Steps}" Margin="0,8,0,0">
+                                            <ItemsControl.ItemTemplate>
+                                                <DataTemplate>
+                                                    <Border BorderBrush="{DynamicResource WorkbenchBorderBrush}"
+                                                            BorderThickness="0,1,0,0"
+                                                            Padding="0,8,0,0"
+                                                            Margin="0,0,0,8">
+                                                        <Grid>
+                                                            <Grid.ColumnDefinitions>
+                                                                <ColumnDefinition Width="*" />
+                                                                <ColumnDefinition Width="Auto" />
+                                                            </Grid.ColumnDefinitions>
+                                                            <StackPanel Grid.Column="0">
+                                                                <TextBlock Text="{Binding Name}" FontWeight="SemiBold" />
+                                                                <TextBlock Text="{Binding CommandText}"
+                                                                           Style="{StaticResource MutedTextStyle}"
+                                                                           TextWrapping="Wrap" />
+                                                                <StackPanel Orientation="Horizontal">
+                                                                    <TextBlock Text="状态 " Style="{StaticResource MutedTextStyle}" />
+                                                                    <TextBlock Text="{Binding StatusText}" />
+                                                                    <TextBlock Text=" · ExitCode " Style="{StaticResource MutedTextStyle}" />
+                                                                    <TextBlock Text="{Binding ExitCode, TargetNullValue=—}" />
+                                                                    <TextBlock Text=" · Duration " Style="{StaticResource MutedTextStyle}" />
+                                                                    <TextBlock Text="{Binding Duration, TargetNullValue=—}" />
+                                                                </StackPanel>
+                                                                <TextBlock Style="{StaticResource MutedTextStyle}" TextWrapping="Wrap">
+                                                                    <Run Text="开始 " /><Run Text="{Binding StartedAt, StringFormat={}{0:yyyy-MM-dd HH:mm:ss}, TargetNullValue=—}" />
+                                                                    <Run Text=" · 结束 " /><Run Text="{Binding CompletedAt, StringFormat={}{0:yyyy-MM-dd HH:mm:ss}, TargetNullValue=—}" />
+                                                                </TextBlock>
+                                                            </StackPanel>
+                                                            <StackPanel Grid.Column="1" Orientation="Horizontal" Margin="12,0,0,0">
+                                                                <Button Content="stdout"
+                                                                        Command="{Binding DataContext.LoadStdoutCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                                                                        CommandParameter="{Binding}"
+                                                                        AutomationProperties.Name="查看标准输出" />
+                                                                <Button Content="stderr"
+                                                                        Margin="6,0,0,0"
+                                                                        Command="{Binding DataContext.LoadStderrCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                                                                        CommandParameter="{Binding}"
+                                                                        AutomationProperties.Name="查看标准错误" />
+                                                            </StackPanel>
+                                                        </Grid>
+                                                    </Border>
+                                                </DataTemplate>
+                                            </ItemsControl.ItemTemplate>
+                                        </ItemsControl>
+                                    </StackPanel>
+                                </Border>
+                            </DataTemplate>
+                        </ListBox.ItemTemplate>
+                    </ListBox>
+
+                    <Border Grid.Row="3"
+                            Background="{DynamicResource WorkbenchSurfaceAltBrush}"
+                            BorderBrush="{DynamicResource WorkbenchBorderBrush}"
+                            BorderThickness="1"
+                            CornerRadius="5"
+                            Padding="12">
+                        <Grid>
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="8" />
+                                <RowDefinition Height="*" />
+                            </Grid.RowDefinitions>
+                            <TextBlock Text="{Binding OutputTitle}" FontWeight="SemiBold" />
+                            <TextBox Grid.Row="2"
+                                     Text="{Binding OutputText}"
+                                     IsReadOnly="True"
+                                     AcceptsReturn="True"
+                                     TextWrapping="Wrap"
+                                     VerticalScrollBarVisibility="Auto"
+                                     HorizontalScrollBarVisibility="Auto"
+                                     FontFamily="Cascadia Mono, Consolas"
+                                     AutomationProperties.Name="维护输出详情" />
+                        </Grid>
+                    </Border>
+                </Grid>
+            </Border>
+        </Grid>
+    </Grid>
+</Window>
