@@ -138,11 +138,8 @@ public static class ExtensionCatalogParser
             throw new ExtensionContractException($"扩展 {extensionId} 的 release version 无效。");
         if (!ExtensionContractValues.IsSemanticVersion(release.MinHostVersion))
             throw new ExtensionContractException($"扩展 {extensionId} 的 minHostVersion 无效。");
-        if (!Uri.TryCreate(release.Url, UriKind.Absolute, out var uri) ||
-            !string.Equals(uri.Scheme, Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase))
-        {
-            throw new ExtensionContractException($"扩展 {extensionId} 的发布地址必须使用 HTTPS。");
-        }
+        if (!ExtensionContractValues.IsSafeHttpsReleaseUrl(release.Url))
+            throw new ExtensionContractException($"扩展 {extensionId} 的发布地址必须是安全的 HTTPS 地址。");
         if (release.Size <= 0)
             throw new ExtensionContractException($"扩展 {extensionId} 的发布包大小必须大于 0。");
         if (!ExtensionContractValues.IsSha256(release.Sha256))
