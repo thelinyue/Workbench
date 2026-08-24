@@ -200,6 +200,24 @@ public sealed class InstallerDefinitionTests
         Assert.False(result.DistDirectoryCreated, "ValidateOnly 不得创建安装器输出目录。");
     }
 
+    [Theory]
+    [InlineData(67_108_865L, true)]
+    [InlineData(209_715_201L, false)]
+    public async Task FormalInstaller_ValidateOnlyEnforcesFrozenBundledPackageSizePrecheck(long size, bool accepted)
+    {
+        var result = await RunInstallerValidationAsync(manifest =>
+        {
+            var release = Assert.IsType<JsonObject>(GetFirstExtension(manifest)["release"]);
+            release["size"] = size;
+        });
+
+        Assert.Equal(accepted, result.ExitCode == 0);
+        Assert.False(result.StagingDirectoryCreated, "ValidateOnly 不得进入资产存在性或安装器构建步骤。");
+        Assert.False(result.DistDirectoryCreated, "ValidateOnly 不得创建安装器输出目录。");
+        if (!accepted)
+            Assert.Contains("release.size", result.Output, StringComparison.Ordinal);
+    }
+
     [Fact]
     public async Task FormalInstaller_ValidateOnlyRejectsEmptyTrustAnchorPublishersInChinese()
     {
@@ -537,6 +555,26 @@ public sealed class InstallerDefinitionTests
 
         Assert.NotEqual(0, result.ExitCode);
         Assert.Contains("ZIP manifest", result.Output, StringComparison.Ordinal);
+        Assert.False(result.OutputExists);
+    }
+
+    [Fact]
+    public async Task ReleaseMetadataImport_RejectsRuntimeEntryContainingNulWithoutWritingOutput()
+    {
+        const string entry = "tool\0.exe";
+        var result = await RunReleaseMetadataImportAsync(
+            mutateMetadata: metadata =>
+            {
+                var runtime = Assert.IsType<JsonObject>(Assert.IsType<JsonObject>(GetReleaseMetadataPackage(metadata)["manifest"])["runtime"]);
+                runtime["entry"] = entry;
+            },
+            mutateZipManifest: manifest =>
+            {
+                var runtime = Assert.IsType<JsonObject>(manifest["runtime"]);
+                runtime["entry"] = entry;
+            });
+
+        Assert.NotEqual(0, result.ExitCode);
         Assert.False(result.OutputExists);
     }
 

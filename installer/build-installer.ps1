@@ -17,7 +17,7 @@ $bundleStaging = Join-Path $stagingRoot 'bundle'
 $dist = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot 'dist'))
 $signatureVerifier = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot 'verify-ed25519.ps1'))
 $projectAssetsPath = [System.IO.Path]::GetFullPath((Join-Path $repoRoot 'src\HephaestusWorkbench.Services\obj\project.assets.json'))
-$maximumPackageBytes = 64L * 1024 * 1024
+$maximumPackageBytes = 209715200
 $knownKinds = @('workspace', 'analysis', 'maintenance')
 if ($Version -cnotmatch '^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$') {
     throw "发布版本必须使用 X.Y.Z 三段式正式版本：$Version。"

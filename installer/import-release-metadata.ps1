@@ -118,6 +118,21 @@ function Assert-RelativeEntry([string]$Value, [string]$Description) {
         $Value -match '(^|[\\/])\.\.([\\/]|$)' -or $Value -match '(^|[\\/])\.?([\\/]|$)') {
         throw "$Description必须是扩展包内的相对路径。"
     }
+
+    try {
+        # 与宿主 ExtensionManifestParser 保持同一 Windows/.NET 路径归一化边界，防止 JSON 字符串绕过正则检查。
+        $root = [System.IO.Path]::GetFullPath('.')
+        $resolved = [System.IO.Path]::GetFullPath([System.IO.Path]::Combine($root, $Value))
+        $relative = [System.IO.Path]::GetRelativePath($root, $resolved)
+        if ([System.IO.Path]::IsPathRooted($relative) -or $relative -ceq '..' -or
+            $relative.StartsWith("..$([System.IO.Path]::DirectorySeparatorChar)", [System.StringComparison]::Ordinal) -or
+            $relative.StartsWith("..$([System.IO.Path]::AltDirectorySeparatorChar)", [System.StringComparison]::Ordinal)) {
+            throw "$Description必须是扩展包内的相对路径。"
+        }
+    }
+    catch {
+        throw "$Description必须是扩展包内的相对路径。"
+    }
 }
 
 function Assert-Manifest(
