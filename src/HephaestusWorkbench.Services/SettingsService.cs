@@ -102,6 +102,17 @@ public sealed class SettingsService
         await _configuration.SaveAppSettingsAsync(settings, cancellationToken);
     }
 
+    /// <summary>读取工作台左侧固定导航栏的折叠偏好。</summary>
+    public async Task<bool> GetSidebarCollapsedAsync(CancellationToken cancellationToken = default)
+        => (await _configuration.EnsureAppSettingsAsync(cancellationToken)).IsSidebarCollapsed;
+
+    /// <summary>保存工作台左侧固定导航栏的折叠偏好。</summary>
+    public async Task SetSidebarCollapsedAsync(bool isCollapsed, CancellationToken cancellationToken = default)
+    {
+        var settings = await _configuration.EnsureAppSettingsAsync(cancellationToken);
+        settings.IsSidebarCollapsed = isCollapsed;
+        await _configuration.SaveAppSettingsAsync(settings, cancellationToken);
+    }
     public async Task<SshTerminalPreferences> GetSshTerminalPreferencesAsync(CancellationToken cancellationToken = default)
     {
         var settings = await _configuration.EnsureAppSettingsAsync(cancellationToken);

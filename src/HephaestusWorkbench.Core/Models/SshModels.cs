@@ -73,6 +73,17 @@ public sealed record class SshConnectionHistory
     public string? ErrorMessage { get; init; }
 }
 
+/// <summary>
+/// “最近连接”抽屉使用的非敏感去重投影。它只保留重新打开表单所需的地址和用户名，
+/// 不包含认证方式、私钥路径、Credential Manager target 或任何终端内容。
+/// </summary>
+public sealed record SshRecentConnection(
+    string? DeviceId,
+    string Host,
+    int Port,
+    string Username,
+    DateTime LastConnectedAt);
+
 /// <summary>建立交互终端或独立命令连接所需的非敏感参数。</summary>
 public sealed record SshConnectionRequest(
     string? DeviceId,

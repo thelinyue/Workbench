@@ -1,0 +1,27 @@
+<Window x:Class="HephaestusWorkbench.App.Views.DetachedTerminalWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Width="960" Height="640" MinWidth="640" MinHeight="420"
+        WindowStartupLocation="CenterOwner">
+    <Grid Background="{DynamicResource WorkbenchBackgroundBrush}">
+        <Grid.RowDefinitions><RowDefinition Height="36"/><RowDefinition Height="*"/></Grid.RowDefinitions>
+        <Border Background="{DynamicResource WorkbenchSurfaceBrush}" BorderBrush="{DynamicResource WorkbenchBorderBrush}" BorderThickness="0,0,0,1" Padding="10,0">
+            <DockPanel>
+                <Button DockPanel.Dock="Right" Content="&#xE712;" FontFamily="Segoe Fluent Icons" Padding="8,3" Margin="6,0,0,0"
+                        ToolTip="更多会话操作" AutomationProperties.Name="更多会话操作">
+                    <Button.ContextMenu>
+                        <ContextMenu>
+                            <MenuItem Header="断开并关闭会话" Click="DisconnectAndClose_OnClick" />
+                        </ContextMenu>
+                    </Button.ContextMenu>
+                </Button>
+                <Button DockPanel.Dock="Right" Content="移回主窗口" Padding="10,4" Click="ReturnToMain_OnClick" AutomationProperties.Name="移回主窗口" />
+                <StackPanel VerticalAlignment="Center">
+                    <TextBlock x:Name="SessionTitle" FontWeight="SemiBold" />
+                    <TextBlock x:Name="SessionState" Style="{StaticResource MutedTextStyle}" FontSize="11" />
+                </StackPanel>
+            </DockPanel>
+        </Border>
+        <ContentControl x:Name="TerminalHost" Grid.Row="1" />
+    </Grid>
+</Window>

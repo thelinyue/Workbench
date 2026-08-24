@@ -450,4 +450,22 @@ public sealed class WorkbenchConfigurationTests
     {
         public void Report(string value) => report(value);
     }
+    [Fact]
+    public async Task SettingsService_PersistsSidebarCollapsedPreference()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "HephaestusWorkbenchTests", Guid.NewGuid().ToString("N"));
+        var paths = new DataPaths(root);
+        var settings = new SettingsService(new WorkbenchConfigurationService(paths), paths.InboxDirectory);
+        try
+        {
+            Assert.False(await settings.GetSidebarCollapsedAsync());
+            await settings.SetSidebarCollapsedAsync(true);
+            Assert.True(await settings.GetSidebarCollapsedAsync());
+        }
+        finally
+        {
+            if (Directory.Exists(root)) Directory.Delete(root, recursive: true);
+        }
+    }
+
 }

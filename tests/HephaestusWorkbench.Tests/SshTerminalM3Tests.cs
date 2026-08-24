@@ -282,6 +282,116 @@ public sealed class SshTerminalM3Tests
     }
 
     [Fact]
+    public async Task ViewModel_设备默认连接复用同一活动设备会话()
+    {
+        var service = new FakeTerminalService(alwaysSucceed: true);
+        var devices = new FakeDeviceRepository();
+        var credentials = new FakeCredentialStore();
+        await using var viewModel = CreateViewModel(service, devices, credentials);
+        viewModel.Name = "NAS-01";
+        viewModel.Host = "cn68-relay.ugnas.com";
+        viewModel.Port = 38977;
+        viewModel.Username = "root";
+        viewModel.Password = "secret";
+        viewModel.SaveDevice = true;
+        viewModel.SaveCredential = true;
+        await viewModel.ConnectAsync();
+        var activeTab = Assert.Single(viewModel.Tabs);
+        var device = Assert.Single(viewModel.SavedDevices);
+
+        viewModel.ConnectDeviceCommand.Execute(device);
+        await WaitUntilAsync(() => ReferenceEquals(activeTab, viewModel.SelectedTab));
+
+        Assert.Single(viewModel.Tabs);
+        Assert.Same(activeTab, viewModel.SelectedTab);
+        Assert.Equal(1, service.ConnectCount);
+    }
+
+    [Fact]
+    public async Task ViewModel_在新标签连接始终创建独立会话()
+    {
+        var service = new FakeTerminalService(alwaysSucceed: true);
+        var devices = new FakeDeviceRepository();
+        var credentials = new FakeCredentialStore();
+        await using var viewModel = CreateViewModel(service, devices, credentials);
+        viewModel.Name = "Edge-02";
+        viewModel.Host = "cn68-relay.ugnas.com";
+        viewModel.Port = 38977;
+        viewModel.Username = "root";
+        viewModel.Password = "secret";
+        viewModel.SaveDevice = true;
+        viewModel.SaveCredential = true;
+        await viewModel.ConnectAsync();
+        var firstTab = Assert.Single(viewModel.Tabs);
+        var device = Assert.Single(viewModel.SavedDevices);
+
+        viewModel.ConnectDeviceInNewTabCommand.Execute(device);
+        await WaitUntilAsync(() => viewModel.Tabs.Count == 2);
+
+        Assert.Equal(2, viewModel.Tabs.Count);
+        Assert.NotSame(firstTab, viewModel.SelectedTab);
+        Assert.Equal(2, service.ConnectCount);
+    }
+
+    [Fact]
+    public async Task ViewModel_删除保存设备时删除凭据且不关闭活动标签()
+    {
+        var service = new FakeTerminalService(alwaysSucceed: true);
+        var devices = new FakeDeviceRepository();
+        var credentials = new FakeCredentialStore();
+        await using var viewModel = CreateViewModel(service, devices, credentials);
+        viewModel.Name = "NAS-01";
+        viewModel.Host = "cn68-relay.ugnas.com";
+        viewModel.Port = 38977;
+        viewModel.Username = "root";
+        viewModel.Password = "secret";
+        viewModel.SaveDevice = true;
+        viewModel.SaveCredential = true;
+        await viewModel.ConnectAsync();
+        var activeTab = Assert.Single(viewModel.Tabs);
+        var device = Assert.Single(viewModel.SavedDevices);
+        var credentialTarget = Assert.IsType<string>(device.CredentialTarget);
+
+        viewModel.DeleteDeviceCommand.Execute(device);
+        await WaitUntilAsync(() => devices.DeletedIds.Contains(device.Id));
+
+        Assert.Contains(credentialTarget, credentials.DeletedTargets);
+        Assert.Contains(device.Id, devices.DeletedIds);
+        Assert.Empty(viewModel.SavedDevices);
+        Assert.Single(viewModel.Tabs);
+        Assert.Same(activeTab, viewModel.SelectedTab);
+        Assert.False(service.CreatedSessions.Single().Disposed);
+    }
+
+    [Fact]
+    public async Task ViewModel_未保存凭据断线后不得被自动重连闭包复用()
+    {
+        var channel = new FakeInteractiveChannel();
+        var service = new FakeTerminalService();
+        service.Results.Enqueue(new FakeTerminalSession("initial", channel));
+        var settings = new AppSettingsConfig();
+        settings.ReconnectBehavior = SshReconnectBehavior.AutomaticThreeAttempts;
+        await using var viewModel = CreateViewModel(service, new FakeDeviceRepository(), new FakeCredentialStore(), settings);
+        viewModel.Name = "临时连接";
+        viewModel.Host = "cn68-relay.ugnas.com";
+        viewModel.Port = 38977;
+        viewModel.Username = "root";
+        viewModel.Password = "仅本次使用的密码";
+        viewModel.SaveDevice = false;
+
+        await viewModel.ConnectAsync();
+        var tab = Assert.Single(viewModel.Tabs);
+        var surface = new FakeTerminalSurface();
+        await tab.AttachSurfaceAsync(surface);
+        channel.CompleteReads();
+        await WaitUntilAsync(() => tab.IsDisconnected);
+
+        Assert.Equal(1, service.ConnectCount);
+        Assert.True(tab.IsDisconnected);
+        Assert.Equal("已断开", tab.SessionState);
+    }
+
+    [Fact]
     public void ConnectionHistoryContractContainsNoCommandOutputOrCredentialFields()
     {
         var names = typeof(SshConnectionHistory).GetProperties().Select(property => property.Name).ToArray();
@@ -292,19 +402,31 @@ public sealed class SshTerminalM3Tests
         Assert.DoesNotContain(names, name => name.Contains("Credential", StringComparison.OrdinalIgnoreCase));
     }
 
+    /// <summary>创建 SSH 页面测试模型；允许测试明确指定自动重连策略，避免依赖全局默认值。</summary>
     private static SshTerminalViewModel CreateViewModel(
         ISshTerminalService service,
         ISshDeviceRepository devices,
-        ICredentialStore credentials) => new(
+        ICredentialStore credentials,
+        AppSettingsConfig? settings = null) => new(
             service,
             devices,
             new FakeHostKeyRepository(),
             new FakeHistoryRepository(),
             credentials,
             new FakeHostKeyPrompt(true),
-            new AppSettingsConfig(),
+            settings ?? new AppSettingsConfig(),
             Path.Combine(Path.GetTempPath(), "hephaestus-terminal-tests", Guid.NewGuid().ToString("N")),
             delay: (_, _) => Task.CompletedTask);
+
+    /// <summary>等待由 ICommand 触发的异步交互完成，超时信息保留中文以便定位界面行为。</summary>
+    private static async Task WaitUntilAsync(Func<bool> condition)
+    {
+        var timeout = DateTime.UtcNow.AddSeconds(2);
+        while (!condition() && DateTime.UtcNow < timeout)
+            await Task.Delay(10);
+
+        Assert.True(condition(), "等待 SSH 工作区异步交互完成超时。");
+    }
 
     private static SshConnectionRequest Connection() => new(
         null, "server.example", 22, "root", SshAuthenticationMethod.Password, null, null);
@@ -331,15 +453,21 @@ public sealed class SshTerminalM3Tests
                 return Task.FromResult((ITerminalSession)result);
             }
             if (!alwaysSucceed) throw new InvalidOperationException("没有排队的连接结果。");
-            var session = new FakeTerminalSession($"session-{ConnectCount}", new FakeInteractiveChannel());
+            var session = new FakeTerminalSession(
+                $"session-{ConnectCount}",
+                new FakeInteractiveChannel(),
+                new SshConnectionIdentity(request.DeviceId, request.Host, request.Port, request.Username));
             CreatedSessions.Add(session);
             return Task.FromResult<ITerminalSession>(session);
         }
     }
 
-    private sealed class FakeTerminalSession(string id, FakeInteractiveChannel channel) : ITerminalSession
+    private sealed class FakeTerminalSession(
+        string id,
+        FakeInteractiveChannel channel,
+        SshConnectionIdentity? connectionIdentity = null) : ITerminalSession
     {
-        public SshConnectionIdentity ConnectionIdentity { get; } = new(id, "server.example", 22, "root");
+        public SshConnectionIdentity ConnectionIdentity { get; } = connectionIdentity ?? new(id, "server.example", 22, "root");
         public IInteractiveChannel InteractiveChannel => channel;
         public bool Disposed { get; private set; }
         public ValueTask DisposeAsync() { Disposed = true; channel.Dispose(); return ValueTask.CompletedTask; }
@@ -452,6 +580,7 @@ public sealed class SshTerminalM3Tests
     private sealed class FakeDeviceRepository : ISshDeviceRepository
     {
         public List<SshDevice> Upserted { get; } = [];
+        public List<string> DeletedIds { get; } = [];
         public Task<IReadOnlyList<SshDevice>> ListAsync(CancellationToken cancellationToken = default) => Task.FromResult<IReadOnlyList<SshDevice>>(Upserted);
         public Task<SshDevice?> GetAsync(string id, CancellationToken cancellationToken = default) => Task.FromResult(Upserted.FirstOrDefault(x => x.Id == id));
         public Task UpsertAsync(SshDevice device, CancellationToken cancellationToken = default)
@@ -460,7 +589,12 @@ public sealed class SshTerminalM3Tests
             Upserted.Add(device);
             return Task.CompletedTask;
         }
-        public Task DeleteAsync(string id, CancellationToken cancellationToken = default) => Task.CompletedTask;
+        public Task DeleteAsync(string id, CancellationToken cancellationToken = default)
+        {
+            DeletedIds.Add(id);
+            Upserted.RemoveAll(device => device.Id == id);
+            return Task.CompletedTask;
+        }
     }
 
     private sealed class FailingDeviceRepository : ISshDeviceRepository
@@ -473,10 +607,21 @@ public sealed class SshTerminalM3Tests
 
     private sealed class FakeCredentialStore : ICredentialStore
     {
+        private readonly Dictionary<string, SshStoredCredential> _stored = [];
         public List<(string Target, string UserName, string Secret)> Writes { get; } = [];
+        public List<string> DeletedTargets { get; } = [];
         public Task WriteAsync(string target, string userName, SshCredentialSecret secret, CancellationToken cancellationToken = default)
-        { Writes.Add((target, userName, secret.Value)); return Task.CompletedTask; }
-        public Task<SshStoredCredential?> ReadAsync(string target, CancellationToken cancellationToken = default) => Task.FromResult<SshStoredCredential?>(null);
-        public Task<bool> DeleteAsync(string target, CancellationToken cancellationToken = default) => Task.FromResult(false);
+        {
+            Writes.Add((target, userName, secret.Value));
+            _stored[target] = new SshStoredCredential(userName, secret);
+            return Task.CompletedTask;
+        }
+        public Task<SshStoredCredential?> ReadAsync(string target, CancellationToken cancellationToken = default) =>
+            Task.FromResult(_stored.GetValueOrDefault(target));
+        public Task<bool> DeleteAsync(string target, CancellationToken cancellationToken = default)
+        {
+            DeletedTargets.Add(target);
+            return Task.FromResult(_stored.Remove(target));
+        }
     }
 }
