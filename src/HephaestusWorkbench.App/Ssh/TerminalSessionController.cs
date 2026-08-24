@@ -6,6 +6,13 @@ using HephaestusWorkbench.Core.Services;
 
 namespace HephaestusWorkbench.App.Ssh;
 
+internal enum TerminalConnectionState
+{
+    Connected,
+    Reconnecting,
+    Disconnected
+}
+
 internal sealed record TerminalReconnectOptions(int MaxAttempts, TimeSpan Delay)
 {
     internal static TerminalReconnectOptions From(AppSettingsConfig settings) =>
@@ -60,6 +67,9 @@ internal sealed class TerminalSessionController : IAsyncDisposable
 
     internal Task Completion => _runTask ?? Task.CompletedTask;
 
+    /// <summary>通知标签当前会话是否已恢复或已停止，事件不携带任何终端数据或凭据。</summary>
+    internal event Action<TerminalConnectionState>? ConnectionStateChanged;
+
     internal Task StartAsync()
     {
         if (_runTask is not null) return Task.CompletedTask;
@@ -102,7 +112,10 @@ internal sealed class TerminalSessionController : IAsyncDisposable
                 }
 
                 if (!await TryReconnectAsync(cancellationToken).ConfigureAwait(false))
+                {
+                    ConnectionStateChanged?.Invoke(TerminalConnectionState.Disconnected);
                     break;
+                }
             }
         }
         finally
@@ -113,6 +126,7 @@ internal sealed class TerminalSessionController : IAsyncDisposable
 
     private async Task<bool> TryReconnectAsync(CancellationToken cancellationToken)
     {
+        ConnectionStateChanged?.Invoke(TerminalConnectionState.Reconnecting);
         await _session.DisposeAsync().ConfigureAwait(false);
         for (var attempt = 1; attempt <= _options.MaxAttempts; attempt++)
         {
@@ -122,6 +136,7 @@ internal sealed class TerminalSessionController : IAsyncDisposable
                     await _delay(_options.Delay, cancellationToken).ConfigureAwait(false);
                 _session = await _reconnect(cancellationToken).ConfigureAwait(false);
                 await _output.Writer.WriteAsync(ReconnectedNotice, cancellationToken).ConfigureAwait(false);
+                ConnectionStateChanged?.Invoke(TerminalConnectionState.Connected);
                 return true;
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -203,7 +218,15 @@ internal sealed class TerminalSessionController : IAsyncDisposable
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { }
     }
 
-    public async ValueTask DisposeAsync()
+    /// <summary>
+    /// 停止 SSH 会话但保留浏览器终端表面，供“重新连接”在同一标签继续显示旧输出。
+    /// 此操作只能调用一次；之后控制器不再接收终端消息。
+    /// </summary>
+    internal Task StopSessionAsync() => StopAsync(disposeSurface: false);
+
+    public ValueTask DisposeAsync() => new(StopAsync(disposeSurface: true));
+
+    private async Task StopAsync(bool disposeSurface)
     {
         if (Interlocked.Exchange(ref _disposed, 1) != 0) return;
         _surface.MessageReceived -= OnMessageReceived;
@@ -215,7 +238,7 @@ internal sealed class TerminalSessionController : IAsyncDisposable
             catch (OperationCanceledException) { }
         }
         await _session.DisposeAsync().ConfigureAwait(false);
-        await _surface.DisposeAsync().ConfigureAwait(false);
+        if (disposeSurface) await _surface.DisposeAsync().ConfigureAwait(false);
         _shutdown.Dispose();
     }
 }

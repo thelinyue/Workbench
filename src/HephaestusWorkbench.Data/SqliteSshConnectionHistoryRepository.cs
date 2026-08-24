@@ -88,6 +88,58 @@ public sealed class SqliteSshConnectionHistoryRepository : ISshConnectionHistory
         return items;
     }
 
+    /// <summary>
+    /// 在 SQLite 内过滤成功会话并按设备或未保存目标去重，避免失败连接出现在设备抽屉。
+    /// 未保存目标只使用 host、port、username 作为身份，绝不读取或返回敏感凭据。
+    /// </summary>
+    public async Task<IReadOnlyList<SshRecentConnection>> ListRecentSuccessfulAsync(
+        int limit,
+        CancellationToken cancellationToken = default)
+    {
+        if (limit <= 0)
+            throw new ArgumentOutOfRangeException(nameof(limit), limit, "最近成功 SSH 连接查询数量必须大于 0。");
+
+        await using var connection = await _factory.OpenAsync(cancellationToken);
+        await using var command = connection.CreateCommand();
+        command.CommandText = """
+            WITH ranked AS
+            (
+                SELECT device_id, host, port, username, connected_at, id,
+                       ROW_NUMBER() OVER
+                       (
+                           PARTITION BY COALESCE(device_id, ''),
+                                        CASE WHEN device_id IS NULL THEN host ELSE '' END,
+                                        CASE WHEN device_id IS NULL THEN port ELSE 0 END,
+                                        CASE WHEN device_id IS NULL THEN username ELSE '' END
+                           ORDER BY connected_at DESC, id ASC
+                       ) AS rank_number
+                FROM ssh_connection_history
+                WHERE outcome IN ($connected, $disconnected)
+            )
+            SELECT device_id, host, port, username, connected_at
+            FROM ranked
+            WHERE rank_number = 1
+            ORDER BY connected_at DESC, id ASC
+            LIMIT $limit
+            """;
+        command.Parameters.AddWithValue("$connected", SshSqliteEnum.ConnectionOutcomeToString(SshConnectionOutcome.Connected));
+        command.Parameters.AddWithValue("$disconnected", SshSqliteEnum.ConnectionOutcomeToString(SshConnectionOutcome.Disconnected));
+        command.Parameters.AddWithValue("$limit", limit);
+
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        var items = new List<SshRecentConnection>();
+        while (await reader.ReadAsync(cancellationToken))
+        {
+            items.Add(new SshRecentConnection(
+                reader.IsDBNull(0) ? null : reader.GetString(0),
+                reader.GetString(1),
+                reader.GetInt32(2),
+                reader.GetString(3),
+                SqliteValue.ParseDate(reader.GetValue(4))));
+        }
+        return items;
+    }
+
     private static SshConnectionHistory Read(SqliteDataReader reader) => new()
     {
         Id = reader.GetString(0),

@@ -26,6 +26,8 @@ public sealed class AppSettingsConfig
 
     public string Theme { get; set; } = LightTheme;
     public int CleanupRetentionDays { get; set; } = 7;
+    /// <summary>工作台固定导航栏是否以紧凑图标模式显示。</summary>
+    public bool IsSidebarCollapsed { get; set; }
     public SshSettingsConfig Ssh { get; set; } = new();
     public TerminalSettingsConfig Terminal { get; set; } = new();
     public SshReconnectBehavior ReconnectBehavior { get; set; } = SshReconnectBehavior.AutomaticThreeAttempts;

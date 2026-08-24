@@ -193,6 +193,55 @@ public sealed class SqliteSshRepositoryTests
     }
 
     [Fact]
+    public async Task HistoryRepository_ProjectsDistinctRecentSuccessfulConnectionsWithoutSensitiveFields()
+    {
+        var root = CreateRoot();
+        try
+        {
+            var factory = await CreateFactoryAsync(root);
+            var repository = new SqliteSshConnectionHistoryRepository(factory);
+            var devices = new SqliteSshDeviceRepository(factory);
+            var now = DateTime.UtcNow;
+            await devices.UpsertAsync(NewDevice("device-1", now));
+
+            await repository.InsertAsync(new SshConnectionHistory
+            {
+                Id = "success-old", DeviceId = "device-1", Host = "10.0.0.1", Port = 22, Username = "root",
+                ConnectedAt = now.AddMinutes(-3), Outcome = SshConnectionOutcome.Connected
+            });
+            await repository.InsertAsync(new SshConnectionHistory
+            {
+                Id = "failed", DeviceId = null, Host = "10.0.0.2", Port = 22, Username = "admin",
+                ConnectedAt = now.AddMinutes(-2), Outcome = SshConnectionOutcome.AuthenticationFailed, ErrorMessage = "认证失败"
+            });
+            await repository.InsertAsync(new SshConnectionHistory
+            {
+                Id = "success-new", DeviceId = "device-1", Host = "10.0.0.1", Port = 22, Username = "root",
+                ConnectedAt = now.AddMinutes(-1), Outcome = SshConnectionOutcome.Disconnected
+            });
+            await repository.InsertAsync(new SshConnectionHistory
+            {
+                Id = "success-unsaved", DeviceId = null, Host = "relay.example", Port = 38977, Username = "ops",
+                ConnectedAt = now, Outcome = SshConnectionOutcome.Connected
+            });
+
+            var items = await repository.ListRecentSuccessfulAsync(10);
+
+            Assert.Equal(2, items.Count);
+            Assert.Equal("relay.example", items[0].Host);
+            Assert.Equal("device-1", items[1].DeviceId);
+            Assert.Equal(now.AddMinutes(-1), items[1].LastConnectedAt.ToUniversalTime());
+            Assert.DoesNotContain(typeof(SshRecentConnection).GetProperties(), property =>
+                property.Name.Contains("Credential", StringComparison.OrdinalIgnoreCase) ||
+                property.Name.Contains("Password", StringComparison.OrdinalIgnoreCase));
+        }
+        finally
+        {
+            DeleteRoot(root);
+        }
+    }
+
+    [Fact]
     public async Task Repositories_UnknownPersistedEnumsFailClosedWithChineseErrors()
     {
         var root = CreateRoot();

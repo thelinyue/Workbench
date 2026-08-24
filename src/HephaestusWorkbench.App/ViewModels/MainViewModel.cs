@@ -12,12 +12,14 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
     private readonly LogInboxService _inbox;
     private readonly DirectoryOpenService _directoryOpen;
     private readonly WorkbenchLogger _logger;
+    private readonly SettingsService _settings;
     private readonly CancellationTokenSource _extensionRefreshCancellation = new();
     private Task? _extensionRefreshTask;
     private bool _disposed;
     private object? _currentPage;
     private NavigationItem? _selectedNavigationItem;
     private string _globalWarningText = string.Empty;
+    private bool _isSidebarCollapsed;
 
     public MainViewModel(
         CaseAnalysisService analysis,
@@ -36,11 +38,13 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
     {
         _inbox = inbox;
         _logger = logger;
+        _settings = settings;
         _directoryOpen = new DirectoryOpenService(logger);
         NavigationSections = ShellNavigation.CreateFixed();
         AnalysisCenter = new AnalysisCenterViewModel(inbox, analysis, reports, OpenExtractDirectory, logger);
         SshTerminal = sshTerminal;
         OpenGlobalWarningCommand = new DelegateCommand(() => SelectNavigation("extensions"));
+        ToggleSidebarCommand = new DelegateCommand(() => _ = ToggleSidebarAsync());
         Settings = new SettingsViewModel(
             settings,
             inbox,
@@ -72,6 +76,18 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
     public string AppVersion => AppVersionInfo.DisplayVersion;
     public string WindowTitle => "Hephaestus工作台";
     public ICommand OpenGlobalWarningCommand { get; }
+    /// <summary>切换全局工作台导航的展开与紧凑图标状态。</summary>
+    public ICommand ToggleSidebarCommand { get; }
+    public bool IsSidebarCollapsed
+    {
+        get => _isSidebarCollapsed;
+        private set
+        {
+            if (!SetProperty(ref _isSidebarCollapsed, value)) return;
+            OnPropertyChanged(nameof(SidebarWidth));
+        }
+    }
+    public Wpf.GridLength SidebarWidth => new(IsSidebarCollapsed ? 64 : 184);
 
     public NavigationItem? SelectedNavigationItem
     {
@@ -107,6 +123,7 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
     {
         await AnalysisCenter.InitializeAsync();
         await Settings.Initialization;
+        IsSidebarCollapsed = await _settings.GetSidebarCollapsedAsync();
         await SshTerminal.InitializeAsync();
         // 默认启动页是分析中心；在线 Catalog 刷新不得阻塞主窗口出现，完成后通过 StateChanged 更新全局告警。
         _extensionRefreshTask = Extensions.InitializeAsync(
@@ -131,6 +148,21 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
     private void OnLogMessage(object? sender, string message) => RunOnUi(() => { StatusMessage = message; OnPropertyChanged(nameof(StatusMessage)); });
     private void OnExtensionStateChanged(object? sender, EventArgs e) => RunOnUi(RefreshGlobalWarning);
     private void OnExtensionAllowPrereleaseSaved(bool allowPrerelease) => Extensions.SetAllowPrerelease(allowPrerelease);
+    private async Task ToggleSidebarAsync()
+    {
+        var next = !IsSidebarCollapsed;
+        IsSidebarCollapsed = next;
+        try
+        {
+            await _settings.SetSidebarCollapsedAsync(next);
+        }
+        catch (Exception exception)
+        {
+            IsSidebarCollapsed = !next;
+            _logger.Error($"保存工作台侧边栏状态失败：{exception.Message}");
+        }
+    }
+
     private void RefreshGlobalWarning()
         => GlobalWarningText = Extensions.HasEnabledAnalysisEngine ? string.Empty : "没有已启用的日志分析扩展";
 

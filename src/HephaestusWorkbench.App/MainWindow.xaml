@@ -5,7 +5,7 @@
         WindowStartupLocation="CenterScreen" Icon="Assets/AppIcon/app-icon.ico">
     <Grid Background="{DynamicResource WorkbenchBackgroundBrush}">
         <Grid.ColumnDefinitions>
-            <ColumnDefinition Width="216" />
+            <ColumnDefinition Width="{Binding SidebarWidth}" />
             <ColumnDefinition Width="*" />
         </Grid.ColumnDefinitions>
         <Grid.RowDefinitions>
@@ -23,25 +23,18 @@
                     <RowDefinition Height="*" />
                     <RowDefinition Height="Auto" />
                 </Grid.RowDefinitions>
-                <StackPanel Margin="20,20,18,18">
-                    <StackPanel Orientation="Horizontal">
-                        <Border Width="28" Height="28" CornerRadius="7" Background="{DynamicResource WorkbenchPrimaryBrush}">
-                            <TextBlock Text="H" Foreground="{DynamicResource WorkbenchOnPrimaryBrush}" FontSize="17" FontWeight="Bold"
-                                       HorizontalAlignment="Center" VerticalAlignment="Center" />
-                        </Border>
-                        <StackPanel Margin="10,0,0,0" VerticalAlignment="Center">
-                            <TextBlock Text="HEPHAESTUS" FontSize="13" FontWeight="Bold" />
-                            <TextBlock Text="WORKBENCH" Style="{StaticResource MutedTextStyle}" FontSize="10" Margin="0,2,0,0" />
-                        </StackPanel>
-                    </StackPanel>
-                </StackPanel>
+                <!-- 侧栏只保留紧凑的导航开关，避免品牌区长期占用水平空间。 -->
+                <Button Content="&#xE76C;" FontFamily="Segoe Fluent Icons" Width="44" Height="44" Margin="10,10,0,8"
+                        HorizontalAlignment="Left" Command="{Binding ToggleSidebarCommand}"
+                        ToolTip="展开或收起工作台侧边栏" AutomationProperties.Name="展开或收起工作台侧边栏" />
 
                 <ItemsControl Grid.Row="1" ItemsSource="{Binding NavigationSections}" Margin="10,0,10,12">
                     <ItemsControl.ItemTemplate>
                         <DataTemplate>
                             <StackPanel Margin="0,0,0,14">
                                 <TextBlock Text="{Binding Title}" Style="{StaticResource MutedTextStyle}" FontSize="11"
-                                           FontWeight="SemiBold" Margin="12,0,0,6" />
+                                           FontWeight="SemiBold" Margin="12,0,0,6"
+                                           Visibility="{Binding DataContext.IsSidebarCollapsed, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource InverseBooleanToVisibilityConverter}}" />
                                 <ListBox ItemsSource="{Binding Items}"
                                          SelectedItem="{Binding DataContext.SelectedNavigationItem, RelativeSource={RelativeSource AncestorType=Window}, Mode=TwoWay}"
                                          BorderThickness="0" Background="Transparent" ScrollViewer.VerticalScrollBarVisibility="Disabled">
@@ -75,7 +68,8 @@
                                         <DataTemplate>
                                             <StackPanel Orientation="Horizontal">
                                                 <TextBlock Text="{Binding Icon}" FontFamily="Segoe Fluent Icons" FontSize="16" Width="28" />
-                                                <TextBlock Text="{Binding Title}" FontSize="14" VerticalAlignment="Center" />
+                                                <TextBlock Text="{Binding Title}" FontSize="14" VerticalAlignment="Center"
+                                                           Visibility="{Binding DataContext.IsSidebarCollapsed, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource InverseBooleanToVisibilityConverter}}" />
                                             </StackPanel>
                                         </DataTemplate>
                                     </ListBox.ItemTemplate>
@@ -85,7 +79,8 @@
                     </ItemsControl.ItemTemplate>
                 </ItemsControl>
 
-                <TextBlock Grid.Row="2" Text="{Binding AppVersion}" Style="{StaticResource MutedTextStyle}" Margin="20,0,18,18" />
+                <TextBlock Grid.Row="2" Text="{Binding AppVersion}" Style="{StaticResource MutedTextStyle}" Margin="12,0,12,18"
+                           Visibility="{Binding IsSidebarCollapsed, Converter={StaticResource InverseBooleanToVisibilityConverter}}" />
             </Grid>
         </Border>
 
