@@ -14,9 +14,28 @@ v2 安装包必须使用 `BundledExtensions/` 携带离线扩展，并由 `distr
 - Ed25519 `keyId/signature`。
 - 发布者身份与允许的 kind/permission 范围。
 
-发布过程不得动态选择远端最高版本。离线扩展必须走与在线安装相同的大小、SHA-256、Ed25519、manifest、路径、Host API、健康检查、版本目录和激活事务，不能复制为特殊旁路文件。
+发布过程不得动态选择远端最高版本或查询 `latest`。离线扩展必须走与在线安装相同的大小、SHA-256、Ed25519、manifest、路径、Host API、健康检查、版本目录和激活回滚事务，不能复制为特殊旁路文件。
 
-当前仓库仍需完成安装器脚本、Release Workflow、正式信任锚和锁定清单改造。在这些工作完成并通过验证前，不得把现有流水线产物作为 v2.0.0 正式版发布。
+`Bundled Extension` 只锁定 v2.0.0 的首次离线安装基线。客户端上线后，扩展中心从固定 Catalog 按扩展自身版本独立发现和在线更新，无需发布新客户端；客户端版本更新也不会自动改变已经安装的扩展版本。`AllowPrerelease` 是唯一用户级预发布扩展策略：关闭时仅考虑 Stable，开启后用户可主动安装或更新至 Prerelease；开启本身不触发 Stable → Prerelease 自动更新。
+
+## Bundle 锁定清单交接
+
+为安装包准备 Bundle 时，先从扩展 Release 下载**明确版本**的最终 ZIP 与该版本对应的 `release-metadata.json`。metadata 必须为 `schemaVersion: 2`；ZIP 根目录唯一的 `manifest.json` 是最终权威源，metadata 仅用于跨仓机器交接，不提供公钥、不建立信任，也不能替代 ZIP 内 manifest。
+
+人工明确审核扩展说明后，执行：
+
+```powershell
+.\installer\import-release-metadata.ps1 `
+  -ReleaseMetadataPath <release-metadata.json> `
+  -PackagePath <final-zip> `
+  -ExtensionId log-analyzer `
+  -ReviewedDescription "..." `
+  -OutputPath .\distribution\bundled-extensions.json
+```
+
+该脚本会复核 ZIP 根级唯一 manifest、metadata 与 ZIP manifest 的完整一致性、实际文件名、size 和 SHA-256，并生成 schema v2 锁定清单。它**不验签**；正式 `build-installer.ps1` 才使用主仓 trust anchor，按 `size → SHA-256 → Ed25519` 再次验证固定 URL 下载的 ZIP。
+
+禁止使用 `latest`、假 ZIP、假签名、测试密钥，以及手写或猜测 manifest/description。description 必须由人工审核后显式传入，不得根据扩展名称推导。当前不存在真实 `distribution/bundled-extensions.json` 时，正式安装包构建必须失败；这不代表 v2.0.0 已可发布。
 
 ## 签名与资产
 
