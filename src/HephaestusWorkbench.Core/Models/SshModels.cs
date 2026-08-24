@@ -98,3 +98,50 @@ public sealed record RemoteCommandOutputChunk(long Sequence, RemoteCommandOutput
 
 /// <summary>独立命令通道的最终状态。</summary>
 public sealed record RemoteCommandResult(int ExitCode, TimeSpan Duration);
+
+/// <summary>Host Key 校验失败原因；未知密钥必须由界面显式确认，已变化密钥必须硬失败。</summary>
+public enum SshHostKeyFailureReason
+{
+    Unknown,
+    Changed
+}
+
+/// <summary>连接期间观察到的 Host Key，可安全展示给用户进行 TOFU 确认。</summary>
+public sealed record SshHostKeyObservation(
+    string Host,
+    int Port,
+    string KeyAlgorithm,
+    string Fingerprint);
+
+/// <summary>
+/// Host Key 未被信任时抛出的中文异常。异常只携带公开密钥观察信息，不包含任何凭据。
+/// </summary>
+public sealed class SshHostKeyValidationException : Exception
+{
+    public SshHostKeyValidationException(
+        SshHostKeyFailureReason reason,
+        SshHostKeyObservation observation,
+        string? expectedAlgorithm = null,
+        string? expectedFingerprint = null)
+        : base(CreateMessage(reason, observation))
+    {
+        Reason = reason;
+        Observation = observation;
+        ExpectedAlgorithm = expectedAlgorithm;
+        ExpectedFingerprint = expectedFingerprint;
+    }
+
+    public SshHostKeyFailureReason Reason { get; }
+    public SshHostKeyObservation Observation { get; }
+    public string? ExpectedAlgorithm { get; }
+    public string? ExpectedFingerprint { get; }
+
+    private static string CreateMessage(SshHostKeyFailureReason reason, SshHostKeyObservation observation) => reason switch
+    {
+        SshHostKeyFailureReason.Unknown =>
+            $"服务器 {observation.Host}:{observation.Port} 的 Host Key 尚未信任，请核对指纹 {observation.Fingerprint} 后显式确认。",
+        SshHostKeyFailureReason.Changed =>
+            $"服务器 {observation.Host}:{observation.Port} 的 Host Key 已发生变化，连接已被拒绝。当前指纹：{observation.Fingerprint}。",
+        _ => "SSH Host Key 校验失败，连接已被拒绝。"
+    };
+}

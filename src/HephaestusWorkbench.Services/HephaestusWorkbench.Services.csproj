@@ -7,5 +7,6 @@
     <ProjectReference Include="..\HephaestusWorkbench.Data\HephaestusWorkbench.Data.csproj" />
     <ProjectReference Include="..\HephaestusWorkbench.PluginSDK\HephaestusWorkbench.PluginSDK.csproj" />
     <PackageReference Include="NSec.Cryptography" Version="22.4.0" />
+    <PackageReference Include="SSH.NET" Version="2026.0.0" />
   </ItemGroup>
 </Project>
