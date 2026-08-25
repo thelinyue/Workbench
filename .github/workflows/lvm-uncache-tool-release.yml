@@ -50,9 +50,10 @@ jobs:
           $manifest = Get-Content -Raw -Encoding UTF8 "apps/lvm-uncache-tool/manifest.json" | ConvertFrom-Json
           $tag = "lvm-uncache-tool-v$($manifest.version)"
           gh release view $tag --repo $env:APPS_REPO *> $null
-          if ($LASTEXITCODE -eq 0) { throw "应用 Release 已存在，拒绝覆盖：$tag" }
-          gh release create $tag "apps/lvm-uncache-tool/dist/lvm-uncache-tool-v$($manifest.version).zip" "apps/lvm-uncache-tool/dist/release.json" --repo $env:APPS_REPO --title "LVM 缓存清理工具 $tag" --notes "工作台内嵌 LVM 缓存清理工具。" --latest
-          if ($LASTEXITCODE -ne 0) { throw "LVM 工具应用 Release 创建失败。" }
+          if ($LASTEXITCODE -ne 0) {
+            gh release create $tag "apps/lvm-uncache-tool/dist/lvm-uncache-tool-v$($manifest.version).zip" "apps/lvm-uncache-tool/dist/release.json" --repo $env:APPS_REPO --title "LVM 缓存清理工具 $tag" --notes "工作台内嵌 LVM 缓存清理工具。" --latest
+            if ($LASTEXITCODE -ne 0) { throw "LVM 工具应用 Release 创建失败。" }
+          }
           $catalogRoot = Join-Path $env:RUNNER_TEMP "hephaestus-app-catalog"
           gh repo clone $env:APPS_REPO $catalogRoot -- --depth=1
           if ($LASTEXITCODE -ne 0) { throw "应用目录仓库检出失败。" }
@@ -62,5 +63,6 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add catalog.json
           git commit -m "发布 lvm-uncache-tool@$($manifest.version)"
+          gh auth setup-git
           git push
           Pop-Location
