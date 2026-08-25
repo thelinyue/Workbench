@@ -313,7 +313,8 @@ function VirtualWindow({ item, onClose, onFocus, onMinimize, onMaximize, onMove,
   const style: CSSProperties = item.maximized ? { zIndex: item.zIndex } : { left: item.x, top: item.y, width: item.width, height: item.height, zIndex: item.zIndex };
 
   const onPointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
-    if (item.maximized) return;
+    // 控制按钮属于标题栏，但不能被拖动捕获；否则 click 会被 Pointer Capture 吞掉。
+    if (item.maximized || (event.target instanceof Element && event.target.closest('button'))) return;
     dragState.current = { offsetX: event.clientX - item.x, offsetY: event.clientY - item.y };
     event.currentTarget.setPointerCapture(event.pointerId);
   };
