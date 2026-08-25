@@ -30,6 +30,10 @@ describe('虚拟窗口管理器', () => {
     expect(createAppWindow([window], 'analysis-center', '分析中心')).toEqual([window]);
   });
 
+  it('首次打开应用使用紧凑的默认窗口尺寸', () => {
+    expect(createAppWindow([], 'analysis-center', '分析中心')[0]).toMatchObject({ x: 154, y: 82, width: 860, height: 560 });
+  });
+
   it('调整窗口大小时保留最小尺寸并不影响其他状态', () => {
     expect(resizeWindow([window], 'analysis-center', 240, 180)[0]).toEqual(
       expect.objectContaining({ width: 640, height: 420, x: 160, y: 90 })

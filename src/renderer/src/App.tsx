@@ -23,6 +23,7 @@ import {
   Menu,
   Minus,
   Minimize2,
+  Monitor,
   MoreHorizontal,
   PackageOpen,
   Play,
@@ -30,7 +31,6 @@ import {
   Search,
   Settings as SettingsIcon,
   ShieldCheck,
-  SquareStack,
   Trash2,
   Upload,
   X,
@@ -122,6 +122,7 @@ export function App() {
   const [windows, setWindows] = useState<AppWindow[]>([]);
   const [tasks, setTasks] = useState<TaskRecord[]>([]);
   const [drawerOpen, setDrawerOpen] = useState(false);
+  const [appLibraryOpen, setAppLibraryOpen] = useState(false);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const [iconLayout, setIconLayout] = useState(DEFAULT_ICON_LAYOUT);
@@ -251,7 +252,12 @@ export function App() {
       <div className="ambient-shape ambient-shape-one" aria-hidden="true" />
       <div className="ambient-shape ambient-shape-two" aria-hidden="true" />
       <header className="topbar">
-        <div className="brand-mark" aria-label="工作台桌面"><SquareStack size={18} /></div>
+        <div className="shell-left-tools">
+          <button className="shell-launcher-button" type="button" aria-label="返回桌面" onClick={() => { setWindows((current) => current.map((item) => ({ ...item, minimized: true }))); setDrawerOpen(false); }}><Monitor size={17} /></button>
+          <button className="shell-launcher-button" type="button" aria-label="打开应用库" aria-expanded={appLibraryOpen} onClick={() => setAppLibraryOpen((value) => !value)}><LayoutGrid size={17} /></button>
+          {windows.length > 0 && <><span className="topbar-divider shell-left-divider" aria-hidden="true" /><div className="open-app-switcher" aria-label="已打开应用">{windows.map((item) => { const Icon = APP_META[item.id as AppId].icon; return <button key={item.id} type="button" className={`open-app-icon ${item.minimized ? 'open-app-icon-minimized' : ''}`} aria-label={`切换到${item.title}`} title={item.title} onClick={() => focusWindow(item.id)}><Icon size={16} /></button>; })}</div></>}
+          {appLibraryOpen && <div className="app-library" role="menu" aria-label="应用库">{(Object.keys(APP_META) as AppId[]).map((id) => { const app = APP_META[id]; const Icon = app.icon; return <button key={id} type="button" role="menuitem" onClick={() => { openApp(id); setAppLibraryOpen(false); }}><Icon size={18} /><span>{app.title}</span></button>; })}</div>}
+        </div>
         <div className="topbar-actions">
           <div className="health-indicator"><span className="health-dot" />系统在线</div>
           <button className="topbar-icon-button" type="button" aria-label={`打开任务中心${runningCount ? `，${runningCount} 项进行中` : ''}`} aria-expanded={drawerOpen} onClick={() => setDrawerOpen((value) => !value)}>

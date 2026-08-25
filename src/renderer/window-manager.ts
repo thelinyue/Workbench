@@ -19,7 +19,7 @@ export interface AppWindow {
 export function createAppWindow(windows: AppWindow[], id: string, title: string): AppWindow[] {
   if (windows.some((item) => item.id === id)) return windows;
   const nextZIndex = Math.max(0, ...windows.map((item) => item.zIndex)) + 1;
-  return [...windows, { id, title, x: 140, y: 84, width: 980, height: 650, zIndex: nextZIndex, minimized: false, maximized: false }];
+  return [...windows, { id, title, x: 154, y: 82, width: 860, height: 560, zIndex: nextZIndex, minimized: false, maximized: false }];
 }
 
 export function moveWindow(windows: AppWindow[], id: string, x: number, y: number): AppWindow[] {
