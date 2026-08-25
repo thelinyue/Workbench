@@ -44,6 +44,13 @@ export function registerWorkbenchIpc(userDataPath: string): () => void {
 
   ipcMain.handle('desktop:load-layout', () => repository.listDesktopLayout());
   ipcMain.handle('desktop:save-layout', (_event, input) => repository.saveDesktopLayout(layoutSchema.parse(input)));
+  ipcMain.handle('shell:minimize-window', (event) => BrowserWindow.fromWebContents(event.sender)?.minimize());
+  ipcMain.handle('shell:toggle-maximize-window', (event) => {
+    const window = BrowserWindow.fromWebContents(event.sender);
+    if (!window) return;
+    if (window.isMaximized()) window.unmaximize(); else window.maximize();
+  });
+  ipcMain.handle('shell:close-window', (event) => BrowserWindow.fromWebContents(event.sender)?.close());
   ipcMain.handle('analysis:list', () => analysis.listPackages());
   ipcMain.handle('analysis:scan', async () => { const result = await analysis.scanMonitorDirectories(); notifyRenderer(); return result; });
   ipcMain.handle('analysis:import-package', async () => {

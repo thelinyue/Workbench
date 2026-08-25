@@ -1,4 +1,4 @@
-import { app, BrowserWindow } from 'electron';
+import { app, BrowserWindow, Menu } from 'electron';
 import { join } from 'node:path';
 import { registerWorkbenchIpc } from './ipc';
 
@@ -17,6 +17,7 @@ function createWindow(): void {
     minHeight: 680,
     title: '工作台',
     backgroundColor: '#070b1b',
+    frame: false,
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
       contextIsolation: true,
@@ -30,6 +31,8 @@ function createWindow(): void {
 }
 
 app.whenReady().then(() => {
+  // Windows 菜单栏会与自绘 Desktop Shell 重复，工作台只保留统一的顶栏与窗口控制。
+  Menu.setApplicationMenu(null);
   closeWorkbench = registerWorkbenchIpc(app.getPath('userData'));
   createWindow();
   app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); });

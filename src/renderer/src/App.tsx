@@ -250,16 +250,17 @@ export function App() {
       <div className="ambient-shape ambient-shape-one" aria-hidden="true" />
       <div className="ambient-shape ambient-shape-two" aria-hidden="true" />
       <header className="topbar">
-        <div className="brand-lockup">
-          <div className="brand-mark" aria-hidden="true"><SquareStack size={18} /></div>
-          <div><strong>工作台</strong><span>系统诊断</span></div>
-        </div>
+        <div className="brand-mark" aria-label="工作台桌面"><SquareStack size={18} /></div>
         <div className="topbar-actions">
           <div className="health-indicator"><span className="health-dot" />系统在线</div>
           <button className="topbar-icon-button" type="button" aria-label={`打开任务中心${runningCount ? `，${runningCount} 项进行中` : ''}`} aria-expanded={drawerOpen} onClick={() => setDrawerOpen((value) => !value)}>
             <Activity size={18} />{runningCount > 0 && <span className="notification-dot">{runningCount}</span>}
           </button>
           <button className="topbar-icon-button" type="button" aria-label="打开设置" onClick={() => openApp('settings')}><SettingsIcon size={18} /></button>
+          <span className="topbar-divider" aria-hidden="true" />
+          <button className="shell-window-control" type="button" aria-label="最小化工作台" onClick={() => void window.workbench.shell.minimize()}><Minimize2 size={15} /></button>
+          <button className="shell-window-control" type="button" aria-label="最大化或还原工作台" onClick={() => void window.workbench.shell.toggleMaximize()}><Maximize2 size={14} /></button>
+          <button className="shell-window-control shell-window-control-close" type="button" aria-label="关闭工作台" onClick={() => void window.workbench.shell.close()}><X size={15} /></button>
         </div>
       </header>
 

@@ -15,6 +15,11 @@ export interface DeletionPreview {
 }
 
 export interface WorkbenchBridge {
+  shell: {
+    minimize(): Promise<void>;
+    toggleMaximize(): Promise<void>;
+    close(): Promise<void>;
+  };
   desktop: {
     loadLayout(): Promise<DesktopIconLayout[]>;
     saveLayout(layout: DesktopIconLayout[]): Promise<void>;

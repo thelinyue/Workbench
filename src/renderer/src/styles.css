@@ -31,7 +31,7 @@ button:focus-visible, input:focus-visible { outline: 2px solid #b5b9ff; outline-
 .ambient-shape-one { width: 760px; height: 460px; right: -120px; bottom: -170px; transform: rotate(-15deg); box-shadow: 0 0 80px rgba(95, 102, 255, .16), inset 0 0 90px rgba(105, 122, 255, .1); }
 .ambient-shape-two { width: 460px; height: 280px; left: 26%; bottom: -110px; transform: rotate(22deg); box-shadow: 0 0 60px rgba(67, 164, 255, .13), inset 0 0 70px rgba(75, 157, 255, .12); }
 
-.topbar { position: relative; z-index: 30; display: flex; align-items: center; justify-content: space-between; height: 58px; padding: 0 22px; border-bottom: 1px solid rgba(190, 200, 255, .12); background: rgba(8, 10, 29, .73); backdrop-filter: blur(18px); }
+.topbar { position: relative; z-index: 30; display: flex; align-items: center; justify-content: space-between; height: 58px; padding: 0 22px; border-bottom: 1px solid rgba(190, 200, 255, .12); background: rgba(8, 10, 29, .73); backdrop-filter: blur(18px); -webkit-app-region: drag; }
 .brand-lockup, .topbar-actions, .health-indicator, .window-title, .window-controls, .section-title, .toolbar-actions, .analysis-footer, .info-line { display: flex; align-items: center; }
 .brand-lockup { gap: 10px; letter-spacing: .06em; }
 .brand-lockup strong { display: block; font-size: 11px; font-weight: 750; }
@@ -40,8 +40,9 @@ button:focus-visible, input:focus-visible { outline: 2px solid #b5b9ff; outline-
 .topbar-actions { gap: 12px; color: var(--muted); }
 .health-indicator { gap: 7px; font-size: 11px; }
 .health-dot, .status-dot { display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: var(--success); box-shadow: 0 0 10px var(--success); }
-.topbar-icon-button, .icon-only-button { position: relative; display: grid; width: 36px; height: 36px; padding: 0; place-items: center; border: 1px solid transparent; border-radius: 9px; background: transparent; cursor: pointer; transition: background .16s ease, border-color .16s ease, color .16s ease; }
+.topbar-icon-button, .icon-only-button, .shell-window-control { position: relative; display: grid; width: 36px; height: 36px; padding: 0; place-items: center; border: 1px solid transparent; border-radius: 9px; background: transparent; cursor: pointer; transition: background .16s ease, border-color .16s ease, color .16s ease; -webkit-app-region: no-drag; }
 .topbar-icon-button:hover, .icon-only-button:hover { border-color: var(--line); color: var(--text); background: rgba(255,255,255,.07); }
+.shell-window-control { width: 34px; height: 34px; border-radius: 0; color: #aeb5ce; }.shell-window-control:hover { color: #fff; background: rgba(255,255,255,.1); }.shell-window-control-close:hover { background: #c6485c; }
 .notification-dot { position: absolute; top: 1px; right: 0; min-width: 15px; height: 15px; padding: 0 4px; border: 2px solid #0d102b; border-radius: 9px; color: #17162f; background: var(--amber); font-size: 9px; line-height: 11px; text-align: center; }
 .topbar-divider { width: 1px; height: 20px; background: var(--line); }
 .window-control { width: 25px; color: #8189a6; font-size: 18px; line-height: 1; text-align: center; }
@@ -146,7 +147,7 @@ h1, h2, h3, p { margin: 0; }
 .desktop-shell { background: radial-gradient(ellipse at 54% 110%, rgba(33, 76, 147, .66) 0 12%, transparent 39%), radial-gradient(ellipse at 72% 100%, rgba(15, 39, 91, .92) 0 19%, transparent 48%), linear-gradient(135deg, #06081a, #0b0d28 52%, #070a1f); }
 .desktop-shell::after { content: ''; position: absolute; right: -9%; bottom: -25%; width: 88%; height: 72%; border: 1px solid rgba(87, 150, 255, .32); border-radius: 48% 52% 40% 60%; box-shadow: -22px -18px 0 -1px rgba(44, 89, 170, .32), -58px -38px 0 -2px rgba(34, 67, 137, .28), -110px -62px 0 -3px rgba(29, 49, 106, .25); transform: rotate(-13deg); pointer-events: none; }
 .topbar { height: 46px; padding: 0 16px; border-bottom-color: rgba(165, 183, 240, .1); background: rgba(6, 8, 24, .57); }
-.brand-lockup { gap: 8px; letter-spacing: .02em; }.brand-lockup strong { font-size: 12px; font-weight: 650; }.brand-lockup span { display: inline; margin-left: 7px; font-size: 10px; }.brand-mark { width: 27px; height: 27px; border-radius: 7px; }
+.brand-mark { width: 27px; height: 27px; border-radius: 7px; -webkit-app-region: no-drag; }
 .topbar-actions { gap: 7px; }.health-indicator { margin-right: 5px; color: #7e88a8; }.topbar-icon-button { width: 32px; height: 32px; border-radius: 7px; }
 .desktop-icons { inset: 46px 0 0; }.virtual-window-layer { inset: 46px 0 0; }.task-drawer { top: 46px; }
 .desktop-icon { width: 86px; min-height: 102px; border-radius: 8px; }.desktop-icon-image { width: 54px; height: 54px; border-radius: 13px; box-shadow: 0 10px 20px rgba(0,0,0,.32), inset 0 1px rgba(255,255,255,.18); }.desktop-icon-caption { display: none; }.desktop-icon-label { font-size: 12px; text-shadow: 0 1px 3px #02030b; }

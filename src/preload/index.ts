@@ -6,6 +6,7 @@ import { contextBridge, ipcRenderer, webUtils } from 'electron';
  */
 contextBridge.exposeInMainWorld('workbench', {
   desktop: { loadLayout: () => ipcRenderer.invoke('desktop:load-layout'), saveLayout: (layout: unknown) => ipcRenderer.invoke('desktop:save-layout', layout) },
+  shell: { minimize: () => ipcRenderer.invoke('shell:minimize-window'), toggleMaximize: () => ipcRenderer.invoke('shell:toggle-maximize-window'), close: () => ipcRenderer.invoke('shell:close-window') },
   analysis: {
     list: () => ipcRenderer.invoke('analysis:list'), importPackage: () => ipcRenderer.invoke('analysis:import-package'),
     importDroppedFiles: (files: File[]) => ipcRenderer.invoke('analysis:import-paths', files.map((file) => webUtils.getPathForFile(file))), scan: () => ipcRenderer.invoke('analysis:scan'),
