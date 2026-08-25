@@ -72,7 +72,7 @@ export class AnalysisTaskService extends EventEmitter {
     const diagnosticPackage = this.repository.getPackage(task.packageId);
     if (!diagnosticPackage) return;
     this.activeTaskId = task.id;
-    const runningTask = { ...task, status: 'running' as const, progress: 10, message: '正在解压并分析诊断包' };
+    const runningTask = { ...task, status: 'running' as const, progress: 0, message: '正在准备诊断包' };
     diagnosticPackage.status = 'running';
     this.repository.upsertTask(runningTask);
     this.repository.upsertAnalysisRecord({ id: task.id, packageId: task.packageId, taskId: task.id, status: 'running', createdAt: task.createdAt, updatedAt: new Date().toISOString() });
@@ -80,7 +80,12 @@ export class AnalysisTaskService extends EventEmitter {
     this.emit('changed');
 
     try {
-      const reportPath = await this.runWorker(diagnosticPackage.sourcePath, diagnosticPackage.extractPath, task.scope);
+      const reportPath = await this.runWorker(diagnosticPackage.sourcePath, diagnosticPackage.extractPath, task.scope, (progress, message) => {
+        const current = this.repository.getTask(task.id);
+        if (!current || current.status !== 'running') return;
+        this.repository.upsertTask({ ...current, progress: Math.max(current.progress, progress), message });
+        this.emit('changed');
+      });
       if (this.cancelledTaskIds.has(task.id)) return;
       diagnosticPackage.status = 'report-ready';
       diagnosticPackage.reportPath = reportPath;
@@ -98,7 +103,7 @@ export class AnalysisTaskService extends EventEmitter {
     } finally { this.activeWorker = undefined; this.activeTaskId = undefined; this.activeCancellation = undefined; this.emit('changed'); }
   }
 
-  private runWorker(sourcePath: string, extractDirectory: string, scope: 'comprehensive' | 'storage'): Promise<string> {
+  private runWorker(sourcePath: string, extractDirectory: string, scope: 'comprehensive' | 'storage', onProgress: (progress: number, message: string) => void): Promise<string> {
     return new Promise((resolve, reject) => {
       const worker = new Worker(join(__dirname, 'analysis-worker.js'), { workerData: { sourcePath, extractDirectory, rules: builtInAnalyzerRules, scope } });
       this.activeWorker = worker;
@@ -106,7 +111,10 @@ export class AnalysisTaskService extends EventEmitter {
       const fail = (error: Error) => { if (!settled) { settled = true; reject(error); } };
       const succeed = (reportPath: string) => { if (!settled) { settled = true; resolve(reportPath); } };
       this.activeCancellation = () => fail(new Error('任务已取消'));
-      worker.once('message', (result: { succeeded: boolean; reportPath?: string; errorMessage?: string }) => result.succeeded && result.reportPath ? succeed(result.reportPath) : fail(new Error(result.errorMessage ?? '分析引擎没有返回报告路径')));
+      worker.on('message', (result: { type?: 'progress' | 'completed'; progress?: number; message?: string; succeeded?: boolean; reportPath?: string; errorMessage?: string }) => {
+        if (result.type === 'progress' && typeof result.progress === 'number' && result.message) { onProgress(result.progress, result.message); return; }
+        if (result.type === 'completed' || result.succeeded !== undefined) result.succeeded && result.reportPath ? succeed(result.reportPath) : fail(new Error(result.errorMessage ?? '分析引擎没有返回报告路径'));
+      });
       worker.once('error', (error) => fail(new Error(`分析引擎工作线程异常：${error.message}`)));
       worker.once('exit', (code) => { if (code !== 0) fail(new Error(`分析引擎工作线程异常退出，退出码：${code}`)); });
     });

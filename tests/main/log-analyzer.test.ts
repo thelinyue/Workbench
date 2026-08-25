@@ -60,6 +60,16 @@ describe('内置日志分析引擎', () => {
     await expect(analyzeExtractedDirectory(extractDirectory, rules)).resolves.toEqual({ files: [] });
   });
 
+  it('扫描时按已处理文件数报告进度', async () => {
+    const extractDirectory = await mkdtemp(join(tmpdir(), 'workbench-progress-'));
+    directories.push(extractDirectory);
+    await writeFile(join(extractDirectory, 'kern'), '错误', 'utf8');
+    await writeFile(join(extractDirectory, 'ignored.log'), '无关', 'utf8');
+    const updates: number[] = [];
+    await analyzeExtractedDirectory(extractDirectory, { files: [{ name: 'kern', category: '内核', keywords: [{ term: '错误', result: '错误' }] }] }, (progress) => updates.push(progress.processedFiles));
+    expect(updates).toEqual([1, 2]);
+  });
+
   it('遵循插件规则的向上搜索顺序', async () => {
     const extractDirectory = await mkdtemp(join(tmpdir(), 'workbench-analysis-order-'));
     directories.push(extractDirectory);

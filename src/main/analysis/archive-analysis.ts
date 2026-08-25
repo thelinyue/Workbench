@@ -16,6 +16,7 @@ export interface ArchiveAnalysisRequest {
   extractDirectory: string;
   rules: AnalyzerRuleConfig;
   scope?: AnalysisScope;
+  onProgress?: (progress: { progress: number; message: string }) => void;
 }
 
 export interface ArchiveAnalysisResult {
@@ -35,20 +36,29 @@ export async function runArchiveAnalysis(request: ArchiveAnalysisRequest): Promi
     throw new Error('仅支持 .tgz 或 .tgz.temp 格式的诊断包');
   }
 
+  request.onProgress?.({ progress: 5, message: '正在准备诊断包' });
+
   await rm(request.extractDirectory, { recursive: true, force: true });
   await mkdir(request.extractDirectory, { recursive: true });
 
   try {
+    request.onProgress?.({ progress: 12, message: '正在解压诊断包' });
     await tar.x({ file: request.sourcePath, cwd: request.extractDirectory, gzip: true, strict: true });
   } catch (error) {
     throw new Error(`无法解压诊断包：${error instanceof Error ? error.message : String(error)}`);
   }
 
-  const analysis = await analyzeExtractedDirectory(request.extractDirectory, request.rules);
+  request.onProgress?.({ progress: 30, message: '正在扫描日志文件' });
+  const analysis = await analyzeExtractedDirectory(request.extractDirectory, request.rules, ({ processedFiles, totalFiles }) => {
+    request.onProgress?.({ progress: 30 + Math.round((processedFiles / Math.max(totalFiles, 1)) * 40), message: `正在扫描日志文件（${processedFiles}/${totalFiles}）` });
+  });
+  request.onProgress?.({ progress: 70, message: '正在分析系统与存储信息' });
   const structured = await analyzeStructuredExtract(request.extractDirectory, analysis);
+  request.onProgress?.({ progress: 88, message: '正在生成分析报告' });
   const reportDirectory = join(request.extractDirectory, 'Report');
   const reportPath = join(reportDirectory, 'index.html');
   await writeReportArtifacts(reportDirectory, basename(request.sourcePath), analysis, structured, request.scope ?? 'comprehensive');
+  request.onProgress?.({ progress: 98, message: '正在完成报告索引' });
 
   return { analysis, structured, reportPath };
 }

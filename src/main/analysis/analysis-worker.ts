@@ -18,9 +18,10 @@ interface AnalysisWorkerInput {
  */
 void (async () => {
   try {
-    const result = await runArchiveAnalysis(workerData as AnalysisWorkerInput);
-    parentPort?.postMessage({ succeeded: true, reportPath: result.reportPath });
+    const input = workerData as AnalysisWorkerInput;
+    const result = await runArchiveAnalysis({ ...input, onProgress: (progress) => parentPort?.postMessage({ type: 'progress', ...progress }) });
+    parentPort?.postMessage({ type: 'completed', succeeded: true, reportPath: result.reportPath });
   } catch (error) {
-    parentPort?.postMessage({ succeeded: false, errorMessage: error instanceof Error ? error.message : String(error) });
+    parentPort?.postMessage({ type: 'completed', succeeded: false, errorMessage: error instanceof Error ? error.message : String(error) });
   }
 })();

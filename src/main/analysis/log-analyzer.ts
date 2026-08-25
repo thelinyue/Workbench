@@ -45,6 +45,11 @@ export interface AnalysisResult {
   files: AnalysisFileResult[];
 }
 
+export interface AnalysisProgress {
+  processedFiles: number;
+  totalFiles: number;
+}
+
 /**
  * 分析中心的基础规则扫描器。
  *
@@ -53,25 +58,29 @@ export interface AnalysisResult {
  */
 export async function analyzeExtractedDirectory(
   extractDirectory: string,
-  rules: AnalyzerRuleConfig
+  rules: AnalyzerRuleConfig,
+  onProgress?: (progress: AnalysisProgress) => void
 ): Promise<AnalysisResult> {
   const files = await listFiles(extractDirectory);
   const fileRules = new Map(rules.files.map((item) => [item.name.toLowerCase(), item]));
   const results: AnalysisFileResult[] = [];
 
+  let processedFiles = 0;
   for (const filePath of files) {
     const rule = fileRules.get(basename(filePath).toLowerCase());
-    if (!rule) continue;
+    if (!rule) { processedFiles += 1; onProgress?.({ processedFiles, totalFiles: files.length }); continue; }
 
     const content = await readFile(filePath, 'utf8');
     const issues = matchRules(content, rule.keywords);
-    if (issues.length === 0) continue;
+    if (issues.length === 0) { processedFiles += 1; onProgress?.({ processedFiles, totalFiles: files.length }); continue; }
 
     results.push({
       file: relative(extractDirectory, filePath).replaceAll('\\', '/'),
       category: rule.category,
       issues
     });
+    processedFiles += 1;
+    onProgress?.({ processedFiles, totalFiles: files.length });
   }
 
   return { files: results };
