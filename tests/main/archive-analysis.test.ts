@@ -35,6 +35,9 @@ describe('诊断包分析执行', () => {
     });
 
     await expect(access(result.reportPath)).resolves.toBeUndefined();
+    await expect(access(join(extractDirectory, 'Report', 'static', 'workbench-report.css'))).resolves.toBeUndefined();
+    await expect(access(join(extractDirectory, 'Report', 'structured', 'storage-health.json'))).resolves.toBeUndefined();
+    await expect(access(join(extractDirectory, 'Report', 'lsblk.html'))).resolves.toBeUndefined();
     expect(result.analysis.files[0].issues[0].message).toBe('NVMe I/O 错误');
     await expect(readFile(result.reportPath, 'utf8')).resolves.toContain('NVMe I/O 错误');
   });

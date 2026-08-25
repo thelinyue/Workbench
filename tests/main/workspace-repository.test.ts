@@ -32,6 +32,7 @@ describe('工作台 SQLite 数据仓储', () => {
     repository.upsertTask({
       id: 'task-1',
       packageId: 'package-1',
+      scope: 'comprehensive',
       status: 'queued',
       createdAt: '2026-08-25T10:25:01.000Z',
       progress: 0,

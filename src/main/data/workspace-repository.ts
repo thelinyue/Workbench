@@ -4,7 +4,7 @@ import { DatabaseSync } from 'node:sqlite';
 import type { DiagnosticPackage, DiagnosticPackageStatus } from '../domain/diagnostic-package';
 
 export interface DesktopIconLayout { appId: 'analysis-center' | 'settings'; x: number; y: number; }
-export interface AnalysisTaskRecord { id: string; packageId: string; status: 'queued' | 'running' | 'succeeded' | 'failed' | 'cancelled'; createdAt: string; progress: number; message: string; errorMessage?: string; }
+export interface AnalysisTaskRecord { id: string; packageId: string; scope: 'comprehensive' | 'storage'; status: 'queued' | 'running' | 'succeeded' | 'failed' | 'cancelled'; createdAt: string; progress: number; message: string; errorMessage?: string; }
 export interface AnalysisRecord { id: string; packageId: string; taskId: string; status: AnalysisTaskRecord['status']; createdAt: string; updatedAt: string; }
 
 /**
@@ -95,16 +95,16 @@ export class WorkspaceRepository {
 
   public upsertTask(task: AnalysisTaskRecord): void {
     this.database.prepare(`
-      INSERT INTO analysis_tasks (id, package_id, status, created_at, progress, message, error_message)
-      VALUES (?, ?, ?, ?, ?, ?, ?)
-      ON CONFLICT(id) DO UPDATE SET status = excluded.status, progress = excluded.progress, message = excluded.message, error_message = excluded.error_message
-    `).run(task.id, task.packageId, task.status, task.createdAt, task.progress, task.message, task.errorMessage ?? null);
+      INSERT INTO analysis_tasks (id, package_id, scope, status, created_at, progress, message, error_message)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(id) DO UPDATE SET scope = excluded.scope, status = excluded.status, progress = excluded.progress, message = excluded.message, error_message = excluded.error_message
+    `).run(task.id, task.packageId, task.scope, task.status, task.createdAt, task.progress, task.message, task.errorMessage ?? null);
   }
 
   public getTask(id: string): AnalysisTaskRecord | undefined { return this.listTasks().find((item) => item.id === id); }
 
   public listTasks(): AnalysisTaskRecord[] {
-    return this.database.prepare(`SELECT id, package_id AS packageId, status, created_at AS createdAt, progress, message, error_message AS errorMessage FROM analysis_tasks ORDER BY created_at DESC`).all() as unknown as AnalysisTaskRecord[];
+    return this.database.prepare(`SELECT id, package_id AS packageId, scope, status, created_at AS createdAt, progress, message, error_message AS errorMessage FROM analysis_tasks ORDER BY created_at DESC`).all() as unknown as AnalysisTaskRecord[];
   }
 
   /** 在确认永久删除后，事务性删除诊断包、报告索引与关联任务。 */
@@ -129,5 +129,6 @@ export class WorkspaceRepository {
       CREATE TABLE IF NOT EXISTS analysis_records (id TEXT PRIMARY KEY, package_id TEXT NOT NULL, task_id TEXT NOT NULL UNIQUE, status TEXT NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL, FOREIGN KEY(package_id) REFERENCES diagnostic_packages(id) ON DELETE CASCADE, FOREIGN KEY(task_id) REFERENCES analysis_tasks(id) ON DELETE CASCADE);
       CREATE TABLE IF NOT EXISTS report_index (package_id TEXT PRIMARY KEY, path TEXT NOT NULL, created_at TEXT NOT NULL, FOREIGN KEY(package_id) REFERENCES diagnostic_packages(id) ON DELETE CASCADE);
     `);
+    try { this.database.exec("ALTER TABLE analysis_tasks ADD COLUMN scope TEXT NOT NULL DEFAULT 'comprehensive';"); } catch { /* 已升级数据库会报告重复列，保持兼容。 */ }
   }
 }

@@ -12,6 +12,7 @@ import { MonitorDirectoryWatcher } from './services/monitor-directory-watcher';
 const idSchema = z.string().uuid();
 const idListSchema = z.array(idSchema).min(1).max(200);
 const importPathSchema = z.array(z.string().min(1).max(2048)).min(1).max(200);
+const startSchema = z.object({ packageId: idSchema, scope: z.enum(['comprehensive', 'storage']).default('comprehensive') });
 const layoutSchema = z.array(z.object({ appId: z.enum(['analysis-center', 'settings']), x: z.number().int().min(0).max(5000), y: z.number().int().min(0).max(5000) }));
 const directorySchema = z.array(z.string().min(1).max(2048)).max(30);
 const confirmedDeletionSchema = z.object({ packageIds: idListSchema, confirmationToken: z.string().uuid() });
@@ -66,7 +67,7 @@ export function registerWorkbenchIpc(userDataPath: string): () => void {
     notifyRenderer();
     return items;
   });
-  ipcMain.handle('analysis:start', async (_event, input) => { await tasks.enqueue(getPackage(input).id); });
+  ipcMain.handle('analysis:start', async (_event, input) => { const value = startSchema.parse(input); await tasks.enqueue(getPackage(value.packageId).id, value.scope); });
   ipcMain.handle('analysis:start-all-pending', () => tasks.enqueueAllPending());
   ipcMain.handle('analysis:open-report', async (_event, input) => {
     const item = getPackage(input);

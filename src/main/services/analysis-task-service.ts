@@ -20,11 +20,11 @@ export class AnalysisTaskService extends EventEmitter {
 
   public constructor(private readonly repository: WorkspaceRepository) { super(); }
 
-  public async enqueue(packageId: string): Promise<void> {
+  public async enqueue(packageId: string, scope: 'comprehensive' | 'storage' = 'comprehensive'): Promise<void> {
     const diagnosticPackage = this.repository.getPackage(packageId);
     if (!diagnosticPackage) throw new Error('找不到要分析的诊断包');
     if (diagnosticPackage.status === 'running' || diagnosticPackage.status === 'queued') throw new Error('该诊断包已经在分析队列中');
-    const task: AnalysisTaskRecord = { id: randomUUID(), packageId, status: 'queued', createdAt: new Date().toISOString(), progress: 0, message: '等待分析' };
+    const task: AnalysisTaskRecord = { id: randomUUID(), packageId, scope, status: 'queued', createdAt: new Date().toISOString(), progress: 0, message: scope === 'storage' ? '等待存储健康分析' : '等待综合分析' };
     diagnosticPackage.status = 'queued';
     diagnosticPackage.taskIds = [...diagnosticPackage.taskIds, task.id];
     this.repository.upsertPackage(diagnosticPackage);
@@ -80,7 +80,7 @@ export class AnalysisTaskService extends EventEmitter {
     this.emit('changed');
 
     try {
-      const reportPath = await this.runWorker(diagnosticPackage.sourcePath, diagnosticPackage.extractPath);
+      const reportPath = await this.runWorker(diagnosticPackage.sourcePath, diagnosticPackage.extractPath, task.scope);
       if (this.cancelledTaskIds.has(task.id)) return;
       diagnosticPackage.status = 'report-ready';
       diagnosticPackage.reportPath = reportPath;
@@ -98,9 +98,9 @@ export class AnalysisTaskService extends EventEmitter {
     } finally { this.activeWorker = undefined; this.activeTaskId = undefined; this.activeCancellation = undefined; this.emit('changed'); }
   }
 
-  private runWorker(sourcePath: string, extractDirectory: string): Promise<string> {
+  private runWorker(sourcePath: string, extractDirectory: string, scope: 'comprehensive' | 'storage'): Promise<string> {
     return new Promise((resolve, reject) => {
-      const worker = new Worker(join(__dirname, 'analysis-worker.js'), { workerData: { sourcePath, extractDirectory, rules: builtInAnalyzerRules } });
+      const worker = new Worker(join(__dirname, 'analysis-worker.js'), { workerData: { sourcePath, extractDirectory, rules: builtInAnalyzerRules, scope } });
       this.activeWorker = worker;
       let settled = false;
       const fail = (error: Error) => { if (!settled) { settled = true; reject(error); } };
