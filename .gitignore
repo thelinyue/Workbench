@@ -12,3 +12,5 @@ installer/dist/
 installer/dist-*/
 installer/Payload.zip
 .worktrees/
+node_modules/
+out/

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { getBulkDeletablePackages, sortLatestPackages, type RendererDiagnosticPackage } from './ui-model';
+import { getBulkDeletablePackages, sortLatestPackages, type RendererDiagnosticPackage } from '../../src/renderer/src/ui-model';
 
 const packages: RendererDiagnosticPackage[] = [
   { id: 'old', displayName: 'old.tgz', sourcePath: 'C:/old.tgz', extractPath: 'C:/old', detectedAt: '2026-08-24T08:00:00.000Z', status: 'report-ready', taskIds: [], caseId: 'case-old' },

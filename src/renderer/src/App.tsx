@@ -36,7 +36,7 @@ import {
   type LucideIcon
 } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react';
-import { createAppWindow, minimizeWindow, moveWindow, type AppWindow } from '../window-manager';
+import { createAppWindow, minimizeWindow, moveWindow, resizeWindow, type AppWindow } from '../window-manager';
 import {
   formatBytes,
   formatDetectedAt,
@@ -67,6 +67,10 @@ interface DeletePreview {
   extractPaths: string[];
   reportPaths: string[];
   estimatedBytes: number;
+  confirmationToken: string;
+  caseCount: number;
+  analysisRecordCount: number;
+  reportRecordCount: number;
 }
 
 interface ContextMenuState {
@@ -101,7 +105,11 @@ function fallbackDeletionPreview(packages: RendererDiagnosticPackage[]): DeleteP
     sourcePaths: packages.map((item) => item.sourcePath),
     extractPaths: packages.map((item) => item.extractPath),
     reportPaths: packages.flatMap((item) => item.reportPath ? [item.reportPath] : []),
-    estimatedBytes: 0
+    estimatedBytes: 0,
+    confirmationToken: '',
+    caseCount: packages.length,
+    analysisRecordCount: 0,
+    reportRecordCount: 0
   };
 }
 
@@ -116,6 +124,11 @@ export function App() {
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const [iconLayout, setIconLayout] = useState(DEFAULT_ICON_LAYOUT);
+  const iconLayoutRef = useRef(iconLayout);
+  const iconDragRef = useRef<{ id: AppId; offsetX: number; offsetY: number; moved: boolean } | null>(null);
+  const suppressOpenRef = useRef(false);
+
+  useEffect(() => { iconLayoutRef.current = iconLayout; }, [iconLayout]);
 
   const showError = useCallback((message: unknown) => {
     setError(toChineseError(message));
@@ -159,6 +172,8 @@ export function App() {
     return () => window.clearInterval(timer);
   }, [refreshTasks]);
 
+  useEffect(() => hasWorkbenchBridge() ? window.workbench.onChanged(() => { void refreshTasks(); }) : undefined, [refreshTasks]);
+
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
@@ -194,16 +209,50 @@ export function App() {
     }
   };
 
+  const beginIconDrag = (event: ReactPointerEvent<HTMLButtonElement>, id: AppId) => {
+    const point = iconLayoutRef.current[id];
+    iconDragRef.current = { id, offsetX: event.clientX - point.x, offsetY: event.clientY - point.y, moved: false };
+    event.currentTarget.setPointerCapture(event.pointerId);
+  };
+  const moveIcon = (event: ReactPointerEvent<HTMLButtonElement>) => {
+    const drag = iconDragRef.current;
+    if (!drag) return;
+    drag.moved = true;
+    const next = { ...iconLayoutRef.current, [drag.id]: { x: Math.max(12, event.clientX - drag.offsetX), y: Math.max(52, event.clientY - drag.offsetY) } };
+    iconLayoutRef.current = next;
+    setIconLayout(next);
+  };
+  const finishIconDrag = () => {
+    const drag = iconDragRef.current;
+    iconDragRef.current = null;
+    if (!drag?.moved) return;
+    suppressOpenRef.current = true;
+    void saveIconLayout(iconLayoutRef.current);
+    window.setTimeout(() => { suppressOpenRef.current = false; }, 0);
+  };
+
+  const importDroppedFiles = async (files: FileList) => {
+    if (!files.length) return;
+    try {
+      if (!hasWorkbenchBridge()) throw new Error('工作台接口尚未就绪，无法导入诊断包。');
+      const imported = await window.workbench.analysis.importDroppedFiles(Array.from(files));
+      if (imported.length) {
+        showNotice(`已导入 ${imported.length} 个诊断包。`);
+        openApp('analysis-center');
+      }
+    } catch (caught) { showError(caught); }
+  };
+
   const runningCount = tasks.filter((task) => task.status === 'running' || task.status === 'queued').length;
 
   return (
-    <main className="desktop-shell" onClick={() => undefined}>
+    <main className="desktop-shell" onDragOver={(event) => event.preventDefault()} onDrop={(event) => { event.preventDefault(); void importDroppedFiles(event.dataTransfer.files); }}>
       <div className="ambient-shape ambient-shape-one" aria-hidden="true" />
       <div className="ambient-shape ambient-shape-two" aria-hidden="true" />
       <header className="topbar">
         <div className="brand-lockup">
           <div className="brand-mark" aria-hidden="true"><SquareStack size={18} /></div>
-          <div><strong>WORKBENCH</strong><span>本地诊断工作台</span></div>
+          <div><strong>工作台</strong><span>系统诊断</span></div>
         </div>
         <div className="topbar-actions">
           <div className="health-indicator"><span className="health-dot" />系统在线</div>
@@ -211,8 +260,6 @@ export function App() {
             <Activity size={18} />{runningCount > 0 && <span className="notification-dot">{runningCount}</span>}
           </button>
           <button className="topbar-icon-button" type="button" aria-label="打开设置" onClick={() => openApp('settings')}><SettingsIcon size={18} /></button>
-          <span className="topbar-divider" aria-hidden="true" />
-          <span className="window-control" aria-hidden="true">—</span><span className="window-control" aria-hidden="true">□</span><span className="window-control window-control-close" aria-hidden="true">×</span>
         </div>
       </header>
 
@@ -221,7 +268,7 @@ export function App() {
           const meta = APP_META[id];
           const Icon = meta.icon;
           const point = iconLayout[id];
-          return <button key={id} className="desktop-icon" style={{ left: point.x, top: point.y }} type="button" onDoubleClick={() => openApp(id)} onClick={() => openApp(id)} aria-label={`打开${meta.title}`}>
+          return <button key={id} className="desktop-icon" style={{ left: point.x, top: point.y }} type="button" onPointerDown={(event) => beginIconDrag(event, id)} onPointerMove={moveIcon} onPointerUp={finishIconDrag} onPointerCancel={finishIconDrag} onDoubleClick={() => openApp(id)} onClick={() => { if (!suppressOpenRef.current) openApp(id); }} aria-label={`打开${meta.title}`}>
             <span className={`desktop-icon-image desktop-icon-${id}`}><Icon size={30} strokeWidth={1.7} /></span>
             <span className="desktop-icon-label">{meta.title}</span>
             <span className="desktop-icon-caption">{meta.description}</span>
@@ -229,10 +276,10 @@ export function App() {
         })}
       </section>
 
-      <div className="desktop-hint"><Menu size={14} /> 双击图标打开应用</div>
+      <div className="desktop-hint"><Menu size={14} /> 拖动图标整理桌面，单击打开应用</div>
 
       <section className="virtual-window-layer" aria-label="应用窗口">
-        {windows.map((item) => <VirtualWindow key={item.id} item={item} onClose={closeWindow} onFocus={focusWindow} onMinimize={toggleMinimize} onMaximize={toggleMaximize} onMove={moveVirtualWindow}>
+        {windows.map((item) => <VirtualWindow key={item.id} item={item} onClose={closeWindow} onFocus={focusWindow} onMinimize={toggleMinimize} onMaximize={toggleMaximize} onMove={moveVirtualWindow} onResize={(id, width, height) => setWindows((current) => resizeWindow(current, id, width, height))}>
           {item.id === 'analysis-center' && <AnalysisCenter showError={showError} showNotice={showNotice} />}
           {item.id === 'settings' && <SettingsWindow showError={showError} showNotice={showNotice} />}
         </VirtualWindow>)}
@@ -254,12 +301,14 @@ interface VirtualWindowProps {
   onMinimize: (id: string) => void;
   onMaximize: (id: string) => void;
   onMove: (id: string, x: number, y: number) => void;
+  onResize: (id: string, width: number, height: number) => void;
   children: ReactNode;
 }
 
 /** 应用内虚拟窗口，只更新 React 状态，不创建额外 Electron BrowserWindow。 */
-function VirtualWindow({ item, onClose, onFocus, onMinimize, onMaximize, onMove, children }: VirtualWindowProps) {
+function VirtualWindow({ item, onClose, onFocus, onMinimize, onMaximize, onMove, onResize, children }: VirtualWindowProps) {
   const dragState = useRef<{ offsetX: number; offsetY: number } | null>(null);
+  const resizeState = useRef<{ startX: number; startY: number; width: number; height: number } | null>(null);
   const style: CSSProperties = item.maximized ? { zIndex: item.zIndex } : { left: item.x, top: item.y, width: item.width, height: item.height, zIndex: item.zIndex };
 
   const onPointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
@@ -272,6 +321,15 @@ function VirtualWindow({ item, onClose, onFocus, onMinimize, onMaximize, onMove,
     onMove(item.id, event.clientX - dragState.current.offsetX, event.clientY - dragState.current.offsetY);
   };
   const stopDrag = () => { dragState.current = null; };
+  const onResizeStart = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (item.maximized) return;
+    resizeState.current = { startX: event.clientX, startY: event.clientY, width: item.width, height: item.height };
+    event.currentTarget.setPointerCapture(event.pointerId);
+  };
+  const onResizeMove = (event: ReactPointerEvent<HTMLDivElement>) => {
+    const state = resizeState.current;
+    if (state) onResize(item.id, state.width + event.clientX - state.startX, state.height + event.clientY - state.startY);
+  };
 
   return <article className={`app-window ${item.maximized ? 'app-window-maximized' : ''} ${item.minimized ? 'app-window-minimized' : ''}`} style={style} onMouseDown={() => onFocus(item.id)}>
     <div className="window-titlebar" onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={stopDrag} onPointerCancel={stopDrag}>
@@ -283,6 +341,7 @@ function VirtualWindow({ item, onClose, onFocus, onMinimize, onMaximize, onMove,
       </div>
     </div>
     {!item.minimized && <div className="window-content">{children}</div>}
+    {!item.maximized && !item.minimized && <div className="app-window-resizer" aria-label="调整窗口大小" onPointerDown={onResizeStart} onPointerMove={onResizeMove} onPointerUp={() => { resizeState.current = null; }} onPointerCancel={() => { resizeState.current = null; }} />}
   </article>;
 }
 
@@ -311,6 +370,7 @@ function AnalysisCenter({ showError, showNotice }: AnalysisCenterProps) {
   }, [showError]);
 
   useEffect(() => { void refreshPackages(); }, [refreshPackages]);
+  useEffect(() => hasWorkbenchBridge() ? window.workbench.onChanged(() => { void refreshPackages(); }) : undefined, [refreshPackages]);
   useEffect(() => {
     const closeMenu = () => setContextMenu(null);
     window.addEventListener('click', closeMenu);
@@ -399,7 +459,7 @@ function AnalysisCenter({ showError, showNotice }: AnalysisCenterProps) {
     setBusyAction('delete');
     try {
       if (!hasWorkbenchBridge()) throw new Error('工作台接口尚未就绪，无法删除诊断包。');
-      await window.workbench.analysis.deletePackages(deleteDialog.packageIds);
+      await window.workbench.analysis.deletePackages(deleteDialog.packageIds, deleteDialog.preview.confirmationToken);
       setSelectedIds((current) => current.filter((id) => !deleteDialog.packageIds.includes(id)));
       setDeleteDialog(null);
       showNotice('诊断包、解压目录、报告和分析记录已永久删除。');
@@ -415,7 +475,7 @@ function AnalysisCenter({ showError, showNotice }: AnalysisCenterProps) {
 
   return <div className="analysis-view" onContextMenu={(event) => event.preventDefault()}>
     <div className="analysis-heading">
-      <div><span className="eyebrow">LOG ANALYZER / 2.1</span><h1>分析中心</h1><p>导入诊断包，快速完成系统日志分析并查看报告。</p></div>
+      <div><span className="eyebrow">SYSTEM DIAGNOSTICS</span><h1>分析中心</h1><p>导入诊断包，快速完成系统日志分析并查看报告。</p></div>
       <div className="analysis-heading-metric"><span>最新诊断包</span><strong>{packages.length.toString().padStart(2, '0')}</strong></div>
     </div>
 
@@ -471,6 +531,7 @@ function ContextMenu({ menu, onAnalyze, onLocateSource, onLocateExtract, onDelet
   return <div className="context-menu" role="menu" style={{ left: menu.x, top: menu.y }} onClick={(event) => event.stopPropagation()}>
     <div className="context-menu-title" title={menu.packageItem.displayName}>{menu.packageItem.displayName}</div>
     <button type="button" role="menuitem" disabled={busy} onClick={onAnalyze}><Play size={15} />分析</button>
+    <div className="context-divider" />
     <button type="button" role="menuitem" onClick={onLocateSource}><FolderOpen size={15} />定位诊断包</button>
     <button type="button" role="menuitem" onClick={onLocateExtract}><Archive size={15} />定位解压目录</button>
     <div className="context-divider" />
@@ -482,8 +543,8 @@ function DeleteDialog({ dialog, confirmPermanent, busy, onChange, onCancel, onCo
   const { preview } = dialog;
   return <div className="modal-backdrop" role="presentation"><section className="confirm-dialog" role="dialog" aria-modal="true" aria-labelledby="delete-dialog-title">
     <div className="dialog-icon"><Trash2 size={22} /></div><div className="dialog-heading"><span className="eyebrow danger-eyebrow">PERMANENT DELETE</span><h2 id="delete-dialog-title">永久删除诊断包？</h2><p>将删除选中的 {preview.packageCount} 个诊断包及其完整分析生命周期，此操作无法恢复。</p></div>
-    <div className="delete-summary"><div><span>关联任务</span><strong>{preview.taskCount}</strong></div><div><span>预计释放</span><strong>{formatBytes(preview.estimatedBytes)}</strong></div><div><span>报告文件</span><strong>{preview.reportPaths.length}</strong></div></div>
-    <div className="delete-paths"><strong>将删除的路径</strong>{[...preview.sourcePaths, ...preview.extractPaths, ...preview.reportPaths].slice(0, 6).map((path) => <code key={path}>{path}</code>)}{preview.sourcePaths.length + preview.extractPaths.length + preview.reportPaths.length > 6 && <small>还有更多路径未展开</small>}</div>
+    <div className="delete-summary"><div><span>关联任务</span><strong>{preview.taskCount}</strong></div><div><span>分析记录</span><strong>{preview.analysisRecordCount}</strong></div><div><span>案例 / 报告索引</span><strong>{preview.caseCount} / {preview.reportRecordCount}</strong></div><div><span>预计释放</span><strong>{formatBytes(preview.estimatedBytes)}</strong></div></div>
+    <div className="delete-paths"><strong>将永久删除的绝对路径</strong>{[...preview.sourcePaths, ...preview.extractPaths, ...preview.reportPaths].map((path) => <code key={path}>{path}</code>)}</div>
     <label className="confirm-check"><input type="checkbox" checked={confirmPermanent} onChange={(event) => onChange(event.target.checked)} /><span className="custom-checkbox">{confirmPermanent && <Check size={12} />}</span><span>我了解这些文件、报告和分析记录将永久删除</span></label>
     <div className="dialog-actions"><button type="button" className="secondary-button" onClick={onCancel}>取消</button><button type="button" className="danger-button" disabled={!confirmPermanent || busy} onClick={onConfirm}>{busy ? <LoaderCircle className="spin" size={15} /> : <Trash2 size={15} />}永久删除</button></div>
   </section></div>;
@@ -501,7 +562,7 @@ function TaskDrawer({ open, tasks, onClose, onCancel }: { open: boolean; tasks: 
   return <aside className={`task-drawer ${open ? 'task-drawer-open' : ''}`} aria-label="任务中心" aria-hidden={!open}>
     <div className="drawer-header"><div><span className="eyebrow">WORKBENCH TASKS</span><h2>任务中心</h2></div><button type="button" className="icon-only-button" aria-label="关闭任务中心" onClick={onClose}><X size={18} /></button></div>
     <div className="drawer-summary"><div><strong>{tasks.filter((task) => task.status === 'running').length}</strong><span>进行中</span></div><div><strong>{tasks.filter((task) => task.status === 'succeeded').length}</strong><span>已完成</span></div><div><strong>{tasks.filter((task) => task.status === 'failed').length}</strong><span>失败</span></div></div>
-    <div className="task-list">{tasks.length === 0 ? <div className="drawer-empty"><ClipboardList size={24} /><p>暂无分析任务</p></div> : tasks.map((task) => <div className="task-row" key={task.id}><div className="task-row-icon">{task.status === 'running' ? <LoaderCircle className="spin" size={16} /> : task.status === 'succeeded' ? <CheckCircle2 size={16} /> : task.status === 'failed' ? <CircleAlert size={16} /> : <ClipboardList size={16} />}</div><div className="task-row-body"><strong>{task.message || '诊断包分析任务'}</strong><span>{task.errorMessage || task.status === 'running' ? `分析进度 ${task.progress}%` : task.status}</span>{task.status === 'running' && <div className="progress-track"><span style={{ width: `${task.progress}%` }} /></div>}</div>{(task.status === 'running' || task.status === 'queued') && <button type="button" className="task-cancel" aria-label="取消任务" onClick={() => onCancel(task.id)}>取消</button>}</div>)}</div>
+    <div className="task-list">{tasks.length === 0 ? <div className="drawer-empty"><ClipboardList size={24} /><p>暂无分析任务</p></div> : tasks.map((task) => <div className="task-row" key={task.id}><div className="task-row-icon">{task.status === 'running' ? <LoaderCircle className="spin" size={16} /> : task.status === 'succeeded' ? <CheckCircle2 size={16} /> : task.status === 'failed' ? <CircleAlert size={16} /> : <ClipboardList size={16} />}</div><div className="task-row-body"><strong>{task.message || '诊断包分析任务'}</strong><span>{task.status === 'running' ? `分析进度 ${task.progress}%` : task.errorMessage || task.status}</span>{task.status === 'running' && <div className="progress-track"><span style={{ width: `${task.progress}%` }} /></div>}</div>{(task.status === 'running' || task.status === 'queued') && <button type="button" className="task-cancel" aria-label="取消任务" onClick={() => onCancel(task.id)}>取消</button>}</div>)}</div>
   </aside>;
 }
 
