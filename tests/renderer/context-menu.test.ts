@@ -2,19 +2,20 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
-describe('分析中心快捷菜单', () => {
-  it('通过菜单外指针按下关闭，避免打开菜单的点击事件立即把它关闭', () => {
+describe('嵌入应用 RPC 边界', () => {
+  it('只接受来自当前 iframe 的 App Host RPC 消息', () => {
     const appSource = readFileSync(resolve(process.cwd(), 'src/renderer/src/App.tsx'), 'utf8');
 
-    expect(appSource).toContain("window.addEventListener('pointerdown', closeMenu)");
-    expect(appSource).not.toContain("window.addEventListener('click', closeMenu)");
-    expect(appSource).toContain('onPointerDown={(event) => event.stopPropagation()}');
+    expect(appSource).toContain('event.source !== frame.contentWindow');
+    expect(appSource).toContain("event.data?.type !== 'workbench-app-rpc'");
+    expect(appSource).toContain('window.workbench.apps.invoke(appId, event.data.method, event.data.payload)');
   });
 
-  it('将菜单渲染到文档层，避免被应用窗口的 overflow 裁剪', () => {
-    const appSource = readFileSync(resolve(process.cwd(), 'src/renderer/src/App.tsx'), 'utf8');
+  it('应用 renderer 通过消息协议请求宿主能力，不直接访问 Electron IPC', () => {
+    const appSource = readFileSync(resolve(process.cwd(), 'apps/analysis-center/renderer/host-api.ts'), 'utf8');
 
-    expect(appSource).toContain("import { createPortal } from 'react-dom'");
-    expect(appSource).toContain('return createPortal(');
+    expect(appSource).toContain("type: 'workbench-app-rpc'");
+    expect(appSource).toContain("type: 'workbench-app-rpc-response'");
+    expect(appSource).not.toContain('ipcRenderer');
   });
 });

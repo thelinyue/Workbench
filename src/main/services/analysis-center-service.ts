@@ -1,7 +1,7 @@
 import { readdir, stat } from 'node:fs/promises';
 import { basename, join } from 'node:path';
 import { randomUUID } from 'node:crypto';
-import { isDiagnosticPackagePath, type DiagnosticPackage } from '../domain/diagnostic-package';
+import { getDiagnosticPackageFormat, isDiagnosticPackagePath, type DiagnosticPackage } from '../domain/diagnostic-package';
 import { WorkspaceRepository } from '../data/workspace-repository';
 
 /**
@@ -35,7 +35,10 @@ export class AnalysisCenterService {
   public async importPackage(sourcePath: string): Promise<DiagnosticPackage> {
     const info = await stat(sourcePath).catch(() => undefined);
     if (!info?.isFile()) throw new Error('选择的诊断包不存在或不是文件');
-    if (!isDiagnosticPackagePath(sourcePath)) throw new Error('仅支持 .tgz、.tgz.temp 或 .zip 格式的诊断包');
+    if (!isDiagnosticPackagePath(sourcePath)) {
+      if (getDiagnosticPackageFormat(sourcePath) === 'zip') throw new Error('ZIP 诊断包文件名必须以 nas_server_log 开头');
+      throw new Error('仅支持 .tgz、.tgz.temp 或文件名以 nas_server_log 开头的 .zip 格式诊断包');
+    }
     return this.registerDiagnosticPackage(sourcePath);
   }
 

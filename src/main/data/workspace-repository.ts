@@ -3,9 +3,13 @@ import { dirname, join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import type { DiagnosticPackage, DiagnosticPackageStatus } from '../domain/diagnostic-package';
 
-export interface DesktopIconLayout { appId: 'analysis-center' | 'settings'; x: number; y: number; }
+export const MIN_MONITOR_SCAN_INTERVAL_MINUTES = 1;
+export const DEFAULT_MONITOR_SCAN_INTERVAL_MINUTES = 5;
+export interface DesktopIconLayout { appId: 'analysis-center' | 'app-center' | 'settings'; x: number; y: number; }
 export interface AnalysisTaskRecord { id: string; packageId: string; scope: 'comprehensive' | 'storage'; status: 'queued' | 'running' | 'succeeded' | 'failed' | 'cancelled'; createdAt: string; progress: number; message: string; errorMessage?: string; }
 export interface AnalysisRecord { id: string; packageId: string; taskId: string; status: AnalysisTaskRecord['status']; createdAt: string; updatedAt: string; }
+
+const COMPLETED_TASK_STATUSES = ['succeeded', 'failed', 'cancelled'] as const;
 
 /**
  * 工作台唯一的本地数据访问层。
@@ -51,6 +55,17 @@ export class WorkspaceRepository {
 
   public saveMonitorDirectories(directories: string[]): void {
     this.database.prepare(`INSERT INTO settings (key, value) VALUES ('monitorDirectories', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value`).run(JSON.stringify(directories));
+  }
+
+  public getMonitorScanIntervalMinutes(): number {
+    const value = this.database.prepare("SELECT value FROM settings WHERE key = 'monitorScanIntervalMinutes'").get() as { value: string } | undefined;
+    const minutes = value ? Number(value.value) : DEFAULT_MONITOR_SCAN_INTERVAL_MINUTES;
+    return Number.isInteger(minutes) && minutes >= MIN_MONITOR_SCAN_INTERVAL_MINUTES ? minutes : DEFAULT_MONITOR_SCAN_INTERVAL_MINUTES;
+  }
+
+  public saveMonitorScanIntervalMinutes(minutes: number): void {
+    if (!Number.isInteger(minutes) || minutes < MIN_MONITOR_SCAN_INTERVAL_MINUTES) throw new Error('自动扫描间隔至少为 1 分钟');
+    this.database.prepare(`INSERT INTO settings (key, value) VALUES ('monitorScanIntervalMinutes', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value`).run(String(minutes));
   }
 
   public upsertPackage(item: DiagnosticPackage): void {
@@ -107,6 +122,20 @@ export class WorkspaceRepository {
     return this.database.prepare(`SELECT id, package_id AS packageId, scope, status, created_at AS createdAt, progress, message, error_message AS errorMessage FROM analysis_tasks ORDER BY created_at DESC`).all() as unknown as AnalysisTaskRecord[];
   }
 
+  /**
+   * 删除单个终态任务及其关联状态，并同步修剪诊断包上的任务引用。
+   * SQL 条件再次限制终态，避免渲染层或并发状态变化误删运行中的任务；所有数据库变更
+   * 都在同一事务内完成，确保任务列表和生命周期清单不会出现半更新状态。
+   */
+  public deleteCompletedTask(taskId: string): boolean {
+    return this.deleteCompletedTasks([taskId]) === 1;
+  }
+
+  /** 一次性删除全部终态任务，返回实际删除数量。 */
+  public deleteAllCompletedTasks(): number {
+    return this.deleteCompletedTasks();
+  }
+
   /** 在确认永久删除后，事务性删除诊断包、报告索引与关联任务。 */
   public deleteLifecycle(packageIds: string[]): void {
     if (packageIds.length === 0) return;
@@ -117,6 +146,33 @@ export class WorkspaceRepository {
       this.database.prepare(`DELETE FROM diagnostic_packages WHERE id IN (${placeholders})`).run(...packageIds);
       this.database.exec('COMMIT;');
     } catch (error) { this.database.exec('ROLLBACK;'); throw error; }
+  }
+
+  private deleteCompletedTasks(taskIds?: string[]): number {
+    const statusPlaceholders = COMPLETED_TASK_STATUSES.map(() => '?').join(', ');
+    const taskFilter = taskIds ? `id IN (${taskIds.map(() => '?').join(', ')}) AND ` : '';
+    const parameters = taskIds ? [...taskIds, ...COMPLETED_TASK_STATUSES] : [...COMPLETED_TASK_STATUSES];
+    const completedTasks = this.database.prepare(`SELECT id, package_id AS packageId FROM analysis_tasks WHERE ${taskFilter}status IN (${statusPlaceholders})`).all(...parameters) as unknown as Array<{ id: string; packageId: string }>;
+    if (completedTasks.length === 0) return 0;
+
+    this.database.exec('BEGIN;');
+    try {
+      const result = this.database.prepare(`DELETE FROM analysis_tasks WHERE ${taskFilter}status IN (${statusPlaceholders})`).run(...parameters);
+      const deletedIds = new Set(completedTasks.map((task) => task.id));
+      const packageIds = [...new Set(completedTasks.map((task) => task.packageId))];
+      const updatePackage = this.database.prepare('UPDATE diagnostic_packages SET task_ids = ? WHERE id = ?');
+      for (const packageId of packageIds) {
+        const packageRow = this.database.prepare('SELECT task_ids AS taskIds FROM diagnostic_packages WHERE id = ?').get(packageId) as { taskIds: string } | undefined;
+        if (!packageRow) continue;
+        const taskReferences = JSON.parse(packageRow.taskIds) as string[];
+        updatePackage.run(JSON.stringify(taskReferences.filter((id) => !deletedIds.has(id))), packageId);
+      }
+      this.database.exec('COMMIT;');
+      return Number(result.changes);
+    } catch (error) {
+      this.database.exec('ROLLBACK;');
+      throw error;
+    }
   }
 
   private createSchema(): void {

@@ -55,6 +55,21 @@ export class AnalysisTaskService extends EventEmitter {
     this.emit('changed');
   }
 
+  /** 清理单个历史任务；运行中和排队任务必须先取消。 */
+  public clear(taskId: string): void {
+    const task = this.repository.getTask(taskId);
+    if (!task) return;
+    if (task.status === 'running' || task.status === 'queued') throw new Error('运行中或排队中的任务不能清理，请先取消任务');
+    if (this.repository.deleteCompletedTask(taskId)) this.emit('changed');
+  }
+
+  /** 一键清理全部已完成、失败和已取消的历史任务。 */
+  public clearCompleted(): number {
+    const count = this.repository.deleteAllCompletedTasks();
+    if (count > 0) this.emit('changed');
+    return count;
+  }
+
   private async processQueue(): Promise<void> {
     if (this.processing) return;
     this.processing = true;

@@ -7,7 +7,7 @@ export default defineConfig({
     plugins: [externalizeDepsPlugin()],
     build: {
       rollupOptions: {
-        input: { index: resolve('src/main/index.ts'), 'analysis-worker': resolve('src/main/analysis/analysis-worker.ts') },
+        input: { index: resolve('src/main/index.ts'), 'analysis-worker': resolve('src/main/analysis/analysis-worker.ts'), 'app-backend-worker': resolve('src/main/services/app-backend-worker.ts') },
         output: { entryFileNames: '[name].js' }
       }
     }

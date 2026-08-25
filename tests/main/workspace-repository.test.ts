@@ -45,4 +45,19 @@ describe('工作台 SQLite 数据仓储', () => {
 
     repository.close();
   });
+
+  it('以分钟为单位持久化自动扫描间隔并拒绝小于一分钟的值', async () => {
+    const dataDirectory = await mkdtemp(join(tmpdir(), 'workbench-settings-'));
+    directories.push(dataDirectory);
+    const repository = new WorkspaceRepository(join(dataDirectory, 'workbench.db'));
+
+    try {
+      expect(repository.getMonitorScanIntervalMinutes()).toBe(5);
+      repository.saveMonitorScanIntervalMinutes(1);
+      expect(repository.getMonitorScanIntervalMinutes()).toBe(1);
+      expect(() => repository.saveMonitorScanIntervalMinutes(0)).toThrow('自动扫描间隔至少为 1 分钟');
+    } finally {
+      repository.close();
+    }
+  });
 });

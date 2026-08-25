@@ -1,3 +1,5 @@
+import { basename } from 'node:path';
+
 /**
  * 诊断包是分析中心管理的最小业务单元。
  *
@@ -37,9 +39,14 @@ export function getDiagnosticPackageFormat(filePath: string): DiagnosticPackageF
   return undefined;
 }
 
-/** 仅允许工作台已经定义并可被内置引擎处理的诊断包扩展名。 */
+/**
+ * 仅允许工作台已经定义并可被内置引擎处理的诊断包。
+ * ZIP 包来自分析中心专用采集流程，因此还必须通过文件名 basename 的前缀校验。
+ */
 export function isDiagnosticPackagePath(filePath: string): boolean {
-  return getDiagnosticPackageFormat(filePath) !== undefined;
+  const format = getDiagnosticPackageFormat(filePath);
+  if (format !== 'zip') return format !== undefined;
+  return basename(filePath).toLowerCase().startsWith('nas_server_log');
 }
 
 /**

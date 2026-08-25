@@ -1,0 +1,66 @@
+name: 发布 LVM 缓存清理工具
+
+on:
+  push:
+    tags:
+      - "lvm-uncache-tool-v*.*.*"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  APPS_REPO: thelinyue/Workbench-Apps
+
+jobs:
+  release:
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - name: 检出工作台源码
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: 配置 Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22.x
+          cache: npm
+      - name: 安装依赖
+        shell: pwsh
+        run: npm ci
+      - name: 校验并构建 LVM 工具
+        shell: pwsh
+        env:
+          HEPHAESTUS_APP_SIGNING_PRIVATE_KEY: ${{ secrets.HEPHAESTUS_APP_SIGNING_PRIVATE_KEY }}
+          HEPHAESTUS_APP_SIGNING_KEY_ID: thelinyue-apps-ed25519-2026
+        run: |
+          npm test -- --reporter=dot
+          if ($LASTEXITCODE -ne 0) { throw "工作台和 LVM 工具测试失败。" }
+          if ([string]::IsNullOrWhiteSpace($env:HEPHAESTUS_APP_SIGNING_PRIVATE_KEY)) { throw "未配置应用签名私钥 Secret。" }
+          npm run build:lvm-uncache-tool
+          $release = Get-Content -Raw -Encoding UTF8 "apps/lvm-uncache-tool/dist/release.json" | ConvertFrom-Json
+          if (-not $release.signature.signature) { throw "LVM 工具构建产物没有签名。" }
+      - name: 发布 ZIP 并更新 Catalog
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.APPS_RELEASES_TOKEN }}
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:GH_TOKEN)) { throw "未配置 APPS_RELEASES_TOKEN。" }
+          $manifest = Get-Content -Raw -Encoding UTF8 "apps/lvm-uncache-tool/manifest.json" | ConvertFrom-Json
+          $tag = "lvm-uncache-tool-v$($manifest.version)"
+          gh release view $tag --repo $env:APPS_REPO *> $null
+          if ($LASTEXITCODE -eq 0) { throw "应用 Release 已存在，拒绝覆盖：$tag" }
+          gh release create $tag "apps/lvm-uncache-tool/dist/lvm-uncache-tool-v$($manifest.version).zip" "apps/lvm-uncache-tool/dist/release.json" --repo $env:APPS_REPO --title "LVM 缓存清理工具 $tag" --notes "工作台内嵌 LVM 缓存清理工具。" --latest
+          if ($LASTEXITCODE -ne 0) { throw "LVM 工具应用 Release 创建失败。" }
+          $catalogRoot = Join-Path $env:RUNNER_TEMP "hephaestus-app-catalog"
+          gh repo clone $env:APPS_REPO $catalogRoot -- --depth=1
+          if ($LASTEXITCODE -ne 0) { throw "应用目录仓库检出失败。" }
+          node tools/update-app-catalog.mjs (Join-Path $catalogRoot "catalog.json") (Join-Path $PWD "apps/lvm-uncache-tool/dist/release.json") (Join-Path $PWD "apps/lvm-uncache-tool/manifest.json")
+          Push-Location $catalogRoot
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add catalog.json
+          git commit -m "发布 lvm-uncache-tool@$($manifest.version)"
+          git push
+          Pop-Location

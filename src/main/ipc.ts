@@ -1,21 +1,21 @@
-import { access, mkdir } from 'node:fs/promises';
-import { randomUUID } from 'node:crypto';
-import { join } from 'node:path';
-import { BrowserWindow, dialog, ipcMain, shell } from 'electron';
+import { access, readFile, writeFile } from 'node:fs/promises';
+import { basename, join } from 'node:path';
+import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron';
 import { z } from 'zod';
 import { WorkspaceRepository } from './data/workspace-repository';
-import { AnalysisCenterService } from './services/analysis-center-service';
-import { AnalysisTaskService } from './services/analysis-task-service';
-import { LifecycleDeletionService } from './services/lifecycle-deletion-service';
-import { MonitorDirectoryWatcher } from './services/monitor-directory-watcher';
+import { AppRegistryRepository } from './data/app-registry-repository';
+import { AppCatalogClient } from './services/app-catalog-client';
+import { AppCenterService } from './services/app-center-service';
+import { AppPackageInstaller } from './services/app-package-installer';
+import { AppRuntimeManager } from './services/app-runtime-manager';
+import { parseAppCatalog, parseAppManifest } from './services/app-package-validator';
+import { loadTrustedAppKeys } from './services/app-trust-store';
+import type { AppCatalogItem, AppCatalogRelease } from '../shared/app-contract';
 
-const idSchema = z.string().uuid();
-const idListSchema = z.array(idSchema).min(1).max(200);
-const importPathSchema = z.array(z.string().min(1).max(2048)).min(1).max(200);
-const startSchema = z.object({ packageId: idSchema, scope: z.enum(['comprehensive', 'storage']).default('comprehensive') });
-const layoutSchema = z.array(z.object({ appId: z.enum(['analysis-center', 'settings']), x: z.number().int().min(0).max(5000), y: z.number().int().min(0).max(5000) }));
-const directorySchema = z.array(z.string().min(1).max(2048)).max(30);
-const confirmedDeletionSchema = z.object({ packageIds: idListSchema, confirmationToken: z.string().uuid() });
+const layoutSchema = z.array(z.object({ appId: z.enum(['analysis-center', 'app-center']), x: z.number().int().min(0).max(5000), y: z.number().int().min(0).max(5000) }));
+const appIdSchema = z.string().regex(/^[a-z0-9]+(?:[.-][a-z0-9]+)*$/);
+const appInstallSchema = z.object({ appId: appIdSchema, version: z.string().optional() });
+const appInvokeSchema = z.object({ appId: appIdSchema, method: z.string().min(1).max(200), payload: z.unknown().optional() });
 
 /**
  * 注册工作台全部受控 IPC 入口。
@@ -26,22 +26,81 @@ const confirmedDeletionSchema = z.object({ packageIds: idListSchema, confirmatio
 export function registerWorkbenchIpc(userDataPath: string): () => void {
   const dataDirectory = join(userDataPath, 'Workbench');
   const repository = new WorkspaceRepository(join(dataDirectory, 'workbench.db'));
-  const analysis = new AnalysisCenterService(repository);
-  const tasks = new AnalysisTaskService(repository);
-  const deletion = new LifecycleDeletionService(repository);
+  const appRegistry = new AppRegistryRepository(join(dataDirectory, 'apps.db'));
+  const appCatalog = new AppCatalogClient({
+    catalogUrl: process.env.HEPHAESTUS_APP_CATALOG_URL ?? 'https://raw.githubusercontent.com/thelinyue/Workbench-Apps/main/catalog.json',
+    repository: appRegistry
+  });
+  const trustedKeys = loadTrustedAppKeys();
+  const appInstaller = new AppPackageInstaller({
+    appsRoot: join(dataDirectory, 'apps'),
+    workbenchVersion: app.getVersion(),
+    hostApiVersion: '1.0',
+    trustedKeys,
+    repository: appRegistry
+  });
+  const appCenter = new AppCenterService({ repository: appRegistry, catalog: appCatalog, installer: appInstaller, workbenchVersion: app.getVersion(), hostApiVersion: '1.0' });
+  const appRuntime = new AppRuntimeManager();
   const notifyRenderer = () => BrowserWindow.getAllWindows().forEach((window) => window.webContents.send('workbench:changed'));
-  const monitor = new MonitorDirectoryWatcher(analysis, notifyRenderer);
-  const deletionConfirmations = new Map<string, { packageIds: string[]; webContentsId: number; expiresAt: number }>();
-  monitor.watch(repository.getMonitorDirectories());
+  const seedReady = installSeedApp({ dataDirectory, appRegistry, appInstaller });
 
-  const getPackage = (input: unknown) => {
-    const id = idSchema.parse(input);
-    const item = analysis.getPackage(id);
-    if (!item) throw new Error('找不到指定的诊断包');
+  const getInstalledApp = (input: unknown) => {
+    const appId = appIdSchema.parse(input);
+    const item = appRegistry.get(appId);
+    if (!item?.activeVersion || !item.installPath) throw new Error(`应用尚未安装或没有可启动版本：${appId}`);
     return item;
   };
-  const getPackages = (input: unknown) => idListSchema.parse(input).map((id) => getPackage(id));
-  const ensurePath = async (path: string, message: string) => { await access(path).catch(() => { throw new Error(message); }); };
+  const loadAppManifest = async (input: unknown) => {
+    const item = getInstalledApp(input);
+    const manifest = parseAppManifest(JSON.parse(await readFile(join(item.installPath!, 'manifest.json'), 'utf8')));
+    if (manifest.id !== item.id || manifest.version !== item.activeVersion) throw new Error(`应用 manifest 与注册表不一致：${item.id}`);
+    return { item, manifest };
+  };
+  const appHostCapability = (method: string): string | undefined => ({
+    'host.chooseFiles': 'file.open',
+    'host.chooseDirectory': 'file.open',
+    'host.saveFile': 'file.save',
+    'host.openPath': 'shell.openPath',
+    'host.showItemInFolder': 'shell.showItemInFolder'
+  }[method]);
+  const invokeHostCapability = async (appId: string, method: string, payload: unknown): Promise<unknown> => {
+    const capability = appHostCapability(method);
+    if (!capability) return appRuntime.invoke(appId, method, payload);
+    const { manifest } = await loadAppManifest(appId);
+    if (!manifest.capabilities.includes(capability)) throw new Error(`应用未获授权使用宿主能力：${capability}`);
+    if (method === 'host.chooseFiles') {
+      const result = await dialog.showOpenDialog({ properties: ['openFile', 'multiSelections'], filters: [{ name: '诊断包', extensions: ['tgz', 'temp', 'zip'] }] });
+      return result.canceled ? [] : result.filePaths;
+    }
+    if (method === 'host.chooseDirectory') {
+      const result = await dialog.showOpenDialog({ properties: ['openDirectory', 'createDirectory'] });
+      return result.canceled ? null : result.filePaths[0] ?? null;
+    }
+    if (method === 'host.saveFile') {
+      const value = z.object({
+        fileName: z.string().min(1).max(255).refine((item) => basename(item) === item && !/[\\/:*?"<>|\0]/.test(item), '输出文件名包含不安全字符'),
+        content: z.string().max(20 * 1024 * 1024, '输出内容过大'),
+        overwriteRequested: z.boolean().default(false)
+      }).parse(payload);
+      const result = await dialog.showSaveDialog({ defaultPath: value.fileName, filters: [{ name: 'LVM VG 文件', extensions: ['vg', 'txt'] }] });
+      if (result.canceled || !result.filePath) return null;
+      if (!value.overwriteRequested) {
+        try { await access(result.filePath); throw new Error('目标文件已存在，请勾选允许覆盖后重试。'); } catch (error) {
+          if (error instanceof Error && error.message.includes('目标文件已存在')) throw error;
+        }
+      }
+      await writeFile(result.filePath, value.content, 'utf8');
+      return { path: result.filePath };
+    }
+    const value = z.object({ path: z.string().min(1).max(4096) }).parse(payload);
+    if (method === 'host.openPath') {
+      const error = await shell.openPath(value.path);
+      if (error) throw new Error(`无法打开文件：${error}`);
+      return undefined;
+    }
+    shell.showItemInFolder(value.path);
+    return undefined;
+  };
 
   ipcMain.handle('desktop:load-layout', () => repository.listDesktopLayout());
   ipcMain.handle('desktop:save-layout', (_event, input) => repository.saveDesktopLayout(layoutSchema.parse(input)));
@@ -52,71 +111,75 @@ export function registerWorkbenchIpc(userDataPath: string): () => void {
     if (window.isMaximized()) window.unmaximize(); else window.maximize();
   });
   ipcMain.handle('shell:close-window', (event) => BrowserWindow.fromWebContents(event.sender)?.close());
-  ipcMain.handle('analysis:list', () => analysis.listPackages());
-  ipcMain.handle('analysis:scan', async () => { const result = await analysis.scanMonitorDirectories(); notifyRenderer(); return result; });
-  ipcMain.handle('analysis:import-package', async () => {
-    const result = await dialog.showOpenDialog({ properties: ['openFile'], filters: [{ name: '诊断包', extensions: ['tgz', 'temp'] }] });
-    if (result.canceled || !result.filePaths[0]) return null;
-    const item = await analysis.importPackage(result.filePaths[0]);
+  ipcMain.handle('apps:list', async () => { await seedReady; return appCenter.list(); });
+  ipcMain.handle('apps:refresh-catalog', async () => { await seedReady; const result = await appCenter.refresh(); notifyRenderer(); return result; });
+  ipcMain.handle('apps:get-catalog-snapshot', () => appRegistry.loadCatalogSnapshot() ?? null);
+  ipcMain.handle('apps:install', async (_event, input) => { await seedReady; const value = appInstallSchema.parse(input); const result = await appCenter.install(value.appId, value.version); notifyRenderer(); return result; });
+  ipcMain.handle('apps:launch', async (_event, input) => {
+    const { item, manifest } = await loadAppManifest(input);
+    await appRuntime.start({ appId: item.id, installPath: item.installPath!, dataDirectory: join(dataDirectory, 'apps', item.id, 'data'), manifest });
     notifyRenderer();
-    return item;
   });
-  ipcMain.handle('analysis:import-paths', async (_event, input) => {
-    const items = [];
-    for (const path of importPathSchema.parse(input)) items.push(await analysis.importPackage(path));
-    notifyRenderer();
-    return items;
+  ipcMain.handle('apps:get-entry-url', async (_event, input) => {
+    const { item, manifest } = await loadAppManifest(input);
+    return `workbench-app://${item.id}/${manifest.version}/${manifest.runtime.rendererEntry}`;
   });
-  ipcMain.handle('analysis:start', async (_event, input) => { const value = startSchema.parse(input); await tasks.enqueue(getPackage(value.packageId).id, value.scope); });
-  ipcMain.handle('analysis:start-all-pending', () => tasks.enqueueAllPending());
-  ipcMain.handle('analysis:open-report', async (_event, input) => {
-    const item = getPackage(input);
-    if (!item.reportPath) throw new Error('该诊断包尚未生成报告');
-    await ensurePath(item.reportPath, '报告文件不存在，可能已被删除');
-    const result = await shell.openPath(item.reportPath);
-    if (result) throw new Error(`无法打开报告：${result}`);
-  });
-  ipcMain.handle('analysis:locate-source', async (_event, input) => {
-    const item = getPackage(input);
-    await ensurePath(item.sourcePath, '诊断包文件不存在，无法定位');
-    shell.showItemInFolder(item.sourcePath);
-  });
-  ipcMain.handle('analysis:locate-extract', async (_event, input) => {
-    const item = getPackage(input);
-    await ensurePath(item.extractPath, '解压目录不存在，无法定位');
-    shell.showItemInFolder(item.extractPath);
-  });
-  ipcMain.handle('analysis:delete-preview', async (event, input) => {
-    const packageIds = idListSchema.parse(input);
-    const preview = await deletion.preview(getPackages(packageIds));
-    const confirmationToken = randomUUID();
-    deletionConfirmations.set(confirmationToken, { packageIds, webContentsId: event.sender.id, expiresAt: Date.now() + 5 * 60_000 });
-    return { ...preview, confirmationToken };
-  });
-  ipcMain.handle('analysis:delete-packages', async (event, input) => {
-    const { packageIds, confirmationToken } = confirmedDeletionSchema.parse(input);
-    const confirmation = deletionConfirmations.get(confirmationToken);
-    deletionConfirmations.delete(confirmationToken);
-    if (!confirmation || confirmation.expiresAt < Date.now() || confirmation.webContentsId !== event.sender.id || confirmation.packageIds.length !== packageIds.length || confirmation.packageIds.some((id, index) => id !== packageIds[index])) {
-      throw new Error('删除确认已失效，请重新查看删除清单后确认');
+  ipcMain.handle('apps:invoke', (_event, input) => { const value = appInvokeSchema.parse(input); return invokeHostCapability(value.appId, value.method, value.payload); });
+  appRuntime.onEvent((event) => {
+    if (event.event === 'runtime.failed') {
+      const current = appRegistry.get(event.appId);
+      const payload = event.payload as { message?: unknown };
+      if (current) appRegistry.upsert({ ...current, state: 'broken', errorMessage: typeof payload.message === 'string' ? payload.message : '应用 Worker 已停止' });
     }
-    await deletion.delete(getPackages(packageIds));
-    notifyRenderer();
+    BrowserWindow.getAllWindows().forEach((window) => window.webContents.send('workbench:app-event', event));
   });
-  ipcMain.handle('tasks:list', () => repository.listTasks());
-  ipcMain.handle('tasks:cancel', (_event, input) => tasks.cancel(idSchema.parse(input)));
-  ipcMain.handle('settings:get-monitor-directories', () => repository.getMonitorDirectories());
-  ipcMain.handle('settings:save-monitor-directories', async (_event, input) => {
-    const directories = directorySchema.parse(input);
-    await Promise.all(directories.map((directory) => mkdir(directory, { recursive: true })));
-    repository.saveMonitorDirectories(directories);
-    monitor.watch(directories);
-  });
-  ipcMain.handle('settings:choose-monitor-directory', async () => {
-    const result = await dialog.showOpenDialog({ properties: ['openDirectory', 'createDirectory'] });
-    return result.canceled ? null : result.filePaths[0] ?? null;
-  });
+  return () => {
+    void Promise.all(appRegistry.list().map((item) => appRuntime.stop(item.id)));
+    appRegistry.close();
+    repository.close();
+  };
+}
 
-  tasks.on('changed', notifyRenderer);
-  return () => { tasks.off('changed', notifyRenderer); void monitor.close(); repository.close(); };
+interface SeedInstallOptions {
+  dataDirectory: string;
+  appRegistry: AppRegistryRepository;
+  appInstaller: AppPackageInstaller;
+}
+
+/** 首次启动时安装安装包内的官方种子应用；安装仍经过与在线包相同的哈希、签名和 ZIP 安全校验。 */
+async function installSeedApp(options: SeedInstallOptions): Promise<void> {
+  if (options.appRegistry.get('analysis-center')) return;
+  const candidates = [
+    join(process.resourcesPath, 'apps', 'analysis-center-v1.0.0.zip'),
+    join(process.cwd(), 'apps', 'analysis-center', 'dist', 'analysis-center-v1.0.0.zip')
+  ];
+  const releaseCandidates = [
+    join(process.resourcesPath, 'apps', 'analysis-center-v1.0.0.release.json'),
+    join(process.cwd(), 'apps', 'analysis-center', 'dist', 'release.json')
+  ];
+  const packagePath = await firstExisting(candidates);
+  const releasePath = await firstExisting(releaseCandidates);
+  if (!packagePath || !releasePath) return;
+  try {
+    const release = JSON.parse(await readFile(releasePath, 'utf8')) as AppCatalogRelease & { url?: string };
+    const app: AppCatalogItem = {
+      id: 'analysis-center',
+      name: '分析中心',
+      description: '诊断包导入、监控扫描、综合分析、存储健康分析和离线报告',
+      publisherId: 'thelinyue',
+      releases: [{ ...release, url: release.url ?? 'https://github.com/thelinyue/Workbench-Apps/releases/download/analysis-center-v1.0.0/analysis-center-v1.0.0.zip' }]
+    };
+    parseAppCatalog({ schemaVersion: 1, apps: [app] });
+    const payload = await readFile(packagePath);
+    await options.appInstaller.installRelease(app, app.releases[0]!, payload);
+  } catch (error) {
+    console.error(`预置应用安装失败：${error instanceof Error ? error.message : String(error)}`);
+  }
+}
+
+async function firstExisting(paths: string[]): Promise<string | undefined> {
+  for (const path of paths) {
+    try { await access(path); return path; } catch { /* 继续检查下一个候选路径。 */ }
+  }
+  return undefined;
 }

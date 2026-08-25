@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-labelledby="title desc">
+  <title id="title">分析中心</title>
+  <desc id="desc">包含数据波形、测量刻度和分析节点的科技面板</desc>
+  <rect width="128" height="128" rx="24" fill="#101D31"/>
+  <rect x="6" y="6" width="116" height="116" rx="20" fill="#162A43" stroke="#3E638A" stroke-width="3"/>
+  <path d="M18 22h92M18 106h92" stroke="#284661" stroke-width="2"/>
+
+  <rect x="20" y="22" width="88" height="54" rx="10" fill="#081321" stroke="#2D4E70" stroke-width="2"/>
+  <path d="M27 49h74M27 36h74M27 62h74" stroke="#1F3955" stroke-width="1.5"/>
+  <path d="M28 58c9 0 9-22 18-22s9 28 18 28 9-36 18-36 9 21 18 21" fill="none" stroke="#35C7E8" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="46" cy="36" r="3.5" fill="#FFB83D" stroke="#15283F" stroke-width="1.5"/>
+  <circle cx="64" cy="64" r="3.5" fill="#FFB83D" stroke="#15283F" stroke-width="1.5"/>
+  <circle cx="82" cy="28" r="3.5" fill="#FFB83D" stroke="#15283F" stroke-width="1.5"/>
+
+  <rect x="20" y="84" width="46" height="22" rx="6" fill="#263B56" stroke="#527497" stroke-width="2"/>
+  <rect x="27" y="94" width="5" height="7" rx="1" fill="#F25655"/>
+  <rect x="36" y="90" width="5" height="11" rx="1" fill="#F3B238"/>
+  <rect x="45" y="87" width="5" height="14" rx="1" fill="#54D4C6"/>
+  <path d="M56 91h4M56 97h4" stroke="#A8C5DE" stroke-width="2" stroke-linecap="round"/>
+
+  <circle cx="89" cy="91" r="18" fill="#081321" stroke="#75D7E5" stroke-width="3"/>
+  <circle cx="89" cy="91" r="12" fill="#2BB6C7" stroke="#C4F4F1" stroke-width="2"/>
+  <path d="M89 82v9l6 4" fill="none" stroke="#12324C" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="m102 104 8 8" stroke="#F2A52B" stroke-width="5" stroke-linecap="round"/>
+  <circle cx="89" cy="91" r="2.5" fill="#F2A52B"/>
+</svg>

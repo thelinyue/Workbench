@@ -1,60 +1,59 @@
 import {
   Activity,
-  Archive,
-  ArrowDownToLine,
-  BarChart3,
-  Check,
+  Bell,
+  CheckCheck,
   CheckCircle2,
   ChevronDown,
   CircleAlert,
   ClipboardList,
   CloudDownload,
-  Copy,
-  Cpu,
-  Database,
-  ExternalLink,
-  FileArchive,
-  FolderOpen,
-  HardDrive,
+  Inbox,
   LayoutGrid,
-  ListChecks,
   LoaderCircle,
   Maximize2,
   Menu,
-  Minus,
   Minimize2,
-  Monitor,
-  MoreHorizontal,
   PackageOpen,
   Play,
   RefreshCw,
-  Search,
-  Settings as SettingsIcon,
-  ShieldCheck,
   Trash2,
-  Upload,
-  X,
-  type LucideIcon
+  X
 } from 'lucide-react';
-import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react';
-import { createPortal } from 'react-dom';
-import { createAppWindow, minimizeWindow, moveWindow, resizeWindow, type AppWindow } from '../window-manager';
-import { DEFAULT_ICON_LAYOUT, normalizeDesktopLayout, snapDesktopIconPoint } from '../desktop-layout';
+import { useCallback, useEffect, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react';
+import { createAppWindow, getVisibleWindows, minimizeWindow, moveWindow, resizeWindow, type AppWindow } from '../window-manager';
+import { DEFAULT_ICON_LAYOUT, normalizeDesktopLayout, resolveDesktopIconPoint, type DesktopAppId } from '../desktop-layout';
+import type { AppInstallRecord, AppInstallState } from '../../shared/app-contract';
 import {
-  formatBytes,
   formatDetectedAt,
-  getBulkDeletablePackages,
-  sortLatestPackages,
-  statusLabels,
-  statusTone,
   toChineseError,
-  type RendererDiagnosticPackage
+  collectNewNotifications,
+  mergeNotifications,
+  type NotificationSnapshot,
+  type WorkbenchNotification
 } from './ui-model';
 
-type AppId = 'analysis-center' | 'settings';
+const WORKBENCH_ICON_URL = new URL('./assets/workbench-icon.png', import.meta.url).href;
+const WORKBENCH_WALLPAPER_URL = new URL('./assets/workbench-wallpaper.png', import.meta.url).href;
+
+type AppId = 'app-center' | 'analysis-center' | 'lvm-uncache-tool';
+
+/**
+ * 工作台品牌图标与具体应用图标分离：品牌图标表示“返回工作台”，
+ * 应用图标表示当前功能，避免用户在桌面、应用库和窗口标题栏中混淆入口。
+ */
+const APP_ICON_URLS: Record<AppId, string> = {
+  'app-center': new URL('./assets/app-center-icon.svg', import.meta.url).href,
+  'analysis-center': new URL('./assets/analysis-center-icon.svg', import.meta.url).href,
+  'lvm-uncache-tool': new URL('./assets/lvm-uncache-tool-icon.svg', import.meta.url).href
+};
+
+function resolveAppIconUrl(id: string): string {
+  return APP_ICON_URLS[id as AppId] ?? WORKBENCH_ICON_URL;
+}
 
 interface TaskRecord {
   id: string;
+  appId?: string;
   packageId: string;
   status: 'queued' | 'running' | 'succeeded' | 'failed' | 'cancelled';
   createdAt: string;
@@ -62,57 +61,18 @@ interface TaskRecord {
   message: string;
   errorMessage?: string;
 }
-
-interface DeletePreview {
-  packageCount: number;
-  taskCount: number;
-  sourcePaths: string[];
-  extractPaths: string[];
-  reportPaths: string[];
-  estimatedBytes: number;
-  confirmationToken: string;
-  caseCount: number;
-  analysisRecordCount: number;
-  reportRecordCount: number;
+function isTaskClearable(task: TaskRecord): boolean {
+  return task.status === 'succeeded' || task.status === 'failed' || task.status === 'cancelled';
 }
 
-interface ContextMenuState {
-  packageItem: RendererDiagnosticPackage;
-  x: number;
-  y: number;
-}
-
-const CONTEXT_MENU_WIDTH = 208;
-const CONTEXT_MENU_HEIGHT = 180;
-const CONTEXT_MENU_GUTTER = 8;
-
-interface DeleteDialogState {
-  packageIds: string[];
-  preview: DeletePreview;
-}
-
-const APP_META: Record<AppId, { title: string; description: string; icon: LucideIcon }> = {
-  'analysis-center': { title: '分析中心', description: '诊断包与日志报告', icon: BarChart3 },
-  settings: { title: '设置', description: '工作台偏好设置', icon: SettingsIcon }
+const APP_META: Record<AppId, { title: string; description: string }> = {
+  'app-center': { title: '应用中心', description: '安装与更新工作台应用' },
+  'analysis-center': { title: '分析中心', description: '诊断包与日志报告' },
+  'lvm-uncache-tool': { title: 'LVM 缓存清理工具', description: '清理 LVM2 VG 缓存配置' }
 };
 
 function hasWorkbenchBridge(): boolean {
   return typeof window !== 'undefined' && Boolean(window.workbench);
-}
-
-function fallbackDeletionPreview(packages: RendererDiagnosticPackage[]): DeletePreview {
-  return {
-    packageCount: packages.length,
-    taskCount: packages.reduce((total, item) => total + item.taskIds.length, 0),
-    sourcePaths: packages.map((item) => item.sourcePath),
-    extractPaths: packages.map((item) => item.extractPath),
-    reportPaths: packages.flatMap((item) => item.reportPath ? [item.reportPath] : []),
-    estimatedBytes: 0,
-    confirmationToken: '',
-    caseCount: packages.length,
-    analysisRecordCount: 0,
-    reportRecordCount: 0
-  };
 }
 
 /**
@@ -122,31 +82,89 @@ function fallbackDeletionPreview(packages: RendererDiagnosticPackage[]): DeleteP
 export function App() {
   const [windows, setWindows] = useState<AppWindow[]>([]);
   const [tasks, setTasks] = useState<TaskRecord[]>([]);
+  const [registeredApps, setRegisteredApps] = useState<AppInstallRecord[]>([]);
   const [drawerOpen, setDrawerOpen] = useState(false);
+  const [notificationCenterOpen, setNotificationCenterOpen] = useState(false);
+  const [notifications, setNotifications] = useState<WorkbenchNotification[]>([]);
   const [appLibraryOpen, setAppLibraryOpen] = useState(false);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
+  const [taskClearBusyId, setTaskClearBusyId] = useState<string | null>(null);
+  const [taskClearAllBusy, setTaskClearAllBusy] = useState(false);
+  const [taskClearDialogOpen, setTaskClearDialogOpen] = useState(false);
   const [iconLayout, setIconLayout] = useState(DEFAULT_ICON_LAYOUT);
   const iconLayoutRef = useRef(iconLayout);
-  const iconDragRef = useRef<{ id: AppId; offsetX: number; offsetY: number; moved: boolean } | null>(null);
+  const iconDragRef = useRef<{ id: DesktopAppId; offsetX: number; offsetY: number; moved: boolean } | null>(null);
   const suppressOpenRef = useRef(false);
+  const notificationSnapshotRef = useRef<NotificationSnapshot | null>(null);
+  const notificationRefreshQueueRef = useRef<Promise<void>>(Promise.resolve());
+  const notificationSequenceRef = useRef(0);
 
   useEffect(() => { iconLayoutRef.current = iconLayout; }, [iconLayout]);
 
-  const showError = useCallback((message: unknown) => {
-    setError(toChineseError(message));
-    setNotice('');
+  const addNotification = useCallback((notification: WorkbenchNotification) => {
+    setNotifications((current) => mergeNotifications(current, [notification]));
   }, []);
+
+  const appendSystemNotification = useCallback((type: 'notice' | 'error', title: string, message: string) => {
+    addNotification({
+      id: `${type}:${Date.now()}:${notificationSequenceRef.current++}`,
+      type,
+      title,
+      message,
+      createdAt: new Date().toISOString(),
+      read: false
+    });
+  }, [addNotification]);
+
+  const showError = useCallback((message: unknown) => {
+    const translated = toChineseError(message);
+    setError(translated);
+    setNotice('');
+    appendSystemNotification('error', '工作台操作失败', translated);
+  }, [appendSystemNotification]);
 
   const showNotice = useCallback((message: string) => {
     setNotice(message);
     setError('');
-  }, []);
+    appendSystemNotification('notice', '操作已完成', message);
+  }, [appendSystemNotification]);
 
-  const refreshTasks = useCallback(async () => {
+  const refreshAppRegistry = useCallback(async () => {
     try {
       if (!hasWorkbenchBridge()) return;
-      setTasks(await window.workbench.tasks.list());
+      setRegisteredApps(await window.workbench.apps.list());
+    } catch (caught) {
+      showError(caught);
+    }
+  }, [showError]);
+
+  /**
+   * 全局状态变化由主进程统一广播，消息中心在这里比较前后快照，避免每个应用各自维护通知逻辑。
+   * 使用队列串行化刷新，防止扫描和应用目录更新同时广播时出现竞态或重复消息。
+   */
+  const refreshNotificationSnapshot = useCallback(async () => {
+    if (!hasWorkbenchBridge()) return;
+    const refresh = notificationRefreshQueueRef.current.then(async () => {
+      const apps = await window.workbench.apps.list();
+      const analysisApp = apps.find((item) => item.id === 'analysis-center' && item.activeVersion);
+      let packages: NotificationSnapshot['packages'] = [];
+      if (analysisApp) {
+        try {
+          const result = await window.workbench.apps.invoke('analysis-center', 'packages.list');
+          if (Array.isArray(result)) packages = result as NotificationSnapshot['packages'];
+        } catch {
+          // 应用尚未启动时无法读取其私有诊断包列表，等应用事件或下次刷新后建立基线。
+        }
+      }
+      const next: NotificationSnapshot = { packages, apps };
+      const previous = notificationSnapshotRef.current;
+      if (previous) setNotifications((current) => mergeNotifications(current, collectNewNotifications(previous, next, new Date().toISOString())));
+      notificationSnapshotRef.current = next;
+    });
+    notificationRefreshQueueRef.current = refresh.catch(() => undefined);
+    try {
+      await refresh;
     } catch (caught) {
       showError(caught);
     }
@@ -167,26 +185,32 @@ export function App() {
           });
           if (changed) await window.workbench.desktop.saveLayout(normalizedLayout);
         }
-        await refreshTasks();
+        await Promise.all([refreshAppRegistry(), refreshNotificationSnapshot()]);
       } catch (caught) {
         if (active) showError(caught);
       }
     })();
     return () => { active = false; };
-  }, [refreshTasks, showError]);
+  }, [refreshAppRegistry, refreshNotificationSnapshot, showError]);
 
   useEffect(() => {
     if (!hasWorkbenchBridge()) return;
-    const timer = window.setInterval(() => { void refreshTasks(); }, 2500);
-    return () => window.clearInterval(timer);
-  }, [refreshTasks]);
+    return window.workbench.apps.onEvent((event) => {
+      if (event.appId === 'analysis-center') void refreshNotificationSnapshot();
+      if (event.event !== 'tasks.changed' || !event.payload || typeof event.payload !== 'object') return;
+      const payload = event.payload as { tasks?: TaskRecord[] };
+      if (Array.isArray(payload.tasks)) setTasks(payload.tasks.map((task) => ({ ...task, appId: event.appId })));
+    });
+  }, [refreshNotificationSnapshot]);
 
-  useEffect(() => hasWorkbenchBridge() ? window.workbench.onChanged(() => { void refreshTasks(); }) : undefined, [refreshTasks]);
+  useEffect(() => hasWorkbenchBridge() ? window.workbench.onChanged(() => { void refreshAppRegistry(); void refreshNotificationSnapshot(); }) : undefined, [refreshAppRegistry, refreshNotificationSnapshot]);
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
+        setTaskClearDialogOpen(false);
         setDrawerOpen(false);
+        setNotificationCenterOpen(false);
         setWindows((current) => current);
       }
     };
@@ -199,8 +223,25 @@ export function App() {
     return current.map((item) => item.id === id ? { ...item, minimized: false, zIndex } : item);
   });
 
-  const openApp = (id: AppId) => {
-    setWindows((current) => createAppWindow(current, id, APP_META[id].title));
+  const loadAnalysisTasks = async () => {
+    if (!hasWorkbenchBridge()) return;
+    const result = await window.workbench.apps.invoke('analysis-center', 'tasks.list');
+    if (Array.isArray(result)) setTasks((result as TaskRecord[]).map((task) => ({ ...task, appId: 'analysis-center' })));
+  };
+
+  const openApp = (id: string) => {
+    const appMeta = APP_META[id as AppId];
+    if (id !== 'app-center' && hasWorkbenchBridge() && !registeredApps.some((app) => app.id === id && app.activeVersion)) {
+      setWindows((current) => createAppWindow(current, 'app-center', APP_META['app-center'].title));
+      showNotice(`请先在应用中心安装${appMeta?.title ?? id}。`);
+      return;
+    }
+    if (id === 'analysis-center' && hasWorkbenchBridge()) {
+      void window.workbench.apps.launch('analysis-center')
+        .then(() => Promise.all([refreshNotificationSnapshot(), loadAnalysisTasks()]))
+        .catch(showError);
+    }
+    setWindows((current) => createAppWindow(current, id, appMeta?.title ?? id));
     window.setTimeout(() => focusWindow(id), 0);
   };
 
@@ -212,13 +253,13 @@ export function App() {
   const saveIconLayout = async (nextLayout: typeof iconLayout) => {
     setIconLayout(nextLayout);
     try {
-      if (hasWorkbenchBridge()) await window.workbench.desktop.saveLayout(Object.entries(nextLayout).map(([appId, point]) => ({ appId: appId as AppId, ...point })));
+      if (hasWorkbenchBridge()) await window.workbench.desktop.saveLayout(Object.entries(nextLayout).map(([appId, point]) => ({ appId: appId as DesktopAppId, ...point })));
     } catch (caught) {
       showError(caught);
     }
   };
 
-  const beginIconDrag = (event: ReactPointerEvent<HTMLButtonElement>, id: AppId) => {
+  const beginIconDrag = (event: ReactPointerEvent<HTMLButtonElement>, id: DesktopAppId) => {
     const point = iconLayoutRef.current[id];
     iconDragRef.current = { id, offsetX: event.clientX - point.x, offsetY: event.clientY - point.y, moved: false };
     event.currentTarget.setPointerCapture(event.pointerId);
@@ -227,10 +268,26 @@ export function App() {
     const drag = iconDragRef.current;
     if (!drag) return;
     drag.moved = true;
-    const next = { ...iconLayoutRef.current, [drag.id]: snapDesktopIconPoint({ x: event.clientX - drag.offsetX, y: event.clientY - drag.offsetY }) };
+    const occupiedPoints = Object.entries(iconLayoutRef.current)
+      .filter(([appId]) => appId !== drag.id)
+      .map(([, point]) => point);
+    const next = {
+      ...iconLayoutRef.current,
+      [drag.id]: resolveDesktopIconPoint({ x: event.clientX - drag.offsetX, y: event.clientY - drag.offsetY }, occupiedPoints)
+    };
     iconLayoutRef.current = next;
     setIconLayout(next);
   };
+
+  const handleNotificationClick = (notification: WorkbenchNotification) => {
+    setNotifications((current) => current.map((item) => item.id === notification.id ? { ...item, read: true } : item));
+    setNotificationCenterOpen(false);
+    const target = notification.target;
+    if (target?.type === 'analysis-package') openApp('analysis-center');
+    if (target?.type === 'app') openApp('app-center');
+  };
+
+  const unreadNotificationCount = notifications.filter((item) => !item.read).length;
   const finishIconDrag = () => {
     const drag = iconDragRef.current;
     iconDragRef.current = null;
@@ -244,47 +301,78 @@ export function App() {
     if (!files.length) return;
     try {
       if (!hasWorkbenchBridge()) throw new Error('工作台接口尚未就绪，无法导入诊断包。');
-      const imported = await window.workbench.analysis.importDroppedFiles(Array.from(files));
-      if (imported.length) {
-        showNotice(`已导入 ${imported.length} 个诊断包。`);
-        openApp('analysis-center');
-      }
+      const app = registeredApps.find((item) => item.id === 'analysis-center' && item.activeVersion);
+      if (!app) throw new Error('请先在应用中心安装分析中心。');
+      await window.workbench.apps.launch('analysis-center');
+      await Promise.all([refreshNotificationSnapshot(), loadAnalysisTasks()]);
+      const paths = await window.workbench.apps.invoke('analysis-center', 'host.chooseFiles') as string[];
+      for (const path of paths) await window.workbench.apps.invoke('analysis-center', 'packages.import', { sourcePath: path });
+      if (paths.length) { showNotice(`已导入 ${paths.length} 个诊断包。`); openApp('analysis-center'); }
     } catch (caught) { showError(caught); }
   };
 
+  const clearTask = async (taskId: string) => {
+    setTaskClearBusyId(taskId);
+    try {
+      const task = tasks.find((item) => item.id === taskId);
+      if (!hasWorkbenchBridge() || !task?.appId) throw new Error('任务所属应用尚未启动，无法清理任务。');
+      await window.workbench.apps.invoke(task.appId, 'tasks.clear', { taskId });
+      showNotice('任务已清理。');
+    } catch (caught) { showError(caught); }
+    finally { setTaskClearBusyId(null); }
+  };
+
+  const clearCompletedTasks = async () => {
+    setTaskClearAllBusy(true);
+    try {
+      if (!hasWorkbenchBridge()) throw new Error('工作台接口尚未就绪，无法清理历史任务。');
+      const appIds = [...new Set(tasks.map((task) => task.appId).filter((id): id is string => Boolean(id)))];
+      let count = 0;
+      for (const appId of appIds) count += Number(await window.workbench.apps.invoke(appId, 'tasks.clear-completed') ?? 0);
+      setTaskClearDialogOpen(false);
+      showNotice(count > 0 ? `已清理 ${count} 项历史任务。` : '没有可清理的历史任务。');
+    } catch (caught) { showError(caught); }
+    finally { setTaskClearAllBusy(false); }
+  };
+
   const runningCount = tasks.filter((task) => task.status === 'running' || task.status === 'queued').length;
+  const clearableTaskCount = tasks.filter(isTaskClearable).length;
 
   return (
-    <main className="desktop-shell" onDragOver={(event) => event.preventDefault()} onDrop={(event) => { event.preventDefault(); void importDroppedFiles(event.dataTransfer.files); }}>
+    <main className="desktop-shell" style={{ '--workbench-wallpaper': `url("${WORKBENCH_WALLPAPER_URL}")` } as CSSProperties} onDragOver={(event) => event.preventDefault()} onDrop={(event) => { event.preventDefault(); void importDroppedFiles(event.dataTransfer.files); }}>
       <div className="ambient-shape ambient-shape-one" aria-hidden="true" />
       <div className="ambient-shape ambient-shape-two" aria-hidden="true" />
       <header className="topbar">
         <div className="shell-left-tools">
-          <button className="shell-launcher-button" type="button" aria-label="返回桌面" onClick={() => { setWindows((current) => current.map((item) => ({ ...item, minimized: true }))); setDrawerOpen(false); }}><Monitor size={17} /></button>
+          <button className="shell-launcher-button" type="button" aria-label="返回桌面" onClick={() => { setWindows((current) => current.map((item) => ({ ...item, minimized: true }))); setDrawerOpen(false); }}><img className="shell-brand-icon" src={WORKBENCH_ICON_URL} alt="" aria-hidden="true" /></button>
           <button className="shell-launcher-button" type="button" aria-label="打开应用库" aria-expanded={appLibraryOpen} onClick={() => setAppLibraryOpen((value) => !value)}><LayoutGrid size={17} /></button>
-          {windows.length > 0 && <><span className="topbar-divider shell-left-divider" aria-hidden="true" /><div className="open-app-switcher" aria-label="已打开应用">{windows.map((item) => { const Icon = APP_META[item.id as AppId].icon; return <button key={item.id} type="button" className={`open-app-icon ${item.minimized ? 'open-app-icon-minimized' : ''}`} aria-label={`切换到${item.title}`} title={item.title} onClick={() => focusWindow(item.id)}><Icon size={16} /></button>; })}</div></>}
-          {appLibraryOpen && <div className="app-library" role="menu" aria-label="应用库">{(Object.keys(APP_META) as AppId[]).map((id) => { const app = APP_META[id]; const Icon = app.icon; return <button key={id} type="button" role="menuitem" onClick={() => { openApp(id); setAppLibraryOpen(false); }}><Icon size={18} /><span>{app.title}</span></button>; })}</div>}
+          {windows.length > 0 && <><span className="topbar-divider shell-left-divider" aria-hidden="true" /><div className="open-app-switcher" aria-label="已打开应用">{windows.map((item) => <button key={item.id} type="button" className={`open-app-icon ${item.minimized ? 'open-app-icon-minimized' : ''}`} aria-label={`切换到${item.title}`} title={item.title} onClick={() => focusWindow(item.id)}><img className="shell-brand-icon" src={resolveAppIconUrl(item.id)} alt="" aria-hidden="true" /></button>)}</div></>}
+          {appLibraryOpen && <div className="app-library" role="menu" aria-label="应用库">{(Object.keys(APP_META) as AppId[]).map((id) => { const app = APP_META[id]; return <button key={id} type="button" role="menuitem" onClick={() => { openApp(id); setAppLibraryOpen(false); }}><img className="app-library-icon" src={APP_ICON_URLS[id]} alt="" aria-hidden="true" /><span>{app.title}</span></button>; })}</div>}
         </div>
         <div className="topbar-actions">
-          <button className="topbar-icon-button" type="button" aria-label={`打开任务中心${runningCount ? `，${runningCount} 项进行中` : ''}`} aria-expanded={drawerOpen} onClick={() => setDrawerOpen((value) => !value)}>
+          <button className="topbar-icon-button" type="button" aria-label={`打开任务中心${runningCount ? `，${runningCount} 项进行中` : ''}`} aria-expanded={drawerOpen} onClick={() => { setNotificationCenterOpen(false); setDrawerOpen((value) => !value); }}>
             <Activity size={18} />{runningCount > 0 && <span className="notification-dot">{runningCount}</span>}
           </button>
-          <button className="topbar-icon-button" type="button" aria-label="打开设置" onClick={() => openApp('settings')}><SettingsIcon size={18} /></button>
-          <div className="shell-window-controls" aria-label="窗口控制">
-            <button className="shell-window-control" type="button" aria-label="最小化工作台" onClick={() => void window.workbench.shell.minimize()}><Minus size={18} strokeWidth={1.8} /></button>
-            <button className="shell-window-control" type="button" aria-label="最大化或还原工作台" onClick={() => void window.workbench.shell.toggleMaximize()}><Maximize2 size={16} strokeWidth={1.7} /></button>
-            <button className="shell-window-control shell-window-control-close" type="button" aria-label="关闭工作台" onClick={() => void window.workbench.shell.close()}><X size={18} strokeWidth={1.7} /></button>
-          </div>
+          <button className="topbar-icon-button" type="button" aria-label={`打开消息中心${unreadNotificationCount ? `，${unreadNotificationCount} 条未读消息` : ''}`} aria-expanded={notificationCenterOpen} onClick={() => { setDrawerOpen(false); setNotificationCenterOpen((value) => !value); }}>
+            <Bell size={18} />{unreadNotificationCount > 0 && <span className="notification-dot" aria-hidden="true" />}
+          </button>
+          <WindowControls
+            title="工作台"
+            variant="shell"
+            maximizeAriaLabel="最大化或还原工作台"
+            onMinimize={() => void window.workbench.shell.minimize()}
+            onMaximize={() => void window.workbench.shell.toggleMaximize()}
+            onClose={() => void window.workbench.shell.close()}
+          />
         </div>
       </header>
 
       <section className="desktop-icons" aria-label="应用入口">
-        {(Object.keys(APP_META) as AppId[]).map((id) => {
+        {(Object.keys(DEFAULT_ICON_LAYOUT) as DesktopAppId[]).map((id) => {
           const meta = APP_META[id];
-          const Icon = meta.icon;
           const point = iconLayout[id];
           return <button key={id} className="desktop-icon" style={{ left: point.x, top: point.y }} type="button" onPointerDown={(event) => beginIconDrag(event, id)} onPointerMove={moveIcon} onPointerUp={finishIconDrag} onPointerCancel={finishIconDrag} onDoubleClick={() => openApp(id)} onClick={() => { if (!suppressOpenRef.current) openApp(id); }} aria-label={`打开${meta.title}`}>
-            <span className={`desktop-icon-image desktop-icon-${id}`}><Icon size={30} strokeWidth={1.7} /></span>
+            <span className={`desktop-icon-image desktop-icon-${id}`}><img className="desktop-brand-icon" src={APP_ICON_URLS[id]} alt="" aria-hidden="true" /></span>
             <span className="desktop-icon-label">{meta.title}</span>
             <span className="desktop-icon-caption">{meta.description}</span>
           </button>;
@@ -294,15 +382,25 @@ export function App() {
       <div className="desktop-hint"><Menu size={14} /> 拖动图标整理桌面，自动吸附网格，单击打开应用</div>
 
       <section className="virtual-window-layer" aria-label="应用窗口">
-        {windows.map((item) => <VirtualWindow key={item.id} item={item} onClose={closeWindow} onFocus={focusWindow} onMinimize={toggleMinimize} onMaximize={toggleMaximize} onMove={moveVirtualWindow} onResize={(id, width, height) => setWindows((current) => resizeWindow(current, id, width, height))}>
-          {item.id === 'analysis-center' && <AnalysisCenter showError={showError} showNotice={showNotice} />}
-          {item.id === 'settings' && <SettingsWindow showError={showError} showNotice={showNotice} />}
+        {getVisibleWindows(windows).map((item) => <VirtualWindow key={item.id} item={item} onClose={closeWindow} onFocus={focusWindow} onMinimize={toggleMinimize} onMaximize={toggleMaximize} onMove={moveVirtualWindow} onResize={(id, width, height) => setWindows((current) => resizeWindow(current, id, width, height))}>
+          {item.id === 'app-center' && <AppCenter onOpenApp={openApp} showError={showError} showNotice={showNotice} />}
+          {item.id === 'analysis-center' && <EmbeddedApp appId="analysis-center" showError={showError} />}
+          {item.id !== 'app-center' && item.id !== 'analysis-center' && <EmbeddedApp appId={item.id} showError={showError} />}
         </VirtualWindow>)}
       </section>
 
-      <TaskDrawer open={drawerOpen} tasks={tasks} onClose={() => setDrawerOpen(false)} onCancel={async (taskId) => {
-        try { await window.workbench.tasks.cancel(taskId); showNotice('任务已取消。'); await refreshTasks(); } catch (caught) { showError(caught); }
-      }} />
+      <TaskDrawer open={drawerOpen} tasks={tasks} clearableTaskCount={clearableTaskCount} clearTaskId={taskClearBusyId} clearAllBusy={taskClearAllBusy} onClose={() => setDrawerOpen(false)} onRequestClearAll={() => setTaskClearDialogOpen(true)} onClear={(taskId) => void clearTask(taskId)} onCancel={async (taskId) => {
+        try {
+          const task = tasks.find((item) => item.id === taskId);
+          if (!hasWorkbenchBridge() || !task?.appId) throw new Error('任务所属应用尚未启动，无法取消任务。');
+          await window.workbench.apps.invoke(task.appId, 'tasks.cancel', { taskId });
+          showNotice('任务已取消。');
+        } catch (caught) { showError(caught); }
+       }} />
+
+      <NotificationCenter open={notificationCenterOpen} notifications={notifications} unreadCount={unreadNotificationCount} onClose={() => setNotificationCenterOpen(false)} onMarkAllRead={() => setNotifications((current) => current.map((item) => ({ ...item, read: true })))} onClick={handleNotificationClick} />
+
+      {taskClearDialogOpen && <TaskCleanupDialog count={clearableTaskCount} busy={taskClearAllBusy} onCancel={() => setTaskClearDialogOpen(false)} onConfirm={() => void clearCompletedTasks()} />}
 
       {(error || notice) && <div className={`toast ${error ? 'toast-error' : 'toast-success'}`} role={error ? 'alert' : 'status'}><span>{error ? <CircleAlert size={16} /> : <CheckCircle2 size={16} />}</span><span>{error || notice}</span><button type="button" aria-label="关闭提示" onClick={() => { setError(''); setNotice(''); }}><X size={14} /></button></div>}
     </main>
@@ -347,259 +445,250 @@ function VirtualWindow({ item, onClose, onFocus, onMinimize, onMaximize, onMove,
     if (state) onResize(item.id, state.width + event.clientX - state.startX, state.height + event.clientY - state.startY);
   };
 
-  return <article className={`app-window ${item.maximized ? 'app-window-maximized' : ''} ${item.minimized ? 'app-window-minimized' : ''}`} style={style} onMouseDown={() => onFocus(item.id)}>
+  return <article className={`app-window ${item.maximized ? 'app-window-maximized' : ''}`} style={style} onMouseDown={() => onFocus(item.id)}>
     <div className="window-titlebar" onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={stopDrag} onPointerCancel={stopDrag}>
-      <div className="window-title"><span className="window-title-icon"><APP_META_ICON id={item.id as AppId} /></span><strong>{item.title}</strong></div>
-      <div className="window-controls">
-        <button type="button" aria-label={`最小化${item.title}`} onClick={() => onMinimize(item.id)}><Minimize2 size={14} /></button>
-        <button type="button" aria-label={`${item.maximized ? '还原' : '最大化'}${item.title}`} onClick={() => onMaximize(item.id)}><Maximize2 size={14} /></button>
-        <button className="window-close" type="button" aria-label={`关闭${item.title}`} onClick={() => onClose(item.id)}><X size={15} /></button>
-      </div>
+      <div className="window-title"><span className="window-title-icon"><img className="window-brand-icon" src={resolveAppIconUrl(item.id)} alt="" aria-hidden="true" /></span><strong>{item.title}</strong></div>
+      <WindowControls
+        title={item.title}
+        variant="window"
+        maximized={item.maximized}
+        onMinimize={() => onMinimize(item.id)}
+        onMaximize={() => onMaximize(item.id)}
+        onClose={() => onClose(item.id)}
+      />
     </div>
     {!item.minimized && <div className="window-content">{children}</div>}
     {!item.maximized && !item.minimized && <div className="app-window-resizer" aria-label="调整窗口大小" onPointerDown={onResizeStart} onPointerMove={onResizeMove} onPointerUp={() => { resizeState.current = null; }} onPointerCancel={() => { resizeState.current = null; }} />}
   </article>;
 }
-
-function APP_META_ICON({ id }: { id: AppId }) {
-  const Icon = APP_META[id].icon;
-  return <Icon size={16} aria-hidden="true" />;
-}
-
-interface AnalysisCenterProps { showError: (error: unknown) => void; showNotice: (message: string) => void; }
-
-/** 分析中心主视图：把导入、扫描、分析、删除和报告入口集中到“最新诊断包”网格。 */
-function AnalysisCenter({ showError, showNotice }: AnalysisCenterProps) {
-  const [packages, setPackages] = useState<RendererDiagnosticPackage[]>([]);
-  const [selectedIds, setSelectedIds] = useState<string[]>([]);
-  const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
-  const [deleteDialog, setDeleteDialog] = useState<DeleteDialogState | null>(null);
-  const [batchAnalysisOpen, setBatchAnalysisOpen] = useState(false);
-  const [confirmPermanent, setConfirmPermanent] = useState(false);
-  const [busyAction, setBusyAction] = useState('');
-
-  const refreshPackages = useCallback(async () => {
-    try {
-      if (!hasWorkbenchBridge()) throw new Error('工作台接口尚未就绪，无法读取诊断包。');
-      setPackages(await window.workbench.analysis.list());
-    } catch (caught) { showError(caught); }
-  }, [showError]);
-
-  useEffect(() => { void refreshPackages(); }, [refreshPackages]);
-  useEffect(() => hasWorkbenchBridge() ? window.workbench.onChanged(() => { void refreshPackages(); }) : undefined, [refreshPackages]);
-  useEffect(() => {
-    const closeMenu = () => setContextMenu(null);
-    window.addEventListener('pointerdown', closeMenu);
-    return () => window.removeEventListener('pointerdown', closeMenu);
-  }, []);
-  useEffect(() => {
-    const closeOverlays = (event: KeyboardEvent) => {
-      if (event.key !== 'Escape') return;
-      setContextMenu(null);
-      setDeleteDialog(null);
-      setBatchAnalysisOpen(false);
-    };
-    window.addEventListener('keydown', closeOverlays);
-    return () => window.removeEventListener('keydown', closeOverlays);
-  }, []);
-
-  const sortedPackages = useMemo(() => sortLatestPackages(packages), [packages]);
-  const selectedPackages = packages.filter((item) => selectedIds.includes(item.id));
-  const deletableSelected = selectedPackages.filter((item) => item.status !== 'running' && item.status !== 'queued');
-  const completedOrFailed = getBulkDeletablePackages(packages);
-  const runningPackages = packages.filter((item) => item.status === 'running');
-
-  const runAction = async (key: string, action: () => Promise<void>, success: string) => {
-    setBusyAction(key);
-    try { await action(); showNotice(success); await refreshPackages(); }
-    catch (caught) { showError(caught); }
-    finally { setBusyAction(''); }
-  };
-
-  const importPackage = () => runAction('import', async () => {
-    if (!hasWorkbenchBridge()) throw new Error('工作台接口尚未就绪，无法导入诊断包。');
-    await window.workbench.analysis.importPackage();
-  }, '诊断包已导入。');
-
-  const scanDirectory = () => runAction('scan', async () => {
-    if (!hasWorkbenchBridge()) throw new Error('工作台接口尚未就绪，无法扫描监控目录。');
-    await window.workbench.analysis.scan();
-  }, '监控目录扫描完成。');
-
-  const pendingPackages = packages.filter((item) => item.status === 'pending');
-
-  const requestAnalyzeAll = () => {
-    if (pendingPackages.length === 0) { showNotice('当前没有待分析的诊断包。'); return; }
-    setBatchAnalysisOpen(true);
-  };
-
-  const analyzeAll = () => runAction('all', async () => {
-    if (!hasWorkbenchBridge()) throw new Error('工作台接口尚未就绪，无法创建分析任务。');
-    await window.workbench.analysis.startAllPending();
-    setBatchAnalysisOpen(false);
-  }, '已创建批量分析任务。');
-
-  const analyzeOne = (item: RendererDiagnosticPackage, scope: 'comprehensive' | 'storage' = 'comprehensive') => runAction(`analyze-${item.id}`, async () => {
-    if (!hasWorkbenchBridge()) throw new Error('工作台接口尚未就绪，无法创建分析任务。');
-    await window.workbench.analysis.start(item.id, scope);
-  }, `已开始${scope === 'storage' ? '存储健康分析' : '综合分析'} ${item.displayName}。`);
-
-  const openReport = async (item: RendererDiagnosticPackage) => {
-    try {
-      if (!hasWorkbenchBridge()) throw new Error('工作台接口尚未就绪，无法打开报告。');
-      await window.workbench.analysis.openReport(item.id);
-    } catch (caught) { showError(caught); }
-  };
-
-  const locate = async (item: RendererDiagnosticPackage, kind: 'source' | 'extract') => {
-    try {
-      if (!hasWorkbenchBridge()) throw new Error('工作台接口尚未就绪，无法定位文件。');
-      if (kind === 'source') await window.workbench.analysis.locateSource(item.id);
-      else await window.workbench.analysis.locateExtract(item.id);
-    } catch (caught) { showError(caught); }
-  };
-
-  const requestDelete = async (items: RendererDiagnosticPackage[]) => {
-    const safeItems = items.filter((item) => item.status !== 'running' && item.status !== 'queued');
-    if (!safeItems.length) { showError('没有可删除的诊断包。运行中或排队中的诊断包不能删除。'); return; }
-    try {
-      const preview = hasWorkbenchBridge() ? await window.workbench.analysis.deletePreview(safeItems.map((item) => item.id)) : fallbackDeletionPreview(safeItems);
-      setConfirmPermanent(false);
-      setDeleteDialog({ packageIds: safeItems.map((item) => item.id), preview });
-      setContextMenu(null);
-    } catch (caught) { showError(caught); }
-  };
-
-  const confirmDelete = async () => {
-    if (!deleteDialog || !confirmPermanent) return;
-    setBusyAction('delete');
-    try {
-      if (!hasWorkbenchBridge()) throw new Error('工作台接口尚未就绪，无法删除诊断包。');
-      await window.workbench.analysis.deletePackages(deleteDialog.packageIds, deleteDialog.preview.confirmationToken);
-      setSelectedIds((current) => current.filter((id) => !deleteDialog.packageIds.includes(id)));
-      setDeleteDialog(null);
-      showNotice('诊断包、解压目录、报告和分析记录已永久删除。');
-      await refreshPackages();
-    } catch (caught) { showError(caught); }
-    finally { setBusyAction(''); }
-  };
-
-  const toggleSelected = (id: string) => setSelectedIds((current) => current.includes(id) ? current.filter((item) => item !== id) : [...current, id]);
-  const selectablePackages = sortedPackages.filter((item) => item.status !== 'running' && item.status !== 'queued');
-  const toggleAll = () => setSelectedIds(selectedIds.length === selectablePackages.length ? [] : selectablePackages.map((item) => item.id));
-  const rightClick = (event: React.MouseEvent, item: RendererDiagnosticPackage) => {
-    event.preventDefault();
-    setContextMenu({
-      packageItem: item,
-      x: Math.max(CONTEXT_MENU_GUTTER, Math.min(event.clientX, window.innerWidth - CONTEXT_MENU_WIDTH - CONTEXT_MENU_GUTTER)),
-      y: Math.max(CONTEXT_MENU_GUTTER, Math.min(event.clientY, window.innerHeight - CONTEXT_MENU_HEIGHT - CONTEXT_MENU_GUTTER))
-    });
-  };
-
-  return <div className="analysis-view analysis-explorer" onContextMenu={(event) => event.preventDefault()}>
-    <div className="analysis-compact-toolbar"><button type="button" className="primary-button" onClick={importPackage}><Upload size={15} />导入</button><button type="button" className="secondary-button" onClick={scanDirectory}><RefreshCw size={15} />扫描</button><button type="button" className="secondary-button" onClick={requestAnalyzeAll}><Play size={15} />综合分析</button><span className="analysis-toolbar-spacer" />{sortedPackages.length} 个诊断包</div>
-    <aside className="analysis-sidebar"><strong>诊断包</strong><button type="button">全部 <span>{packages.length}</span></button><button type="button">待分析 <span>{pendingPackages.length}</span></button><button type="button">已完成 <span>{packages.filter((item) => item.status === 'report-ready').length}</span></button><button type="button">失败 <span>{packages.filter((item) => item.status === 'failed').length}</span></button></aside>
-    <section className="analysis-list-pane"><div className="analysis-toolbar"><div className="section-title"><FileArchive size={16} /><strong>诊断包</strong></div><div className="toolbar-actions">{selectedIds.length > 0 && <button type="button" className="danger-button" onClick={() => void requestDelete(deletableSelected)}><Trash2 size={15} />删除（{deletableSelected.length}）</button>}</div></div>{sortedPackages.length === 0 ? <EmptyPackages onImport={importPackage} onScan={scanDirectory} busyAction={busyAction} /> : <div className="package-grid package-list">{sortedPackages.map((item) => <PackageCard key={item.id} item={item} selected={selectedIds.includes(item.id)} menuOpen={contextMenu?.packageItem.id === item.id} onToggle={() => toggleSelected(item.id)} onContextMenu={(event) => rightClick(event, item)} onAnalyze={() => analyzeOne(item)} onOpenReport={() => void openReport(item)} busy={busyAction === `analyze-${item.id}`} />)}</div>}</section>
-    {contextMenu && <ContextMenu menu={contextMenu} onAnalyze={() => { setContextMenu(null); void analyzeOne(contextMenu.packageItem); }} onStorageAnalyze={() => { setContextMenu(null); void analyzeOne(contextMenu.packageItem, 'storage'); }} onLocateSource={() => { setContextMenu(null); void locate(contextMenu.packageItem, 'source'); }} onLocateExtract={() => { setContextMenu(null); void locate(contextMenu.packageItem, 'extract'); }} onDelete={() => { setContextMenu(null); void requestDelete([contextMenu.packageItem]); }} />}{deleteDialog && <DeleteDialog dialog={deleteDialog} confirmPermanent={confirmPermanent} busy={busyAction === 'delete'} onChange={setConfirmPermanent} onCancel={() => setDeleteDialog(null)} onConfirm={() => void confirmDelete()} />}{batchAnalysisOpen && <BatchAnalysisDialog packages={pendingPackages} busy={busyAction === 'all'} onCancel={() => setBatchAnalysisOpen(false)} onConfirm={() => void analyzeAll()} />}
-  </div>;
-}
-function ActionTile({ icon: Icon, label, hint, onClick, busy, accent }: { icon: LucideIcon; label: string; hint: string; onClick: () => void; busy: boolean; accent: string }) {
-  return <button className={`action-tile action-tile-${accent}`} type="button" onClick={onClick} disabled={busy} aria-label={label}>{busy ? <LoaderCircle className="spin" size={22} /> : <Icon size={22} />}<span><strong>{label}</strong><small>{busy ? '处理中…' : hint}</small></span><ChevronDown className="action-arrow" size={15} /></button>;
-}
-
-function EmptyPackages({ onImport, onScan, busyAction }: { onImport: () => void; onScan: () => void; busyAction: string }) {
-  return <div className="empty-packages"><div className="empty-icon"><Archive size={28} /></div><h2>还没有诊断包</h2><p>导入一个 .tgz 或 .tgz.temp 文件，或者扫描已配置的监控目录。</p><div className="empty-actions"><button type="button" className="primary-button" onClick={onImport} disabled={busyAction === 'import'}><Upload size={16} />导入诊断包</button><button type="button" className="secondary-button" onClick={onScan} disabled={busyAction === 'scan'}><RefreshCw size={16} />扫描目录</button></div></div>;
-}
-
-function PackageCard({ item, selected, menuOpen, onToggle, onContextMenu, onAnalyze, onOpenReport, busy }: { item: RendererDiagnosticPackage; selected: boolean; menuOpen: boolean; onToggle: () => void; onContextMenu: (event: React.MouseEvent) => void; onAnalyze: () => void; onOpenReport: () => void; busy: boolean }) {
-  const isBusy = item.status === 'running' || item.status === 'queued';
-  const canDelete = !isBusy;
-  return <article className={`package-card ${selected ? 'package-card-selected' : ''}`} onContextMenu={onContextMenu}>
-    <div className="package-card-top"><label className="checkbox-wrap"><input type="checkbox" checked={selected} disabled={!canDelete} onChange={onToggle} aria-label={`选择${item.displayName}进行删除`} /><span className="custom-checkbox">{selected && <Check size={12} />}</span></label><span className={`status-badge status-${statusTone[item.status]}`}><span className="status-dot" />{statusLabels[item.status]}</span><button className="card-more" type="button" aria-haspopup="menu" aria-expanded={menuOpen} aria-label={`打开${item.displayName}的快捷菜单`} onClick={(event) => { event.stopPropagation(); onContextMenu(event); }}><MoreHorizontal size={16} /></button></div>
-    <div className="package-icon"><FileArchive size={30} /></div>
-    <h3 title={item.displayName}>{item.displayName}</h3><p className="package-time">检测于 {formatDetectedAt(item.detectedAt)}</p>
-    <div className="package-path" title={item.sourcePath}><FolderOpen size={13} />{item.sourcePath}</div>
-    <div className="package-card-actions">{item.status === 'report-ready' ? <button type="button" className="report-button" onClick={onOpenReport}><ExternalLink size={14} />打开报告</button> : <button type="button" className="card-action-button" disabled={isBusy || busy} onClick={onAnalyze}>{busy ? <LoaderCircle className="spin" size={14} /> : <Play size={14} />}{isBusy ? '分析中' : '分析'}</button>}<span className="card-hint">右键查看更多</span></div>
-  </article>;
+interface WindowControlsProps {
+  title: string;
+  variant: 'shell' | 'window';
+  maximized?: boolean;
+  maximizeAriaLabel?: string;
+  onMinimize: () => void;
+  onMaximize: () => void;
+  onClose: () => void;
 }
 
 /**
- * 快捷菜单渲染到文档层，脱离应用窗口的裁剪上下文；外部关闭使用 pointerdown，
- * 这样打开菜单的 click 事件不会在状态更新后又被全局监听器立即关闭。
+ * 统一渲染工作台与应用窗口的系统控制按钮。
+ * 两种容器只在点击区域尺寸上有差异，图标、语义标签和交互状态保持一致，避免窗口之间出现两套视觉语言。
  */
-function ContextMenu({ menu, onAnalyze, onStorageAnalyze, onLocateSource, onLocateExtract, onDelete }: { menu: ContextMenuState; onAnalyze: () => void; onStorageAnalyze: () => void; onLocateSource: () => void; onLocateExtract: () => void; onDelete: () => void }) {
-  const busy = menu.packageItem.status === 'running' || menu.packageItem.status === 'queued';
-  return createPortal(<div className="context-menu" role="menu" style={{ left: menu.x, top: menu.y }} onPointerDown={(event) => event.stopPropagation()} onClick={(event) => event.stopPropagation()}>
-    <div className="context-menu-title" title={menu.packageItem.displayName}>{menu.packageItem.displayName}</div>
-    <button type="button" role="menuitem" disabled={busy} onClick={onAnalyze}><Play size={15} />分析</button>
-    <button type="button" role="menuitem" disabled={busy} onClick={onStorageAnalyze}><HardDrive size={15} />仅存储健康分析</button>
-    <div className="context-divider" />
-    <button type="button" role="menuitem" onClick={onLocateSource}><FolderOpen size={15} />定位诊断包</button>
-    <button type="button" role="menuitem" onClick={onLocateExtract}><Archive size={15} />定位解压目录</button>
-    <div className="context-divider" />
-    <button className="context-danger" type="button" role="menuitem" disabled={busy} onClick={onDelete}><Trash2 size={15} />删除诊断包</button>
-  </div>, document.body);
+function WindowControls({ title, variant, maximized = false, maximizeAriaLabel, onMinimize, onMaximize, onClose }: WindowControlsProps) {
+  const buttonClassName = `window-control-button window-control-button-${variant}`;
+  const resolvedMaximizeAriaLabel = maximizeAriaLabel ?? `${maximized ? '还原' : '最大化'}${title}`;
+
+  return <div className={`window-controls ${variant === 'shell' ? 'shell-window-controls' : ''}`} aria-label={`窗口控制：${title}`}>
+    <button className={buttonClassName} type="button" aria-label={`最小化${title}`} onClick={onMinimize}><Minimize2 size={16} strokeWidth={1.8} /></button>
+    <button className={buttonClassName} type="button" aria-label={resolvedMaximizeAriaLabel} onClick={onMaximize}><Maximize2 size={16} strokeWidth={1.8} /></button>
+    <button className={`${buttonClassName} window-control-button-close`} type="button" aria-label={`关闭${title}`} onClick={onClose}><X size={16} strokeWidth={1.8} /></button>
+  </div>;
 }
 
-function DeleteDialog({ dialog, confirmPermanent, busy, onChange, onCancel, onConfirm }: { dialog: DeleteDialogState; confirmPermanent: boolean; busy: boolean; onChange: (value: boolean) => void; onCancel: () => void; onConfirm: () => void }) {
-  const { preview } = dialog;
-  return <div className="modal-backdrop" role="presentation"><section className="confirm-dialog" role="dialog" aria-modal="true" aria-labelledby="delete-dialog-title">
-    <div className="dialog-icon"><Trash2 size={22} /></div><div className="dialog-heading"><span className="eyebrow danger-eyebrow">PERMANENT DELETE</span><h2 id="delete-dialog-title">永久删除诊断包？</h2><p>将删除选中的 {preview.packageCount} 个诊断包及其完整分析生命周期，此操作无法恢复。</p></div>
-    <div className="delete-summary"><div><span>关联任务</span><strong>{preview.taskCount}</strong></div><div><span>分析记录</span><strong>{preview.analysisRecordCount}</strong></div><div><span>案例 / 报告索引</span><strong>{preview.caseCount} / {preview.reportRecordCount}</strong></div><div><span>预计释放</span><strong>{formatBytes(preview.estimatedBytes)}</strong></div></div>
-    <div className="delete-paths"><strong>将永久删除的绝对路径</strong>{[...preview.sourcePaths, ...preview.extractPaths, ...preview.reportPaths].map((path) => <code key={path}>{path}</code>)}</div>
-    <label className="confirm-check"><input type="checkbox" checked={confirmPermanent} onChange={(event) => onChange(event.target.checked)} /><span className="custom-checkbox">{confirmPermanent && <Check size={12} />}</span><span>我了解这些文件、报告和分析记录将永久删除</span></label>
-    <div className="dialog-actions"><button type="button" className="secondary-button" onClick={onCancel}>取消</button><button type="button" className="danger-button" disabled={!confirmPermanent || busy} onClick={onConfirm}>{busy ? <LoaderCircle className="spin" size={15} /> : <Trash2 size={15} />}永久删除</button></div>
-  </section></div>;
+interface AppCenterProps {
+  onOpenApp: (id: string) => void;
+  showError: (error: unknown) => void;
+  showNotice: (message: string) => void;
 }
 
-function BatchAnalysisDialog({ packages, busy, onCancel, onConfirm }: { packages: RendererDiagnosticPackage[]; busy: boolean; onCancel: () => void; onConfirm: () => void }) {
-  return <div className="modal-backdrop" role="presentation"><section className="confirm-dialog batch-dialog" role="dialog" aria-modal="true" aria-labelledby="batch-dialog-title">
-    <div className="dialog-icon batch-dialog-icon"><Play size={21} /></div><div className="dialog-heading"><span className="eyebrow">BATCH ANALYSIS</span><h2 id="batch-dialog-title">分析全部待处理？</h2><p>将为以下 {packages.length} 个诊断包创建分析任务，任务会在右上角任务中心显示进度。</p></div>
-    <div className="batch-package-list">{packages.map((item) => <div key={item.id}><FileArchive size={15} /><span title={item.displayName}>{item.displayName}</span></div>)}</div>
-    <div className="dialog-actions"><button type="button" className="secondary-button" onClick={onCancel}>取消</button><button type="button" className="primary-button" disabled={busy} onClick={onConfirm}>{busy ? <LoaderCircle className="spin" size={15} /> : <Play size={15} />}开始分析</button></div>
-  </section></div>;
-}
+const APP_STATE_LABELS: Record<AppInstallState, string> = {
+  'not-installed': '未安装',
+  installed: '已安装',
+  'update-available': '有新版本',
+  incompatible: '版本不兼容',
+  broken: '启动失败',
+  installing: '安装中'
+};
 
-function TaskDrawer({ open, tasks, onClose, onCancel }: { open: boolean; tasks: TaskRecord[]; onClose: () => void; onCancel: (taskId: string) => void }) {
-  return <aside className={`task-drawer ${open ? 'task-drawer-open' : ''}`} aria-label="任务中心" aria-hidden={!open}>
-    <div className="drawer-header"><div><span className="eyebrow">WORKBENCH TASKS</span><h2>任务中心</h2></div><button type="button" className="icon-only-button" aria-label="关闭任务中心" onClick={onClose}><X size={18} /></button></div>
-    <div className="drawer-summary"><div><strong>{tasks.filter((task) => task.status === 'running').length}</strong><span>进行中</span></div><div><strong>{tasks.filter((task) => task.status === 'succeeded').length}</strong><span>已完成</span></div><div><strong>{tasks.filter((task) => task.status === 'failed').length}</strong><span>失败</span></div></div>
-    <div className="task-list">{tasks.length === 0 ? <div className="drawer-empty"><ClipboardList size={24} /><p>暂无分析任务</p></div> : tasks.map((task) => <div className="task-row" key={task.id}><div className="task-row-icon">{task.status === 'running' ? <LoaderCircle className="spin" size={16} /> : task.status === 'succeeded' ? <CheckCircle2 size={16} /> : task.status === 'failed' ? <CircleAlert size={16} /> : <ClipboardList size={16} />}</div><div className="task-row-body"><strong>{task.message || '诊断包分析任务'}</strong><span>{task.status === 'running' ? `分析进度 ${task.progress}%` : task.errorMessage || task.status}</span>{task.status === 'running' && <div className="progress-track"><span style={{ width: `${task.progress}%` }} /></div>}</div>{(task.status === 'running' || task.status === 'queued') && <button type="button" className="task-cancel" aria-label="取消任务" onClick={() => onCancel(task.id)}>取消</button>}</div>)}</div>
-  </aside>;
-}
-
-function SettingsWindow({ showError, showNotice }: AnalysisCenterProps) {
-  const [directories, setDirectories] = useState<string[]>([]);
+/**
+ * 应用中心只依赖 App Host API 获取目录和安装状态，不把具体应用的业务逻辑写进工作台壳层。
+ * 首版保留官方分析中心入口，后续应用可以仅通过目录和安装包加入此页面。
+ */
+function AppCenter({ onOpenApp, showError, showNotice }: AppCenterProps) {
+  const [apps, setApps] = useState<AppInstallRecord[]>([]);
   const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
+  const [busyAppId, setBusyAppId] = useState<string | null>(null);
 
-  useEffect(() => {
-    void (async () => {
-      try {
-        if (!hasWorkbenchBridge()) throw new Error('工作台接口尚未就绪，无法读取设置。');
-        setDirectories(await window.workbench.settings.getMonitorDirectories());
-      } catch (caught) { showError(caught); }
-      finally { setLoading(false); }
-    })();
+  const loadApps = useCallback(async () => {
+    if (!hasWorkbenchBridge()) {
+      setApps([]);
+      setLoading(false);
+      return;
+    }
+    try {
+      setApps(await window.workbench.apps.list());
+    } catch (caught) {
+      showError(caught);
+    } finally {
+      setLoading(false);
+    }
   }, [showError]);
 
-  const chooseDirectory = async () => {
+  useEffect(() => { void loadApps(); }, [loadApps]);
+  useEffect(() => {
+    if (!hasWorkbenchBridge()) return;
+    const unsubscribeChanged = window.workbench.onChanged(() => { void loadApps(); });
+    const unsubscribeEvents = window.workbench.apps.onEvent(() => { void loadApps(); });
+    return () => { unsubscribeChanged(); unsubscribeEvents(); };
+  }, [loadApps]);
+
+  const refreshCatalog = async () => {
+    if (!hasWorkbenchBridge()) { showError('工作台接口尚未就绪，无法刷新应用目录。'); return; }
+    setRefreshing(true);
     try {
-      if (!hasWorkbenchBridge()) throw new Error('工作台接口尚未就绪，无法选择目录。');
-      const path = await window.workbench.settings.chooseMonitorDirectory();
-      if (path && !directories.includes(path)) setDirectories((current) => [...current, path]);
-    } catch (caught) { showError(caught); }
+      setApps(await window.workbench.apps.refreshCatalog());
+      showNotice('应用目录已刷新。');
+    } catch (caught) {
+      showError(caught);
+    } finally {
+      setRefreshing(false);
+    }
   };
 
-  const save = async () => {
-    setSaving(true);
+  const install = async (item: AppInstallRecord) => {
+    if (!hasWorkbenchBridge()) { showError('工作台接口尚未就绪，无法安装应用。'); return; }
+    setBusyAppId(item.id);
     try {
-      if (!hasWorkbenchBridge()) throw new Error('工作台接口尚未就绪，无法保存设置。');
-      await window.workbench.settings.saveMonitorDirectories(directories);
-      showNotice('监控目录设置已保存。');
-    } catch (caught) { showError(caught); }
-    finally { setSaving(false); }
+      await window.workbench.apps.install(item.id, item.availableVersion);
+      setApps(await window.workbench.apps.list());
+      showNotice(`${item.name} 已安装完成。`);
+    } catch (caught) {
+      showError(caught);
+    } finally {
+      setBusyAppId(null);
+    }
   };
 
-  return <div className="settings-view"><div className="settings-heading"><div className="settings-symbol"><SettingsIcon size={24} /></div><div><span className="eyebrow">PREFERENCES</span><h1>设置</h1><p>管理诊断包自动发现的位置。</p></div></div><div className="settings-section"><div className="settings-section-heading"><div><h2>监控目录</h2><p>分析中心扫描这些目录时，会自动登记新发现的诊断包。</p></div><button type="button" className="secondary-button" onClick={() => void chooseDirectory()}><FolderOpen size={15} />添加目录</button></div>{loading ? <div className="settings-loading"><LoaderCircle className="spin" size={18} />正在读取设置…</div> : directories.length === 0 ? <div className="settings-empty"><Search size={18} /><span>尚未配置监控目录</span></div> : <div className="directory-list">{directories.map((directory) => <div className="directory-row" key={directory}><FolderOpen size={16} /><code>{directory}</code><button type="button" className="icon-only-button" aria-label={`移除监控目录${directory}`} onClick={() => setDirectories((current) => current.filter((item) => item !== directory))}><X size={15} /></button></div>)}</div>}</div><div className="settings-section settings-info"><div className="info-line"><HardDrive size={17} /><span><strong>支持格式</strong><small>.tgz 和 .tgz.temp</small></span></div><div className="info-line"><ShieldCheck size={17} /><span><strong>删除规则</strong><small>删除诊断包会同步清理报告与分析记录</small></span></div></div><div className="settings-actions"><button type="button" className="primary-button" disabled={loading || saving} onClick={() => void save()}>{saving ? <LoaderCircle className="spin" size={15} /> : <Check size={15} />}保存设置</button></div></div>;
+  const launch = async (item: AppInstallRecord) => {
+    if (!hasWorkbenchBridge()) { showError('工作台接口尚未就绪，无法启动应用。'); return; }
+    setBusyAppId(item.id);
+    try {
+      await window.workbench.apps.launch(item.id);
+      onOpenApp(item.id);
+    } catch (caught) {
+      showError(caught);
+    } finally {
+      setBusyAppId(null);
+    }
+  };
+
+  const renderAction = (item: AppInstallRecord) => {
+    const busy = busyAppId === item.id || item.state === 'installing';
+    if (item.state === 'not-installed' || item.state === 'update-available') {
+      return <button type="button" className="primary-button" disabled={busy} onClick={() => void install(item)}>{busy ? <LoaderCircle className="spin" size={15} /> : <CloudDownload size={15} />}{item.state === 'not-installed' ? '安装' : '更新'}</button>;
+    }
+    if (item.state === 'installed') {
+      return <button type="button" className="primary-button" disabled={busy} onClick={() => void launch(item)}>{busy ? <LoaderCircle className="spin" size={15} /> : <Play size={15} />}打开</button>;
+    }
+    return null;
+  };
+
+  return <div className="app-center-view">
+    <div className="app-center-heading"><div><span className="eyebrow">WORKBENCH APPS</span><h1>应用中心</h1><p>安装、更新和启动独立版本的工作台应用。</p></div><button type="button" className="secondary-button" disabled={refreshing} onClick={() => void refreshCatalog()}>{refreshing ? <LoaderCircle className="spin" size={15} /> : <RefreshCw size={15} />}刷新目录</button></div>
+    {loading ? <div className="app-center-empty"><LoaderCircle className="spin" size={24} /><span>正在读取应用目录…</span></div> : apps.length === 0 ? <div className="app-center-empty"><PackageOpen size={28} /><strong>暂无可用应用</strong><span>请刷新目录，或检查应用目录配置。</span></div> : <div className="app-card-grid">{apps.map((item) => <article className="app-card" key={item.id}><div className="app-card-icon"><img src={WORKBENCH_ICON_URL} alt="" aria-hidden="true" /></div><div className="app-card-body"><div className="app-card-title"><h2>{item.name}</h2><span className={`app-state app-state-${item.state}`}>{APP_STATE_LABELS[item.state]}</span></div><p>{item.description}</p><small>{item.activeVersion ? `当前版本 ${item.activeVersion}` : item.availableVersion ? `可安装版本 ${item.availableVersion}` : '等待目录信息'}</small>{item.errorMessage && <div className="app-card-error"><CircleAlert size={14} />{item.errorMessage}</div>}</div><div className="app-card-actions">{renderAction(item)}</div></article>)}</div>}
+  </div>;
+}
+
+interface EmbeddedAppProps { appId: string; showError: (error: unknown) => void; }
+
+/** 未内置到壳层的应用通过 workbench-app 协议加载自己的 renderer 资源。 */
+function EmbeddedApp({ appId, showError }: EmbeddedAppProps) {
+  const [entryUrl, setEntryUrl] = useState('');
+  const frameRef = useRef<HTMLIFrameElement>(null);
+  useEffect(() => {
+    let active = true;
+    void (async () => {
+      try {
+        if (!hasWorkbenchBridge()) throw new Error('工作台接口尚未就绪，无法加载应用。');
+        const url = await window.workbench.apps.getEntryUrl(appId);
+        if (active) setEntryUrl(url);
+      } catch (caught) { if (active) showError(caught); }
+    })();
+    return () => { active = false; };
+  }, [appId, showError]);
+  useEffect(() => {
+    if (!entryUrl || !hasWorkbenchBridge()) return;
+    const frame = frameRef.current;
+    if (!frame) return;
+    const onMessage = async (event: MessageEvent<{ type?: string; appId?: string; requestId?: string; method?: string; payload?: unknown }>) => {
+      if (event.source !== frame.contentWindow || event.data?.type !== 'workbench-app-rpc' || event.data.appId !== appId || !event.data.requestId || !event.data.method) return;
+      try {
+        const result = await window.workbench.apps.invoke(appId, event.data.method, event.data.payload);
+        frame.contentWindow?.postMessage({ type: 'workbench-app-rpc-response', appId, requestId: event.data.requestId, ok: true, result }, '*');
+      } catch (caught) {
+        frame.contentWindow?.postMessage({ type: 'workbench-app-rpc-response', appId, requestId: event.data.requestId, ok: false, errorMessage: toChineseError(caught) }, '*');
+      }
+    };
+    window.addEventListener('message', onMessage);
+    const unsubscribe = window.workbench.apps.onEvent((event) => {
+      if (event.appId === appId) frame.contentWindow?.postMessage({ type: 'workbench-app-event', event }, '*');
+    });
+    return () => { window.removeEventListener('message', onMessage); unsubscribe(); };
+  }, [appId, entryUrl]);
+  return entryUrl ? <iframe ref={frameRef} className="embedded-app-frame" title={appId} src={entryUrl} /> : <div className="app-center-empty"><LoaderCircle className="spin" size={22} /><span>正在加载应用…</span></div>;
+}
+
+/** 任务中心批量清理确认框，只删除历史任务记录，不触碰诊断包和报告文件。 */
+function TaskCleanupDialog({ count, busy, onCancel, onConfirm }: { count: number; busy: boolean; onCancel: () => void; onConfirm: () => void }) {
+  return <div className="modal-backdrop" role="presentation"><section className="confirm-dialog task-cleanup-dialog" role="dialog" aria-modal="true" aria-labelledby="task-cleanup-dialog-title">
+    <div className="dialog-icon"><Trash2 size={22} /></div><div className="dialog-heading"><span className="eyebrow danger-eyebrow">TASK HISTORY CLEANUP</span><h2 id="task-cleanup-dialog-title">确定一键清理 {count} 项历史任务？</h2><p>将删除任务记录及关联分析状态，不会删除诊断包、报告文件或报告索引。清理期间按钮将暂时禁用。</p></div>
+    <div className="dialog-actions"><button type="button" className="secondary-button" disabled={busy} onClick={onCancel}>取消</button><button type="button" className="danger-button" disabled={busy} onClick={onConfirm}>{busy ? <LoaderCircle className="spin" size={15} /> : <Trash2 size={15} />}一键清理</button></div>
+  </section></div>;
+}
+
+interface NotificationCenterProps {
+  open: boolean;
+  notifications: WorkbenchNotification[];
+  unreadCount: number;
+  onClose: () => void;
+  onMarkAllRead: () => void;
+  onClick: (notification: WorkbenchNotification) => void;
+}
+
+/**
+ * 全局消息面板只负责展示、已读状态和跳转回调，消息来源由工作台根壳层统一聚合。
+ * 使用按钮承载整条消息，保证键盘用户可以按与鼠标相同的路径打开对应应用。
+ */
+function NotificationCenter({ open, notifications, unreadCount, onClose, onMarkAllRead, onClick }: NotificationCenterProps) {
+  return <aside className={`notification-center ${open ? 'notification-center-open' : ''}`} aria-label="消息中心" aria-hidden={!open}>
+    <div className="drawer-header"><div><span className="eyebrow">WORKBENCH NOTIFICATIONS</span><h2>消息中心</h2></div><div className="drawer-header-actions">{unreadCount > 0 && <button type="button" className="notification-mark-read" onClick={onMarkAllRead}><CheckCheck size={14} />全部已读</button>}<button type="button" className="icon-only-button" aria-label="关闭消息中心" onClick={onClose}><X size={18} /></button></div></div>
+    <div className="notification-summary"><span>{unreadCount > 0 ? `${unreadCount} 条未读消息` : '全部消息已读'}</span></div>
+    <div className="notification-list">{notifications.length === 0 ? <div className="notification-empty"><Inbox size={26} /><strong>暂无消息</strong><span>新的诊断包和应用更新会显示在这里。</span></div> : notifications.map((item) => {
+      const Icon = item.type === 'diagnostic-package' ? PackageOpen : item.type === 'app-update' ? CloudDownload : item.type === 'error' ? CircleAlert : Bell;
+      return <button className={`notification-item ${item.read ? 'notification-item-read' : ''}`} type="button" key={item.id} onClick={() => onClick(item)}>
+        <span className={`notification-item-icon notification-item-icon-${item.type}`}><Icon size={16} /></span>
+        <span className="notification-item-body"><strong>{item.title}</strong><span>{item.message}</span><small>{formatDetectedAt(item.createdAt)}</small></span>
+        {!item.read && <span className="notification-unread-dot" aria-label="未读" />}
+      </button>;
+    })}</div>
+  </aside>;
+}
+interface TaskDrawerProps {
+  open: boolean;
+  tasks: TaskRecord[];
+  clearableTaskCount: number;
+  clearTaskId: string | null;
+  clearAllBusy: boolean;
+  onClose: () => void;
+  onRequestClearAll: () => void;
+  onClear: (taskId: string) => void;
+  onCancel: (taskId: string) => void;
+}
+
+function TaskDrawer({ open, tasks, clearableTaskCount, clearTaskId, clearAllBusy, onClose, onRequestClearAll, onClear, onCancel }: TaskDrawerProps) {
+  return <aside className={`task-drawer ${open ? 'task-drawer-open' : ''}`} aria-label="任务中心" aria-hidden={!open}>
+    <div className="drawer-header"><div><span className="eyebrow">WORKBENCH TASKS</span><h2>任务中心</h2></div><div className="drawer-header-actions">{clearableTaskCount > 0 && <button type="button" className="task-clear-all" disabled={clearAllBusy || Boolean(clearTaskId)} onClick={onRequestClearAll} aria-label={`一键清理${clearableTaskCount}项历史任务`}>{clearAllBusy ? <LoaderCircle className="spin" size={14} /> : <Trash2 size={14} />}一键清理</button>}<button type="button" className="icon-only-button" aria-label="关闭任务中心" onClick={onClose}><X size={18} /></button></div></div>
+    <div className="drawer-summary"><div><strong>{tasks.filter((task) => task.status === 'running').length}</strong><span>进行中</span></div><div><strong>{tasks.filter((task) => task.status === 'succeeded').length}</strong><span>已完成</span></div><div><strong>{tasks.filter((task) => task.status === 'failed').length}</strong><span>失败</span></div></div>
+    <div className="task-list">{tasks.length === 0 ? <div className="drawer-empty"><ClipboardList size={24} /><p>暂无分析任务</p></div> : tasks.map((task) => {
+      const clearable = isTaskClearable(task);
+      const clearBusy = clearTaskId === task.id;
+      return <div className="task-row" key={task.id}>
+        <div className="task-row-icon">{task.status === 'running' ? <LoaderCircle className="spin" size={16} /> : task.status === 'succeeded' ? <CheckCircle2 size={16} /> : task.status === 'failed' ? <CircleAlert size={16} /> : <ClipboardList size={16} />}</div>
+        <div className="task-row-body"><strong>{task.message || '诊断包分析任务'}</strong><span>{task.status === 'running' ? `分析进度 ${task.progress}%` : task.errorMessage || task.status}</span>{task.status === 'running' && <div className="progress-track"><span style={{ width: `${task.progress}%` }} /></div>}</div>
+        {clearable ? <button type="button" className="task-clear" disabled={clearBusy || clearAllBusy} aria-label={`清理任务${task.message || task.id}`} onClick={() => onClear(task.id)}>{clearBusy ? <LoaderCircle className="spin" size={13} /> : <Trash2 size={13} />}<span>{clearBusy ? '清理中' : '清理'}</span></button> : (task.status === 'running' || task.status === 'queued') && <button type="button" className="task-cancel" aria-label="取消任务" onClick={() => onCancel(task.id)}>取消</button>}
+      </div>;
+    })}</div>
+  </aside>;
 }

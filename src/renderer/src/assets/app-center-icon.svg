@@ -1,0 +1,31 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-labelledby="title desc">
+  <title id="title">应用中心</title>
+  <desc id="desc">由四个彩色功能模块组成的科技控制面板</desc>
+  <rect width="128" height="128" rx="24" fill="#101D31"/>
+  <rect x="6" y="6" width="116" height="116" rx="20" fill="#162A43" stroke="#3E638A" stroke-width="3"/>
+  <path d="M18 22h92M18 106h92" stroke="#284661" stroke-width="2"/>
+
+  <path d="M25 28h34v34H25z" fill="#081321"/>
+  <rect x="22" y="24" width="34" height="34" rx="8" fill="#F2A52B" stroke="#FFCF61" stroke-width="2"/>
+  <path d="m39 30 2.7 6.2 6.8.6-5.1 4.5 1.5 6.7-5.9-3.5-5.9 3.5 1.5-6.7-5.1-4.5 6.8-.6z" fill="#FFF4C9" stroke="#B9681A" stroke-width="1.5" stroke-linejoin="round"/>
+
+  <path d="M71 28h34v34H71z" fill="#081321"/>
+  <rect x="68" y="24" width="34" height="34" rx="8" fill="#2D8FD3" stroke="#74D6FF" stroke-width="2"/>
+  <path d="M76 48h18.5a5.5 5.5 0 0 0 .3-11 8.3 8.3 0 0 0-15.8-1.5A6.3 6.3 0 0 0 76 48Z" fill="#D7F4FF" stroke="#1764A2" stroke-width="1.7" stroke-linejoin="round"/>
+
+  <path d="M25 70h34v34H25z" fill="#081321"/>
+  <rect x="22" y="68" width="34" height="34" rx="8" fill="#44B85A" stroke="#9BEA8B" stroke-width="2"/>
+  <rect x="30" y="76" width="7" height="7" rx="1.5" fill="#E4FFB0" stroke="#23803B" stroke-width="1.2"/>
+  <rect x="41" y="76" width="7" height="7" rx="1.5" fill="#E4FFB0" stroke="#23803B" stroke-width="1.2"/>
+  <rect x="30" y="87" width="7" height="7" rx="1.5" fill="#E4FFB0" stroke="#23803B" stroke-width="1.2"/>
+  <rect x="41" y="87" width="7" height="7" rx="1.5" fill="#E4FFB0" stroke="#23803B" stroke-width="1.2"/>
+
+  <path d="M71 70h34v34H71z" fill="#081321"/>
+  <rect x="68" y="68" width="34" height="34" rx="8" fill="#8059D6" stroke="#C5A7FF" stroke-width="2"/>
+  <path d="M85 76a9 9 0 0 1 8.7 6.8L85 85Z" fill="#FFCC49" stroke="#55329B" stroke-width="1.4" stroke-linejoin="round"/>
+  <path d="M85 76v9l-7.6 5.5A9 9 0 0 1 85 76Z" fill="#F45D62" stroke="#55329B" stroke-width="1.4" stroke-linejoin="round"/>
+  <path d="M85 85h8.7a9 9 0 0 1-16.3 5.5Z" fill="#69D7E4" stroke="#55329B" stroke-width="1.4" stroke-linejoin="round"/>
+
+  <path d="M56 61h5M67 61h5M61 56v5M61 67v5" stroke="#61D9D1" stroke-width="2.5" stroke-linecap="round"/>
+  <circle cx="64" cy="64" r="5" fill="#F5D56B" stroke="#15283F" stroke-width="2"/>
+</svg>

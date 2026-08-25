@@ -8,7 +8,11 @@
   "scripts": {
     "dev": "electron-vite dev",
     "build": "electron-vite build",
-    "package:win": "npm run build && electron-builder --win nsis",
+    "build:analysis-center": "node tools/build-analysis-center.mjs",
+    "build:lvm-uncache-tool": "node tools/build-lvm-uncache-tool.mjs",
+    "typecheck:analysis-center": "tsc --noEmit -p apps/analysis-center/tsconfig.json",
+    "test:analysis-center": "vitest run -c apps/analysis-center/vitest.config.ts",
+    "package:win": "npm run build:analysis-center && npm run build && electron-builder --win nsis",
     "preview": "electron-vite preview",
     "test": "vitest run",
     "test:watch": "vitest",
@@ -49,6 +53,20 @@
     "files": [
       "out/**/*",
       "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "apps/analysis-center/dist/analysis-center-v1.0.0.zip",
+        "to": "apps/analysis-center/analysis-center-v1.0.0.zip"
+      },
+      {
+        "from": "apps/analysis-center/dist/release.json",
+        "to": "apps/analysis-center/analysis-center-v1.0.0.release.json"
+      },
+      {
+        "from": "src/main/config/app-trusted-keys.json",
+        "to": "app-trusted-keys.json"
+      }
     ],
     "win": {
       "target": "nsis",

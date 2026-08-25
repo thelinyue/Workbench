@@ -19,10 +19,12 @@ const basePackage: DiagnosticPackage = {
 };
 
 describe('诊断包领域规则', () => {
-  it('接受 .tgz、.tgz.temp 和 .zip 诊断包', () => {
+  it('只接受指定格式和 nas_server_log 开头的 ZIP 诊断包', () => {
     expect(isDiagnosticPackagePath('D:/Inbox/device.tgz')).toBe(true);
     expect(isDiagnosticPackagePath('D:/Inbox/device.tgz.temp')).toBe(true);
-    expect(isDiagnosticPackagePath('D:/Inbox/device.zip')).toBe(true);
+    expect(isDiagnosticPackagePath('D:/Inbox/nas_server_log_20260825.zip')).toBe(true);
+    expect(isDiagnosticPackagePath('D:/Inbox/NAS_SERVER_LOG_20260825.ZIP')).toBe(true);
+    expect(isDiagnosticPackagePath('D:/Inbox/device.zip')).toBe(false);
   });
 
   it('批量清理只选择报告已生成和分析失败的诊断包', () => {

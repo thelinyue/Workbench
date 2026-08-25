@@ -23,7 +23,7 @@ describe('诊断包分析执行', () => {
     const archivePath = join(root, 'device.tgz');
     const extractDirectory = join(root, 'device');
     await mkdir(sourceDirectory);
-    await writeFile(join(sourceDirectory, 'kern'), 'nvme I/O Error: controller failed\n', 'utf8');
+    await writeFile(join(sourceDirectory, 'kern'), 'nvme I/O Error: controller failed <danger> & "quoted"\n', 'utf8');
     await tar.c({ gzip: true, cwd: sourceDirectory, file: archivePath }, ['kern']);
 
     const result = await runArchiveAnalysis({
@@ -34,10 +34,23 @@ describe('诊断包分析执行', () => {
 
     await expect(access(result.reportPath)).resolves.toBeUndefined();
     await expect(access(join(extractDirectory, 'Report', 'static', 'workbench-report.css'))).resolves.toBeUndefined();
+    await expect(access(join(extractDirectory, 'Report', 'static', 'workbench-report.js'))).resolves.toBeUndefined();
     await expect(access(join(extractDirectory, 'Report', 'structured', 'storage-health.json'))).resolves.toBeUndefined();
     await expect(access(join(extractDirectory, 'Report', 'lsblk.html'))).resolves.toBeUndefined();
     expect(result.analysis.files[0].issues[0].message).toBe('nvmeI/O错误');
-    await expect(readFile(result.reportPath, 'utf8')).resolves.toContain('nvmeI/O错误');
+    const report = await readFile(result.reportPath, 'utf8');
+    const reportCss = await readFile(join(extractDirectory, 'Report', 'static', 'workbench-report.css'), 'utf8');
+    const reportScript = await readFile(join(extractDirectory, 'Report', 'static', 'workbench-report.js'), 'utf8');
+    expect(report).toContain('class="hero"');
+    expect(report).toContain('class="diagnostic-banner');
+    expect(report).toContain('id="searchInput"');
+    expect(report).toContain('class="result-card');
+    expect(report).toContain('static/workbench-report.js');
+    expect(report).toContain('综合分析');
+    expect(report).toContain('&lt;danger&gt; &amp; &quot;quoted&quot;');
+    expect(report).not.toMatch(/https?:\/\//);
+    expect(reportCss).toContain('.hero');
+    expect(reportScript).toContain('applyFilters');
   });
 
   it('解压 ZIP 时只使用 ZIP 规则，并读取动态文件名与 gzip 日志', async () => {
@@ -71,6 +84,85 @@ describe('诊断包分析执行', () => {
     expect(issues.map((issue) => issue.severity)).toEqual(['critical', 'critical', 'critical', 'critical', 'warning', 'critical', 'info', 'critical']);
     expect(issues.some((issue) => issue.message === 'nvme控制器I/O超时')).toBe(false);
     expect(result.structured.overallHealth).toBe('critical');
+  });
+
+  it('存储健康分析使用专用仪表盘并隐藏规则日志结果', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'workbench-storage-report-'));
+    directories.push(root);
+    const sourceDirectory = join(root, 'source');
+    const archivePath = join(root, 'device.tgz');
+    const extractDirectory = join(root, 'device');
+    await mkdir(sourceDirectory);
+    await writeFile(join(sourceDirectory, 'kern'), 'nvme I/O Error: controller failed\n', 'utf8');
+    await tar.c({ gzip: true, cwd: sourceDirectory, file: archivePath }, ['kern']);
+
+    const result = await runArchiveAnalysis({
+      sourcePath: archivePath,
+      extractDirectory,
+      rules: builtInAnalyzerRules,
+      scope: 'storage'
+    });
+
+    const report = await readFile(result.reportPath, 'utf8');
+    expect(report).toContain('class="dashboard storage-report"');
+    expect(report).toContain('存储健康分析');
+    expect(report).toContain('设备概览');
+    expect(report).not.toContain('id="searchInput"');
+    expect(report).not.toContain('class="result-card');
+  });
+
+  it('存储健康报告使用原始设备健康模板并展示完整 SMART 信息', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'workbench-storage-template-'));
+    directories.push(root);
+    const sourceDirectory = join(root, 'source');
+    const archivePath = join(root, 'device.tgz');
+    const extractDirectory = join(root, 'device');
+    await mkdir(sourceDirectory);
+    await writeFile(join(sourceDirectory, 'sysinfo.json'), JSON.stringify({
+      deviceName: 'UGREEN DX4600',
+      sn: 'SN-001',
+      systemVersion: '1.2.3',
+      platform: 'x86_64',
+      network: { interface: [{ name: 'eth0', is_running: true, mac: 'AA:BB', ipv4: ['192.168.0.6'], mtu: 1500 }] },
+      disk_info: [{
+        name: 'sdc',
+        dev_name: '/dev/sdc',
+        label: 'Hard Drive 1',
+        used_for: 'Storage Pool 1',
+        slot: 'ata1',
+        model: 'Example SSD',
+        serial: 'DISK-001',
+        brand: 'Example',
+        interface_type: 'sata',
+        size: 2000000000000,
+        temperature: 40,
+        power_on_hours: 18000,
+        status: 1,
+        smart: [{ id: 197, name: 'Current_Pending_Sector', value: 100, worst: 100, thresh: 0, raw_string: '2', status: 1 }]
+      }]
+    }), 'utf8');
+    await tar.c({ gzip: true, cwd: sourceDirectory, file: archivePath }, ['sysinfo.json']);
+
+    const result = await runArchiveAnalysis({
+      sourcePath: archivePath,
+      extractDirectory,
+      rules: builtInAnalyzerRules,
+      scope: 'storage'
+    });
+
+    const report = await readFile(result.reportPath, 'utf8');
+    expect(report).toContain('class="dashboard storage-report"');
+    expect(report).toContain('设备概览');
+    expect(report).toContain('硬盘与 SMART');
+    expect(report).toContain('查看全部 SMART');
+    expect(report).toContain('Worst');
+    expect(report).toContain('阈值');
+    expect(report).toContain('存储用途');
+    expect(report).toContain('网络接口信息');
+    expect(report).toContain('data-detail-target="diagnosticDisk-0"');
+    expect(report).not.toContain('id="searchInput"');
+    expect(report).not.toContain('class="result-card');
+    expect(report).not.toContain('当前为存储健康分析，不展示规则日志结果。');
   });
 });
 

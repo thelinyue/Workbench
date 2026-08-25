@@ -19,7 +19,8 @@ export interface AppWindow {
 export function createAppWindow(windows: AppWindow[], id: string, title: string): AppWindow[] {
   if (windows.some((item) => item.id === id)) return windows;
   const nextZIndex = Math.max(0, ...windows.map((item) => item.zIndex)) + 1;
-  return [...windows, { id, title, x: 154, y: 82, width: 860, height: 560, zIndex: nextZIndex, minimized: false, maximized: false }];
+  // 新打开的应用使用稳定的默认尺寸，避免每次启动时受屏幕分辨率影响；用户仍可手动最大化、拖动和缩放。
+  return [...windows, { id, title, x: 120, y: 48, width: 960, height: 640, zIndex: nextZIndex, minimized: false, maximized: false }];
 }
 
 export function moveWindow(windows: AppWindow[], id: string, x: number, y: number): AppWindow[] {
@@ -28,6 +29,11 @@ export function moveWindow(windows: AppWindow[], id: string, x: number, y: numbe
 
 export function minimizeWindow(windows: AppWindow[], id: string): AppWindow[] {
   return windows.map((item) => item.id === id ? { ...item, minimized: !item.minimized } : item);
+}
+
+/** 返回需要显示在桌面窗口层的窗口；最小化窗口由顶部应用切换器负责恢复。 */
+export function getVisibleWindows(windows: AppWindow[]): AppWindow[] {
+  return windows.filter((item) => !item.minimized);
 }
 
 /** 限制窗口最小尺寸，避免内容区在拖拽缩放时不可操作。 */
