@@ -10,7 +10,7 @@ contextBridge.exposeInMainWorld('workbench', {
   analysis: {
     list: () => ipcRenderer.invoke('analysis:list'), importPackage: () => ipcRenderer.invoke('analysis:import-package'),
     importDroppedFiles: (files: File[]) => ipcRenderer.invoke('analysis:import-paths', files.map((file) => webUtils.getPathForFile(file))), scan: () => ipcRenderer.invoke('analysis:scan'),
-    start: (packageId: string) => ipcRenderer.invoke('analysis:start', packageId), startAllPending: () => ipcRenderer.invoke('analysis:start-all-pending'),
+    start: (packageId: string, scope: 'comprehensive' | 'storage' = 'comprehensive') => ipcRenderer.invoke('analysis:start', { packageId, scope }), startAllPending: () => ipcRenderer.invoke('analysis:start-all-pending'),
     openReport: (packageId: string) => ipcRenderer.invoke('analysis:open-report', packageId), locateSource: (packageId: string) => ipcRenderer.invoke('analysis:locate-source', packageId),
     locateExtract: (packageId: string) => ipcRenderer.invoke('analysis:locate-extract', packageId), deletePreview: (packageIds: string[]) => ipcRenderer.invoke('analysis:delete-preview', packageIds),
     deletePackages: (packageIds: string[], confirmationToken: string) => ipcRenderer.invoke('analysis:delete-packages', { packageIds, confirmationToken })

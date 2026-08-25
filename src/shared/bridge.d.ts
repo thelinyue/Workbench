@@ -29,7 +29,7 @@ export interface WorkbenchBridge {
     importPackage(): Promise<DiagnosticPackage | null>;
     importDroppedFiles(files: File[]): Promise<DiagnosticPackage[]>;
     scan(): Promise<DiagnosticPackage[]>;
-    start(packageId: string): Promise<void>;
+    start(packageId: string, scope?: 'comprehensive' | 'storage'): Promise<void>;
     startAllPending(): Promise<{ count: number; packageNames: string[] }>;
     openReport(packageId: string): Promise<void>;
     locateSource(packageId: string): Promise<void>;

@@ -433,10 +433,10 @@ function AnalysisCenter({ showError, showNotice }: AnalysisCenterProps) {
     setBatchAnalysisOpen(false);
   }, '已创建批量分析任务。');
 
-  const analyzeOne = (item: RendererDiagnosticPackage) => runAction(`analyze-${item.id}`, async () => {
+  const analyzeOne = (item: RendererDiagnosticPackage, scope: 'comprehensive' | 'storage' = 'comprehensive') => runAction(`analyze-${item.id}`, async () => {
     if (!hasWorkbenchBridge()) throw new Error('工作台接口尚未就绪，无法创建分析任务。');
-    await window.workbench.analysis.start(item.id);
-  }, `已开始分析 ${item.displayName}。`);
+    await window.workbench.analysis.start(item.id, scope);
+  }, `已开始${scope === 'storage' ? '存储健康分析' : '综合分析'} ${item.displayName}。`);
 
   const openReport = async (item: RendererDiagnosticPackage) => {
     try {
@@ -510,7 +510,7 @@ function AnalysisCenter({ showError, showNotice }: AnalysisCenterProps) {
 
     <div className="analysis-footer"><span><ShieldCheck size={14} />删除诊断包会同时删除原始包、解压目录、报告与分析记录</span><span>{runningPackages.length > 0 ? `${runningPackages.length} 个诊断包正在分析，暂不可删除` : '右键诊断包查看更多操作'}</span></div>
 
-    {contextMenu && <ContextMenu menu={contextMenu} onAnalyze={() => { setContextMenu(null); void analyzeOne(contextMenu.packageItem); }} onLocateSource={() => void locate(contextMenu.packageItem, 'source')} onLocateExtract={() => void locate(contextMenu.packageItem, 'extract')} onDelete={() => void requestDelete([contextMenu.packageItem])} />}
+    {contextMenu && <ContextMenu menu={contextMenu} onAnalyze={() => { setContextMenu(null); void analyzeOne(contextMenu.packageItem); }} onStorageAnalyze={() => { setContextMenu(null); void analyzeOne(contextMenu.packageItem, 'storage'); }} onLocateSource={() => void locate(contextMenu.packageItem, 'source')} onLocateExtract={() => void locate(contextMenu.packageItem, 'extract')} onDelete={() => void requestDelete([contextMenu.packageItem])} />}
     {deleteDialog && <DeleteDialog dialog={deleteDialog} confirmPermanent={confirmPermanent} busy={busyAction === 'delete'} onChange={setConfirmPermanent} onCancel={() => setDeleteDialog(null)} onConfirm={() => void confirmDelete()} />}
     {batchAnalysisOpen && <BatchAnalysisDialog packages={pendingPackages} busy={busyAction === 'all'} onCancel={() => setBatchAnalysisOpen(false)} onConfirm={() => void analyzeAll()} />}
   </div>;
@@ -536,11 +536,12 @@ function PackageCard({ item, selected, onToggle, onContextMenu, onAnalyze, onOpe
   </article>;
 }
 
-function ContextMenu({ menu, onAnalyze, onLocateSource, onLocateExtract, onDelete }: { menu: ContextMenuState; onAnalyze: () => void; onLocateSource: () => void; onLocateExtract: () => void; onDelete: () => void }) {
+function ContextMenu({ menu, onAnalyze, onStorageAnalyze, onLocateSource, onLocateExtract, onDelete }: { menu: ContextMenuState; onAnalyze: () => void; onStorageAnalyze: () => void; onLocateSource: () => void; onLocateExtract: () => void; onDelete: () => void }) {
   const busy = menu.packageItem.status === 'running' || menu.packageItem.status === 'queued';
   return <div className="context-menu" role="menu" style={{ left: menu.x, top: menu.y }} onClick={(event) => event.stopPropagation()}>
     <div className="context-menu-title" title={menu.packageItem.displayName}>{menu.packageItem.displayName}</div>
     <button type="button" role="menuitem" disabled={busy} onClick={onAnalyze}><Play size={15} />分析</button>
+    <button type="button" role="menuitem" disabled={busy} onClick={onStorageAnalyze}><HardDrive size={15} />仅存储健康分析</button>
     <div className="context-divider" />
     <button type="button" role="menuitem" onClick={onLocateSource}><FolderOpen size={15} />定位诊断包</button>
     <button type="button" role="menuitem" onClick={onLocateExtract}><Archive size={15} />定位解压目录</button>
