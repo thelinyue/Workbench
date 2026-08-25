@@ -16,6 +16,7 @@ export interface AnalyzerRuleConfig {
       severity?: IssueSeverity;
       context_lines?: number;
       context_direction?: 'up' | 'down';
+      search_direction?: 'up' | 'down';
     }>;
   }>;
 }
@@ -101,7 +102,11 @@ function matchRules(
 
   for (const keyword of keywords) {
     const matcher = createMatcher(keyword);
-    for (const [index, line] of lines.entries()) {
+    const lineIndexes = keyword.search_direction === 'up'
+      ? Array.from({ length: lines.length }, (_, index) => lines.length - index - 1)
+      : Array.from({ length: lines.length }, (_, index) => index);
+    for (const index of lineIndexes) {
+      const line = lines[index];
       if (!matcher(line)) continue;
       issues.push({
         keyword: keyword.term,

@@ -59,4 +59,16 @@ describe('内置日志分析引擎', () => {
 
     await expect(analyzeExtractedDirectory(extractDirectory, rules)).resolves.toEqual({ files: [] });
   });
+
+  it('遵循插件规则的向上搜索顺序', async () => {
+    const extractDirectory = await mkdtemp(join(tmpdir(), 'workbench-analysis-order-'));
+    directories.push(extractDirectory);
+    await writeFile(join(extractDirectory, 'kern'), '错误一\n普通\n错误二', 'utf8');
+
+    const result = await analyzeExtractedDirectory(extractDirectory, {
+      files: [{ name: 'kern', category: '系统日志', keywords: [{ term: '错误', result: '错误', search_direction: 'up' }] }]
+    });
+
+    expect(result.files[0].issues.map((item) => item.line)).toEqual([3, 1]);
+  });
 });
