@@ -21,6 +21,7 @@ import {
   LoaderCircle,
   Maximize2,
   Menu,
+  Minus,
   Minimize2,
   MoreHorizontal,
   PackageOpen,
@@ -257,10 +258,11 @@ export function App() {
             <Activity size={18} />{runningCount > 0 && <span className="notification-dot">{runningCount}</span>}
           </button>
           <button className="topbar-icon-button" type="button" aria-label="打开设置" onClick={() => openApp('settings')}><SettingsIcon size={18} /></button>
-          <span className="topbar-divider" aria-hidden="true" />
-          <button className="shell-window-control" type="button" aria-label="最小化工作台" onClick={() => void window.workbench.shell.minimize()}><Minimize2 size={15} /></button>
-          <button className="shell-window-control" type="button" aria-label="最大化或还原工作台" onClick={() => void window.workbench.shell.toggleMaximize()}><Maximize2 size={14} /></button>
-          <button className="shell-window-control shell-window-control-close" type="button" aria-label="关闭工作台" onClick={() => void window.workbench.shell.close()}><X size={15} /></button>
+          <div className="shell-window-controls" aria-label="窗口控制">
+            <button className="shell-window-control" type="button" aria-label="最小化工作台" onClick={() => void window.workbench.shell.minimize()}><Minus size={18} strokeWidth={1.8} /></button>
+            <button className="shell-window-control" type="button" aria-label="最大化或还原工作台" onClick={() => void window.workbench.shell.toggleMaximize()}><Maximize2 size={16} strokeWidth={1.7} /></button>
+            <button className="shell-window-control shell-window-control-close" type="button" aria-label="关闭工作台" onClick={() => void window.workbench.shell.close()}><X size={18} strokeWidth={1.7} /></button>
+          </div>
         </div>
       </header>
 

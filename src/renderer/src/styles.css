@@ -149,6 +149,9 @@ h1, h2, h3, p { margin: 0; }
 .topbar { height: 46px; padding: 0 16px; border-bottom-color: rgba(165, 183, 240, .1); background: rgba(6, 8, 24, .57); }
 .brand-mark { width: 27px; height: 27px; border-radius: 7px; -webkit-app-region: no-drag; }
 .topbar-actions { gap: 7px; }.health-indicator { margin-right: 5px; color: #7e88a8; }.topbar-icon-button { width: 32px; height: 32px; border-radius: 7px; }
+.shell-window-controls { display: flex; align-self: stretch; margin: 0 -16px 0 5px; -webkit-app-region: no-drag; }
+.shell-window-control { width: 46px; height: 46px; color: #e8eaf2; }
+.shell-window-control-close:hover { background: #c42d46; }
 .desktop-icons { inset: 46px 0 0; }.virtual-window-layer { inset: 46px 0 0; }.task-drawer { top: 46px; }
 .desktop-icon { width: 86px; min-height: 102px; border-radius: 8px; }.desktop-icon-image { width: 54px; height: 54px; border-radius: 13px; box-shadow: 0 10px 20px rgba(0,0,0,.32), inset 0 1px rgba(255,255,255,.18); }.desktop-icon-caption { display: none; }.desktop-icon-label { font-size: 12px; text-shadow: 0 1px 3px #02030b; }
 .app-window { border-radius: 8px; box-shadow: 0 24px 56px rgba(0,0,0,.52); background: rgba(14, 18, 45, .95); }.window-titlebar { min-height: 39px; padding-left: 12px; background: rgba(13, 17, 42, .98); }.window-controls button { width: 28px; height: 28px; }.analysis-view, .settings-view { background: linear-gradient(140deg, rgba(18, 24, 58, .98), rgba(9, 13, 34, .98)); }.analysis-heading h1, .settings-heading h1 { font-size: 22px; }.analysis-actions { margin-top: 19px; gap: 7px; }.action-tile { min-height: 62px; border-radius: 8px; }.package-grid { gap: 7px; }.package-card { min-height: 208px; border-radius: 8px; }.analysis-heading-metric { border-radius: 7px; }
