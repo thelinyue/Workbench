@@ -2,6 +2,7 @@ import { mkdtemp, rm, writeFile, mkdir } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
+import { builtInAnalyzerRules } from '../../src/main/analysis/built-in-rules';
 import { analyzeExtractedDirectory, type AnalyzerRuleConfig } from '../../src/main/analysis/log-analyzer';
 
 const directories: string[] = [];
@@ -80,5 +81,34 @@ describe('内置日志分析引擎', () => {
     });
 
     expect(result.files[0].issues.map((item) => item.line)).toEqual([3, 1]);
+  });
+
+  it('TGZ通用规则识别重启、文件系统恢复和UPS事件', async () => {
+    const extractDirectory = await mkdtemp(join(tmpdir(), 'workbench-tgz-rules-'));
+    directories.push(extractDirectory);
+    await writeFile(join(extractDirectory, 'kern'), [
+      'kernel: [0.000000] Linux version 6.12.30+',
+      'EXT4-fs (dm-0): 3 orphan inodes deleted',
+      'EXT4-fs (dm-0): recovery complete'
+    ].join('\n'), 'utf8');
+    await writeFile(join(extractDirectory, 'syslog'), [
+      'UPS ups0@localhost on battery',
+      'upsmon: Communications with UPS ups0@localhost lost',
+      'upssched: Event: upsgone'
+    ].join('\n'), 'utf8');
+
+    const result = await analyzeExtractedDirectory(extractDirectory, builtInAnalyzerRules.tgz);
+    const issues = result.files.flatMap((file) => file.issues);
+    const terms = builtInAnalyzerRules.tgz.files.flatMap((file) => file.keywords.map((keyword) => keyword.term));
+
+    expect(terms).not.toEqual(expect.arrayContaining(['NormalFlag', '因电源或其它原因导致设备异常关机', 'not usb ups']));
+    expect(issues.map((issue) => issue.message)).toEqual(expect.arrayContaining([
+      '记录到内核启动标记，可用于确认一次启动或重启',
+      'EXT4 清理未正常关闭遗留的 orphan inode，支持上次异常中断',
+      'EXT4 文件系统启动时完成日志恢复，支持上次未正常卸载',
+      'UPS 已切换至电池供电，说明外部输入曾出现异常',
+      'UPS 通信丢失，需结合 UPS 事件日志判断是否发生掉电',
+      'UPS 设备离线，需结合 UPS 事件日志判断是否发生掉电'
+    ]));
   });
 });

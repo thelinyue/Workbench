@@ -19,10 +19,10 @@ const basePackage: DiagnosticPackage = {
 };
 
 describe('诊断包领域规则', () => {
-  it('仅接受 .tgz 和 .tgz.temp 诊断包', () => {
+  it('接受 .tgz、.tgz.temp 和 .zip 诊断包', () => {
     expect(isDiagnosticPackagePath('D:/Inbox/device.tgz')).toBe(true);
     expect(isDiagnosticPackagePath('D:/Inbox/device.tgz.temp')).toBe(true);
-    expect(isDiagnosticPackagePath('D:/Inbox/device.zip')).toBe(false);
+    expect(isDiagnosticPackagePath('D:/Inbox/device.zip')).toBe(true);
   });
 
   it('批量清理只选择报告已生成和分析失败的诊断包', () => {

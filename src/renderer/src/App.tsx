@@ -37,7 +37,9 @@ import {
   type LucideIcon
 } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react';
+import { createPortal } from 'react-dom';
 import { createAppWindow, minimizeWindow, moveWindow, resizeWindow, type AppWindow } from '../window-manager';
+import { DEFAULT_ICON_LAYOUT, normalizeDesktopLayout, snapDesktopIconPoint } from '../desktop-layout';
 import {
   formatBytes,
   formatDetectedAt,
@@ -80,6 +82,10 @@ interface ContextMenuState {
   y: number;
 }
 
+const CONTEXT_MENU_WIDTH = 208;
+const CONTEXT_MENU_HEIGHT = 180;
+const CONTEXT_MENU_GUTTER = 8;
+
 interface DeleteDialogState {
   packageIds: string[];
   preview: DeletePreview;
@@ -88,11 +94,6 @@ interface DeleteDialogState {
 const APP_META: Record<AppId, { title: string; description: string; icon: LucideIcon }> = {
   'analysis-center': { title: '分析中心', description: '诊断包与日志报告', icon: BarChart3 },
   settings: { title: '设置', description: '工作台偏好设置', icon: SettingsIcon }
-};
-
-const DEFAULT_ICON_LAYOUT: Record<AppId, { x: number; y: number }> = {
-  'analysis-center': { x: 44, y: 96 },
-  settings: { x: 44, y: 238 }
 };
 
 function hasWorkbenchBridge(): boolean {
@@ -158,7 +159,13 @@ export function App() {
         if (!hasWorkbenchBridge()) throw new Error('工作台接口尚未就绪，请启动 Electron 主进程后重试。');
         const savedLayout = await window.workbench.desktop.loadLayout();
         if (active && savedLayout.length) {
-          setIconLayout((current) => savedLayout.reduce((next, item) => ({ ...next, [item.appId]: { x: item.x, y: item.y } }), current));
+          const normalizedLayout = normalizeDesktopLayout(savedLayout);
+          setIconLayout((current) => normalizedLayout.reduce((next, item) => ({ ...next, [item.appId]: { x: item.x, y: item.y } }), current));
+          const changed = normalizedLayout.length !== savedLayout.length || normalizedLayout.some((item, index) => {
+            const saved = savedLayout[index];
+            return saved?.appId !== item.appId || saved?.x !== item.x || saved?.y !== item.y;
+          });
+          if (changed) await window.workbench.desktop.saveLayout(normalizedLayout);
         }
         await refreshTasks();
       } catch (caught) {
@@ -220,7 +227,7 @@ export function App() {
     const drag = iconDragRef.current;
     if (!drag) return;
     drag.moved = true;
-    const next = { ...iconLayoutRef.current, [drag.id]: { x: Math.max(12, event.clientX - drag.offsetX), y: Math.max(52, event.clientY - drag.offsetY) } };
+    const next = { ...iconLayoutRef.current, [drag.id]: snapDesktopIconPoint({ x: event.clientX - drag.offsetX, y: event.clientY - drag.offsetY }) };
     iconLayoutRef.current = next;
     setIconLayout(next);
   };
@@ -259,7 +266,6 @@ export function App() {
           {appLibraryOpen && <div className="app-library" role="menu" aria-label="应用库">{(Object.keys(APP_META) as AppId[]).map((id) => { const app = APP_META[id]; const Icon = app.icon; return <button key={id} type="button" role="menuitem" onClick={() => { openApp(id); setAppLibraryOpen(false); }}><Icon size={18} /><span>{app.title}</span></button>; })}</div>}
         </div>
         <div className="topbar-actions">
-          <div className="health-indicator"><span className="health-dot" />系统在线</div>
           <button className="topbar-icon-button" type="button" aria-label={`打开任务中心${runningCount ? `，${runningCount} 项进行中` : ''}`} aria-expanded={drawerOpen} onClick={() => setDrawerOpen((value) => !value)}>
             <Activity size={18} />{runningCount > 0 && <span className="notification-dot">{runningCount}</span>}
           </button>
@@ -285,7 +291,7 @@ export function App() {
         })}
       </section>
 
-      <div className="desktop-hint"><Menu size={14} /> 拖动图标整理桌面，单击打开应用</div>
+      <div className="desktop-hint"><Menu size={14} /> 拖动图标整理桌面，自动吸附网格，单击打开应用</div>
 
       <section className="virtual-window-layer" aria-label="应用窗口">
         {windows.map((item) => <VirtualWindow key={item.id} item={item} onClose={closeWindow} onFocus={focusWindow} onMinimize={toggleMinimize} onMaximize={toggleMaximize} onMove={moveVirtualWindow} onResize={(id, width, height) => setWindows((current) => resizeWindow(current, id, width, height))}>
@@ -383,8 +389,8 @@ function AnalysisCenter({ showError, showNotice }: AnalysisCenterProps) {
   useEffect(() => hasWorkbenchBridge() ? window.workbench.onChanged(() => { void refreshPackages(); }) : undefined, [refreshPackages]);
   useEffect(() => {
     const closeMenu = () => setContextMenu(null);
-    window.addEventListener('click', closeMenu);
-    return () => window.removeEventListener('click', closeMenu);
+    window.addEventListener('pointerdown', closeMenu);
+    return () => window.removeEventListener('pointerdown', closeMenu);
   }, []);
   useEffect(() => {
     const closeOverlays = (event: KeyboardEvent) => {
@@ -481,15 +487,20 @@ function AnalysisCenter({ showError, showNotice }: AnalysisCenterProps) {
   const toggleSelected = (id: string) => setSelectedIds((current) => current.includes(id) ? current.filter((item) => item !== id) : [...current, id]);
   const selectablePackages = sortedPackages.filter((item) => item.status !== 'running' && item.status !== 'queued');
   const toggleAll = () => setSelectedIds(selectedIds.length === selectablePackages.length ? [] : selectablePackages.map((item) => item.id));
-  const rightClick = (event: React.MouseEvent, item: RendererDiagnosticPackage) => { event.preventDefault(); setContextMenu({ packageItem: item, x: Math.min(event.clientX, window.innerWidth - 210), y: Math.min(event.clientY, window.innerHeight - 180) }); };
+  const rightClick = (event: React.MouseEvent, item: RendererDiagnosticPackage) => {
+    event.preventDefault();
+    setContextMenu({
+      packageItem: item,
+      x: Math.max(CONTEXT_MENU_GUTTER, Math.min(event.clientX, window.innerWidth - CONTEXT_MENU_WIDTH - CONTEXT_MENU_GUTTER)),
+      y: Math.max(CONTEXT_MENU_GUTTER, Math.min(event.clientY, window.innerHeight - CONTEXT_MENU_HEIGHT - CONTEXT_MENU_GUTTER))
+    });
+  };
 
-  const activePackage = selectedPackages.length === 1 ? selectedPackages[0] : undefined;
   return <div className="analysis-view analysis-explorer" onContextMenu={(event) => event.preventDefault()}>
     <div className="analysis-compact-toolbar"><button type="button" className="primary-button" onClick={importPackage}><Upload size={15} />导入</button><button type="button" className="secondary-button" onClick={scanDirectory}><RefreshCw size={15} />扫描</button><button type="button" className="secondary-button" onClick={requestAnalyzeAll}><Play size={15} />综合分析</button><span className="analysis-toolbar-spacer" />{sortedPackages.length} 个诊断包</div>
     <aside className="analysis-sidebar"><strong>诊断包</strong><button type="button">全部 <span>{packages.length}</span></button><button type="button">待分析 <span>{pendingPackages.length}</span></button><button type="button">已完成 <span>{packages.filter((item) => item.status === 'report-ready').length}</span></button><button type="button">失败 <span>{packages.filter((item) => item.status === 'failed').length}</span></button></aside>
-    <section className="analysis-list-pane"><div className="analysis-toolbar"><div className="section-title"><FileArchive size={16} /><strong>诊断包</strong></div><div className="toolbar-actions">{selectedIds.length > 0 && <button type="button" className="danger-button" onClick={() => void requestDelete(deletableSelected)}><Trash2 size={15} />删除（{deletableSelected.length}）</button>}</div></div>{sortedPackages.length === 0 ? <EmptyPackages onImport={importPackage} onScan={scanDirectory} busyAction={busyAction} /> : <div className="package-grid package-list">{sortedPackages.map((item) => <PackageCard key={item.id} item={item} selected={selectedIds.includes(item.id)} onToggle={() => toggleSelected(item.id)} onContextMenu={(event) => rightClick(event, item)} onAnalyze={() => analyzeOne(item)} onOpenReport={() => void openReport(item)} busy={busyAction === `analyze-${item.id}`} />)}</div>}</section>
-    <aside className="analysis-inspector">{activePackage ? <><h2>{activePackage.displayName}</h2><p>{activePackage.sourcePath}</p><button type="button" className="primary-button" onClick={() => void analyzeOne(activePackage)}><Play size={15} />综合分析</button><button type="button" className="secondary-button" onClick={() => void analyzeOne(activePackage, 'storage')}><HardDrive size={15} />存储健康分析</button>{activePackage.reportPath && <button type="button" className="secondary-button" onClick={() => void openReport(activePackage)}><ExternalLink size={15} />打开报告</button>}</> : <><h2>属性</h2><p>选择诊断包可查看状态、路径与快捷操作。</p><button type="button" className="secondary-button" onClick={importPackage}><Upload size={15} />导入诊断包</button></>}</aside>
-    {contextMenu && <ContextMenu menu={contextMenu} onAnalyze={() => { setContextMenu(null); void analyzeOne(contextMenu.packageItem); }} onStorageAnalyze={() => { setContextMenu(null); void analyzeOne(contextMenu.packageItem, 'storage'); }} onLocateSource={() => void locate(contextMenu.packageItem, 'source')} onLocateExtract={() => void locate(contextMenu.packageItem, 'extract')} onDelete={() => void requestDelete([contextMenu.packageItem])} />}{deleteDialog && <DeleteDialog dialog={deleteDialog} confirmPermanent={confirmPermanent} busy={busyAction === 'delete'} onChange={setConfirmPermanent} onCancel={() => setDeleteDialog(null)} onConfirm={() => void confirmDelete()} />}{batchAnalysisOpen && <BatchAnalysisDialog packages={pendingPackages} busy={busyAction === 'all'} onCancel={() => setBatchAnalysisOpen(false)} onConfirm={() => void analyzeAll()} />}
+    <section className="analysis-list-pane"><div className="analysis-toolbar"><div className="section-title"><FileArchive size={16} /><strong>诊断包</strong></div><div className="toolbar-actions">{selectedIds.length > 0 && <button type="button" className="danger-button" onClick={() => void requestDelete(deletableSelected)}><Trash2 size={15} />删除（{deletableSelected.length}）</button>}</div></div>{sortedPackages.length === 0 ? <EmptyPackages onImport={importPackage} onScan={scanDirectory} busyAction={busyAction} /> : <div className="package-grid package-list">{sortedPackages.map((item) => <PackageCard key={item.id} item={item} selected={selectedIds.includes(item.id)} menuOpen={contextMenu?.packageItem.id === item.id} onToggle={() => toggleSelected(item.id)} onContextMenu={(event) => rightClick(event, item)} onAnalyze={() => analyzeOne(item)} onOpenReport={() => void openReport(item)} busy={busyAction === `analyze-${item.id}`} />)}</div>}</section>
+    {contextMenu && <ContextMenu menu={contextMenu} onAnalyze={() => { setContextMenu(null); void analyzeOne(contextMenu.packageItem); }} onStorageAnalyze={() => { setContextMenu(null); void analyzeOne(contextMenu.packageItem, 'storage'); }} onLocateSource={() => { setContextMenu(null); void locate(contextMenu.packageItem, 'source'); }} onLocateExtract={() => { setContextMenu(null); void locate(contextMenu.packageItem, 'extract'); }} onDelete={() => { setContextMenu(null); void requestDelete([contextMenu.packageItem]); }} />}{deleteDialog && <DeleteDialog dialog={deleteDialog} confirmPermanent={confirmPermanent} busy={busyAction === 'delete'} onChange={setConfirmPermanent} onCancel={() => setDeleteDialog(null)} onConfirm={() => void confirmDelete()} />}{batchAnalysisOpen && <BatchAnalysisDialog packages={pendingPackages} busy={busyAction === 'all'} onCancel={() => setBatchAnalysisOpen(false)} onConfirm={() => void analyzeAll()} />}
   </div>;
 }
 function ActionTile({ icon: Icon, label, hint, onClick, busy, accent }: { icon: LucideIcon; label: string; hint: string; onClick: () => void; busy: boolean; accent: string }) {
@@ -500,11 +511,11 @@ function EmptyPackages({ onImport, onScan, busyAction }: { onImport: () => void;
   return <div className="empty-packages"><div className="empty-icon"><Archive size={28} /></div><h2>还没有诊断包</h2><p>导入一个 .tgz 或 .tgz.temp 文件，或者扫描已配置的监控目录。</p><div className="empty-actions"><button type="button" className="primary-button" onClick={onImport} disabled={busyAction === 'import'}><Upload size={16} />导入诊断包</button><button type="button" className="secondary-button" onClick={onScan} disabled={busyAction === 'scan'}><RefreshCw size={16} />扫描目录</button></div></div>;
 }
 
-function PackageCard({ item, selected, onToggle, onContextMenu, onAnalyze, onOpenReport, busy }: { item: RendererDiagnosticPackage; selected: boolean; onToggle: () => void; onContextMenu: (event: React.MouseEvent) => void; onAnalyze: () => void; onOpenReport: () => void; busy: boolean }) {
+function PackageCard({ item, selected, menuOpen, onToggle, onContextMenu, onAnalyze, onOpenReport, busy }: { item: RendererDiagnosticPackage; selected: boolean; menuOpen: boolean; onToggle: () => void; onContextMenu: (event: React.MouseEvent) => void; onAnalyze: () => void; onOpenReport: () => void; busy: boolean }) {
   const isBusy = item.status === 'running' || item.status === 'queued';
   const canDelete = !isBusy;
   return <article className={`package-card ${selected ? 'package-card-selected' : ''}`} onContextMenu={onContextMenu}>
-    <div className="package-card-top"><label className="checkbox-wrap"><input type="checkbox" checked={selected} disabled={!canDelete} onChange={onToggle} aria-label={`选择${item.displayName}进行删除`} /><span className="custom-checkbox">{selected && <Check size={12} />}</span></label><span className={`status-badge status-${statusTone[item.status]}`}><span className="status-dot" />{statusLabels[item.status]}</span><button className="card-more" type="button" aria-label={`打开${item.displayName}的快捷菜单`} onClick={(event) => { event.stopPropagation(); onContextMenu(event); }}><MoreHorizontal size={16} /></button></div>
+    <div className="package-card-top"><label className="checkbox-wrap"><input type="checkbox" checked={selected} disabled={!canDelete} onChange={onToggle} aria-label={`选择${item.displayName}进行删除`} /><span className="custom-checkbox">{selected && <Check size={12} />}</span></label><span className={`status-badge status-${statusTone[item.status]}`}><span className="status-dot" />{statusLabels[item.status]}</span><button className="card-more" type="button" aria-haspopup="menu" aria-expanded={menuOpen} aria-label={`打开${item.displayName}的快捷菜单`} onClick={(event) => { event.stopPropagation(); onContextMenu(event); }}><MoreHorizontal size={16} /></button></div>
     <div className="package-icon"><FileArchive size={30} /></div>
     <h3 title={item.displayName}>{item.displayName}</h3><p className="package-time">检测于 {formatDetectedAt(item.detectedAt)}</p>
     <div className="package-path" title={item.sourcePath}><FolderOpen size={13} />{item.sourcePath}</div>
@@ -512,9 +523,13 @@ function PackageCard({ item, selected, onToggle, onContextMenu, onAnalyze, onOpe
   </article>;
 }
 
+/**
+ * 快捷菜单渲染到文档层，脱离应用窗口的裁剪上下文；外部关闭使用 pointerdown，
+ * 这样打开菜单的 click 事件不会在状态更新后又被全局监听器立即关闭。
+ */
 function ContextMenu({ menu, onAnalyze, onStorageAnalyze, onLocateSource, onLocateExtract, onDelete }: { menu: ContextMenuState; onAnalyze: () => void; onStorageAnalyze: () => void; onLocateSource: () => void; onLocateExtract: () => void; onDelete: () => void }) {
   const busy = menu.packageItem.status === 'running' || menu.packageItem.status === 'queued';
-  return <div className="context-menu" role="menu" style={{ left: menu.x, top: menu.y }} onClick={(event) => event.stopPropagation()}>
+  return createPortal(<div className="context-menu" role="menu" style={{ left: menu.x, top: menu.y }} onPointerDown={(event) => event.stopPropagation()} onClick={(event) => event.stopPropagation()}>
     <div className="context-menu-title" title={menu.packageItem.displayName}>{menu.packageItem.displayName}</div>
     <button type="button" role="menuitem" disabled={busy} onClick={onAnalyze}><Play size={15} />分析</button>
     <button type="button" role="menuitem" disabled={busy} onClick={onStorageAnalyze}><HardDrive size={15} />仅存储健康分析</button>
@@ -523,7 +538,7 @@ function ContextMenu({ menu, onAnalyze, onStorageAnalyze, onLocateSource, onLoca
     <button type="button" role="menuitem" onClick={onLocateExtract}><Archive size={15} />定位解压目录</button>
     <div className="context-divider" />
     <button className="context-danger" type="button" role="menuitem" disabled={busy} onClick={onDelete}><Trash2 size={15} />删除诊断包</button>
-  </div>;
+  </div>, document.body);
 }
 
 function DeleteDialog({ dialog, confirmPermanent, busy, onChange, onCancel, onConfirm }: { dialog: DeleteDialogState; confirmPermanent: boolean; busy: boolean; onChange: (value: boolean) => void; onCancel: () => void; onConfirm: () => void }) {

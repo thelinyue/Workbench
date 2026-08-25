@@ -1,12 +1,12 @@
 import { parentPort, workerData } from 'node:worker_threads';
 import { runArchiveAnalysis } from './archive-analysis';
-import type { AnalyzerRuleConfig } from './log-analyzer';
+import type { AnalyzerRuleCatalog } from './log-analyzer';
 import type { AnalysisScope } from './archive-analysis';
 
 interface AnalysisWorkerInput {
   sourcePath: string;
   extractDirectory: string;
-  rules: AnalyzerRuleConfig;
+  rules: AnalyzerRuleCatalog;
   scope: AnalysisScope;
 }
 

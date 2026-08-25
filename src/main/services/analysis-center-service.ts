@@ -35,7 +35,7 @@ export class AnalysisCenterService {
   public async importPackage(sourcePath: string): Promise<DiagnosticPackage> {
     const info = await stat(sourcePath).catch(() => undefined);
     if (!info?.isFile()) throw new Error('选择的诊断包不存在或不是文件');
-    if (!isDiagnosticPackagePath(sourcePath)) throw new Error('仅支持 .tgz 或 .tgz.temp 格式的诊断包');
+    if (!isDiagnosticPackagePath(sourcePath)) throw new Error('仅支持 .tgz、.tgz.temp 或 .zip 格式的诊断包');
     return this.registerDiagnosticPackage(sourcePath);
   }
 
@@ -43,7 +43,6 @@ export class AnalysisCenterService {
     const existing = this.repository.listPackages().find((item) => item.sourcePath.toLowerCase() === sourcePath.toLowerCase());
     if (existing) return existing;
     const displayName = basename(sourcePath);
-    const extractName = displayName.replace(/\.tgz(?:\.temp)?$/i, '');
     const id = randomUUID();
     const item: DiagnosticPackage = {
       id, sourcePath, extractPath: this.repository.getExtractDirectory(id), displayName,

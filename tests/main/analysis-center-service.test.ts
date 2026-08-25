@@ -9,21 +9,36 @@ const directories: string[] = [];
 afterEach(async () => { await Promise.all(directories.splice(0).map((directory) => rm(directory, { recursive: true, force: true }))); });
 
 describe('分析中心服务', () => {
-  it('手动扫描监控目录时仅发现 .tgz 和 .tgz.temp 诊断包', async () => {
+  it('手动扫描监控目录时发现 .tgz、.tgz.temp 和 .zip 诊断包', async () => {
     const root = await mkdtemp(join(tmpdir(), 'workbench-service-'));
     directories.push(root);
     const inbox = join(root, 'Inbox');
     await mkdir(inbox);
     await writeFile(join(inbox, 'valid.tgz'), 'content');
     await writeFile(join(inbox, 'valid.tgz.temp'), 'content');
-    await writeFile(join(inbox, 'ignored.zip'), 'content');
+    await writeFile(join(inbox, 'valid.zip'), 'content');
     const repository = new WorkspaceRepository(join(root, 'workbench.db'));
     repository.saveMonitorDirectories([inbox]);
     const service = new AnalysisCenterService(repository);
 
     const packages = await service.scanMonitorDirectories();
 
-    expect(packages.map((item) => item.displayName).sort()).toEqual(['valid.tgz', 'valid.tgz.temp']);
+    expect(packages.map((item) => item.displayName).sort()).toEqual(['valid.tgz', 'valid.tgz.temp', 'valid.zip']);
     repository.close();
+  });
+
+  it('导入不支持的格式时提示包含 ZIP 支持范围', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'workbench-service-'));
+    directories.push(root);
+    const unsupportedPath = join(root, 'unsupported.rar');
+    await writeFile(unsupportedPath, 'content');
+    const repository = new WorkspaceRepository(join(root, 'workbench.db'));
+    const service = new AnalysisCenterService(repository);
+
+    try {
+      await expect(service.importPackage(unsupportedPath)).rejects.toThrow('.zip');
+    } finally {
+      repository.close();
+    }
   });
 });

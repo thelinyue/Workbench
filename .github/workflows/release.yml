@@ -1,4 +1,4 @@
-name: 构建 Windows 安装包
+name: 构建 Electron Windows 安装包
 
 on:
   push:
@@ -6,11 +6,6 @@ on:
       - "v*.*.*"
   workflow_dispatch:
     inputs:
-      version:
-        description: "要验证的版本号（不带 v）"
-        required: true
-        default: "1.2.13"
-        type: string
       publish:
         description: "同时发布到公开 Releases 仓库"
         required: true
@@ -21,240 +16,113 @@ permissions:
   contents: read
 
 concurrency:
-  group: release-${{ github.ref_name }}-${{ inputs.version || 'tag' }}
+  group: release-${{ github.ref_name }}
   cancel-in-progress: false
 
 env:
-  PLUGIN_REPO: thelinyue/Hephaestus-Workbench-Releases
-  INNO_URL: https://github.com/jrsoftware/issrc/releases/download/is-6_7_3/innosetup-6.7.3.exe
-  INNO_SHA256: 9c73c3bae7ed48d44112a0f48e66742c00090bdb5bef71d9d3c056c66e97b732
-  INNO_SIZE: "10592232"
   RELEASES_REPO: thelinyue/Hephaestus-Workbench-Releases
 
 jobs:
   build:
     name: 构建与校验
     runs-on: windows-latest
-    timeout-minutes: 45
+    timeout-minutes: 30
 
     steps:
-      - name: 检出私有源码
+      - name: 检出源码
         uses: actions/checkout@v4
         with:
           persist-credentials: false
+
+      - name: 配置 Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22.x
+          cache: npm
+
+      - name: 安装锁定依赖
+        shell: pwsh
+        run: |
+          npm ci
+          if ($LASTEXITCODE -ne 0) { throw "npm ci 失败，退出码：$LASTEXITCODE" }
 
       - name: 校验版本号
         id: version
         shell: pwsh
         run: |
-          if ("${{ github.event_name }}" -eq "push") {
-            $tag = "${{ github.ref_name }}"
-            if ($tag -notmatch '^v(?<version>\d+\.\d+\.\d+)$') {
-              throw "发布标签格式无效：$tag；必须为 vX.Y.Z。"
-            }
-            $version = $Matches.version
-          }
-          else {
-            $version = "${{ inputs.version }}".Trim()
-            if ($version -notmatch '^\d+\.\d+\.\d+$') {
-              throw "手工构建版本号无效：$version；必须为 X.Y.Z。"
-            }
-            $tag = "v$version"
+          $package = Get-Content -Raw -Encoding UTF8 "package.json" | ConvertFrom-Json
+          $version = [string]$package.version
+          if ($version -notmatch '^\d+\.\d+\.\d+$') {
+            throw "package.json 版本号无效：$version；必须为 X.Y.Z。"
           }
 
-          [xml]$props = Get-Content -Raw -Encoding UTF8 "Directory.Build.props"
-          $sourceVersion = [string]$props.Project.PropertyGroup.Version
-          if ($sourceVersion -ne $version) {
-            throw "源码版本 $sourceVersion 与请求版本 $version 不一致。"
+          if ("${{ github.event_name }}" -eq "push") {
+            $tag = "${{ github.ref_name }}"
+            if ($tag -notmatch '^v(?<tagVersion>\d+\.\d+\.\d+)$') {
+              throw "发布标签格式无效：$tag；必须为 vX.Y.Z。"
+            }
+            if ($Matches.tagVersion -ne $version) {
+              throw "发布标签 $tag 与 package.json 版本 $version 不一致。"
+            }
+          }
+          else {
+            $tag = "v$version"
           }
 
           "version=$version" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
           "tag=$tag" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
-          Write-Host "已确认发行版本：$tag"
+          Write-Host "已确认 Electron 发行版本：$tag"
 
-      - name: 配置 .NET 8
-        uses: actions/setup-dotnet@v4
-        with:
-          dotnet-version: 8.0.x
-          cache: true
-          cache-dependency-path: "**/*.csproj"
-
-      - name: 验证无插件二进制源码构建
+      - name: 类型检查
         shell: pwsh
         run: |
-          dotnet restore HephaestusWorkbench.sln --configfile NuGet.config
-          if ($LASTEXITCODE -ne 0) { throw "解决方案还原失败，退出码：$LASTEXITCODE" }
-          dotnet build HephaestusWorkbench.sln -c Release --no-restore
-          if ($LASTEXITCODE -ne 0) { throw "无插件二进制源码构建失败，退出码：$LASTEXITCODE" }
+          npm run typecheck
+          if ($LASTEXITCODE -ne 0) { throw "TypeScript 类型检查失败，退出码：$LASTEXITCODE" }
 
-      - name: 下载并校验官方插件
-        id: plugin
+      - name: 运行自动化测试
         shell: pwsh
         run: |
-          $headers = @{
-            Accept = "application/vnd.github+json"
-            "User-Agent" = "Hephaestus-Workbench-CI"
-          }
-          $apiUrl = "https://api.github.com/repos/$env:PLUGIN_REPO/releases?per_page=100"
-          $releases = Invoke-RestMethod -Headers $headers -Uri $apiUrl -TimeoutSec 120
-          $candidates = @(
-            foreach ($release in $releases) {
-              if ($release.draft -or $release.prerelease) { continue }
-              if ($release.tag_name -match '^plugin-log-analyzer-v(?<version>\d+(?:\.\d+)+)$') {
-                [pscustomobject]@{ Release = $release; Version = [version]$Matches.version }
-              }
-            }
-          )
-          $selected = $candidates | Sort-Object Version -Descending | Select-Object -First 1
-          if ($null -eq $selected) {
-            throw "远程 Releases 仓库没有找到正式的日志分析插件版本。"
-          }
-
-          $release = $selected.Release
-          $version = $selected.Version.ToString()
-          $assetNames = @(
-            "log-analyzer-$version-win-x64.zip",
-            "plugin-log-analyzer-v$version-win-x64.zip"
-          )
-          $asset = @($release.assets | Where-Object name -in $assetNames | Select-Object -First 1)
-          if ($asset.Count -ne 1) {
-            throw "Release $($release.tag_name) 缺少日志分析插件 ZIP，支持的资产名：$($assetNames -join '、')。"
-          }
-          $assetName = $asset.name
-
-          $directory = Join-Path $env:RUNNER_TEMP "official-plugin"
-          $archive = Join-Path $directory "log-analyzer.zip"
-          $expanded = Join-Path $directory "expanded"
-          New-Item -ItemType Directory -Force -Path $directory, $expanded | Out-Null
-          Invoke-WebRequest -Uri $asset.browser_download_url -OutFile $archive -TimeoutSec 120
-
-          $file = Get-Item -LiteralPath $archive
-          $hash = (Get-FileHash -Algorithm SHA256 -LiteralPath $archive).Hash.ToLowerInvariant()
-          if ($file.Length -le 0) { throw "官方插件包为空：$assetName。" }
-
-          Expand-Archive -LiteralPath $archive -DestinationPath $expanded
-          $manifestPath = Join-Path $expanded "manifest.json"
-          $binaryPath = Join-Path $expanded "log_analyzer.exe"
-          if (-not (Test-Path -LiteralPath $manifestPath -PathType Leaf) -or
-              -not (Test-Path -LiteralPath $binaryPath -PathType Leaf)) {
-            throw "官方插件包缺少 manifest.json 或 log_analyzer.exe。"
-          }
-
-          $manifest = Get-Content -Raw -Encoding UTF8 $manifestPath | ConvertFrom-Json
-          if ($manifest.id -ne "log-analyzer" -or $manifest.version -ne $version -or
-              $manifest.type -ne "Exe" -or $manifest.entry -ne "log_analyzer.exe") {
-            throw "官方插件清单与 Release 版本不一致：$($release.tag_name)。"
-          }
-
-          $seedManifest = Join-Path $env:GITHUB_WORKSPACE "src\HephaestusWorkbench.App\PluginSeed\manifest.json"
-          Copy-Item -LiteralPath $manifestPath -Destination $seedManifest -Force
-          "binary=$binaryPath" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
-          "version=$version" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
-          "sha256=$hash" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
-          Write-Host "官方插件校验通过：版本 $version，SHA-256 $hash"
-
-      - name: 使用授权插件运行完整测试
-        shell: pwsh
-        run: |
-          dotnet build HephaestusWorkbench.sln `
-            -c Release `
-            --no-restore `
-            -p:PluginBinaryPath="${{ steps.plugin.outputs.binary }}"
-          if ($LASTEXITCODE -ne 0) { throw "带授权插件的测试构建失败，退出码：$LASTEXITCODE" }
-          dotnet test HephaestusWorkbench.sln -c Release --no-build --no-restore
+          npm test -- --reporter=dot
           if ($LASTEXITCODE -ne 0) { throw "自动化测试失败，退出码：$LASTEXITCODE" }
 
-      - name: 安装并校验 Inno Setup 6.7.3
-        id: inno
+      - name: 构建 Electron 安装包
         shell: pwsh
         run: |
-          $installer = Join-Path $env:RUNNER_TEMP "innosetup-6.7.3.exe"
-          Invoke-WebRequest -Uri $env:INNO_URL -OutFile $installer -TimeoutSec 120
+          npm run package:win
+          if ($LASTEXITCODE -ne 0) { throw "Electron Windows 安装包构建失败，退出码：$LASTEXITCODE" }
 
-          $file = Get-Item -LiteralPath $installer
-          $hash = (Get-FileHash -Algorithm SHA256 -LiteralPath $installer).Hash.ToLowerInvariant()
-          if ($file.Length -ne [long]$env:INNO_SIZE) {
-            throw "Inno Setup 安装器大小错误：实际 $($file.Length)，预期 $env:INNO_SIZE。"
-          }
-          if ($hash -ne $env:INNO_SHA256) {
-            throw "Inno Setup 安装器 SHA-256 错误：实际 $hash。"
-          }
-
-          $signature = Get-AuthenticodeSignature -LiteralPath $installer
-          if ($signature.Status -ne [System.Management.Automation.SignatureStatus]::Valid -or
-              $signature.SignerCertificate.Subject -notlike "*Pyrsys B.V.*") {
-            throw "Inno Setup 安装器签名无效或发布者不是 Pyrsys B.V.：$($signature.Status)，$($signature.SignerCertificate.Subject)"
-          }
-
-          $process = Start-Process -FilePath $installer -ArgumentList @(
-            "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/CURRENTUSER"
-          ) -Wait -PassThru
-          if ($process.ExitCode -ne 0) {
-            throw "Inno Setup 安装失败，退出码：$($process.ExitCode)"
-          }
-
-          $compiler = Join-Path $env:LOCALAPPDATA "Programs\Inno Setup 6\ISCC.exe"
-          if (-not (Test-Path -LiteralPath $compiler -PathType Leaf)) {
-            throw "Inno Setup 安装后未找到 ISCC.exe：$compiler"
-          }
-          "compiler=$compiler" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
-          Write-Host "Inno Setup 6.7.3 校验通过：$hash；发布者：$($signature.SignerCertificate.Subject)"
-
-      - name: 生成正式安装包
-        shell: pwsh
-        run: |
-          & .\installer\build-installer.ps1 `
-            -Configuration Release `
-            -Version "${{ steps.version.outputs.version }}" `
-            -PluginBinaryPath "${{ steps.plugin.outputs.binary }}" `
-            -InnoCompilerPath "${{ steps.inno.outputs.compiler }}"
-          if ($LASTEXITCODE -ne 0) { throw "正式安装包构建失败，退出码：$LASTEXITCODE" }
-
-      - name: 复核公开资产
+      - name: 复核构建资产
         id: assets
         shell: pwsh
         run: |
           $version = "${{ steps.version.outputs.version }}"
           $setupName = "HephaestusWorkbench_v$version.exe"
-          $setup = Join-Path $PWD "installer\dist\$setupName"
-          $checksums = Join-Path $PWD "installer\dist\SHA256SUMS.txt"
-          if (-not (Test-Path -LiteralPath $setup -PathType Leaf) -or
-              -not (Test-Path -LiteralPath $checksums -PathType Leaf)) {
-            throw "正式构建缺少安装包或 SHA256SUMS.txt。"
-          }
-
-          $versionInfo = (Get-Item -LiteralPath $setup).VersionInfo
-          if ($versionInfo.FileVersion.Trim() -ne "$version.0" -or
-              $versionInfo.ProductVersion.Trim() -ne $version) {
-            throw "安装包文件属性版本错误：FileVersion=$($versionInfo.FileVersion)，ProductVersion=$($versionInfo.ProductVersion)"
-          }
-
-          $hash = (Get-FileHash -Algorithm SHA256 -LiteralPath $setup).Hash.ToLowerInvariant()
-          $expectedLine = "$hash  $setupName"
-          $actualLine = (Get-Content -Raw -Encoding UTF8 $checksums).Trim()
-          if ($actualLine -ne $expectedLine) {
-            throw "SHA256SUMS.txt 与安装包不一致。"
+          $setup = Join-Path $PWD "release\$setupName"
+          if (-not (Test-Path -LiteralPath $setup -PathType Leaf)) {
+            throw "未生成预期的 Electron 安装包：$setup"
           }
 
           $publicDirectory = Join-Path $PWD "release-assets"
           New-Item -ItemType Directory -Force -Path $publicDirectory | Out-Null
-          Copy-Item -LiteralPath $setup, $checksums -Destination $publicDirectory
+          Copy-Item -LiteralPath $setup -Destination $publicDirectory -Force
+          $hash = (Get-FileHash -Algorithm SHA256 -LiteralPath $setup).Hash.ToLowerInvariant()
+          "$hash  $setupName" | Out-File -FilePath (Join-Path $publicDirectory "SHA256SUMS.txt") -Encoding utf8
+
           $publicFiles = @(Get-ChildItem -LiteralPath $publicDirectory -File)
           $actualNames = ($publicFiles.Name | Sort-Object) -join "|"
           $expectedNames = (@("SHA256SUMS.txt", $setupName) | Sort-Object) -join "|"
-          if ($publicFiles.Count -ne 2 -or
-              $actualNames -ne $expectedNames) {
+          if ($publicFiles.Count -ne 2 -or $actualNames -ne $expectedNames) {
             throw "公开资产目录包含未授权文件。"
           }
 
           "setup_name=$setupName" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
           "setup_hash=$hash" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
-          Write-Host "公开资产复核通过：$setupName，SHA-256 $hash"
+          Write-Host "安装包校验通过：$setupName，SHA-256 $hash"
 
       - name: 上传构建 Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: Hephaestus工作台-v${{ steps.version.outputs.version }}
+          name: HephaestusWorkbench-v${{ steps.version.outputs.version }}
           path: release-assets/*
           if-no-files-found: error
           retention-days: 14
@@ -270,7 +138,6 @@ jobs:
           }
 
           $tag = "${{ steps.version.outputs.tag }}"
-          $version = "${{ steps.version.outputs.version }}"
           $notes = Join-Path $PWD "distribution\releases\$tag.md"
           if (-not (Test-Path -LiteralPath $notes -PathType Leaf)) {
             throw "缺少公开发行说明：$notes"

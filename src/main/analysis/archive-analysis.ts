@@ -1,11 +1,12 @@
 import { mkdir, rm, writeFile } from 'node:fs/promises';
 import { basename, join } from 'node:path';
 import * as tar from 'tar';
-import { isDiagnosticPackagePath } from '../domain/diagnostic-package';
+import extractZip from 'extract-zip';
+import { getDiagnosticPackageFormat } from '../domain/diagnostic-package';
 import {
   analyzeExtractedDirectory,
   type AnalysisResult,
-  type AnalyzerRuleConfig
+  type AnalyzerRuleCatalog
 } from './log-analyzer';
 import { analyzeStructuredExtract, type StructuredAnalysis } from './structured-analysis';
 
@@ -14,7 +15,7 @@ export type AnalysisScope = 'comprehensive' | 'storage';
 export interface ArchiveAnalysisRequest {
   sourcePath: string;
   extractDirectory: string;
-  rules: AnalyzerRuleConfig;
+  rules: AnalyzerRuleCatalog;
   scope?: AnalysisScope;
   onProgress?: (progress: { progress: number; message: string }) => void;
 }
@@ -32,8 +33,9 @@ export interface ArchiveAnalysisResult {
  * 但不再启动独立插件进程：规则与报告生成均在工作台内部完成。
  */
 export async function runArchiveAnalysis(request: ArchiveAnalysisRequest): Promise<ArchiveAnalysisResult> {
-  if (!isDiagnosticPackagePath(request.sourcePath)) {
-    throw new Error('仅支持 .tgz 或 .tgz.temp 格式的诊断包');
+  const archiveFormat = getDiagnosticPackageFormat(request.sourcePath);
+  if (!archiveFormat) {
+    throw new Error('仅支持 .tgz、.tgz.temp 或 .zip 格式的诊断包');
   }
 
   request.onProgress?.({ progress: 5, message: '正在准备诊断包' });
@@ -43,17 +45,21 @@ export async function runArchiveAnalysis(request: ArchiveAnalysisRequest): Promi
 
   try {
     request.onProgress?.({ progress: 12, message: '正在解压诊断包' });
-    await tar.x({ file: request.sourcePath, cwd: request.extractDirectory, gzip: true, strict: true });
+    if (archiveFormat === 'tgz') {
+      await tar.x({ file: request.sourcePath, cwd: request.extractDirectory, gzip: true, strict: true });
+    } else {
+      await extractZip(request.sourcePath, { dir: request.extractDirectory });
+    }
   } catch (error) {
     throw new Error(`无法解压诊断包：${error instanceof Error ? error.message : String(error)}`);
   }
 
   request.onProgress?.({ progress: 30, message: '正在扫描日志文件' });
-  const analysis = await analyzeExtractedDirectory(request.extractDirectory, request.rules, ({ processedFiles, totalFiles }) => {
+  const analysis = await analyzeExtractedDirectory(request.extractDirectory, request.rules[archiveFormat], ({ processedFiles, totalFiles }) => {
     request.onProgress?.({ progress: 30 + Math.round((processedFiles / Math.max(totalFiles, 1)) * 40), message: `正在扫描日志文件（${processedFiles}/${totalFiles}）` });
   });
   request.onProgress?.({ progress: 70, message: '正在分析系统与存储信息' });
-  const structured = await analyzeStructuredExtract(request.extractDirectory, analysis);
+  const structured = await analyzeStructuredExtract(request.extractDirectory, analysis, archiveFormat);
   request.onProgress?.({ progress: 88, message: '正在生成分析报告' });
   const reportDirectory = join(request.extractDirectory, 'Report');
   const reportPath = join(reportDirectory, 'index.html');

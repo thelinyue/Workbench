@@ -1,24 +1,37 @@
 import { readdir, readFile, stat } from 'node:fs/promises';
 import { basename, join, relative } from 'node:path';
+import { gunzipSync } from 'node:zlib';
 
 export type IssueSeverity = 'critical' | 'warning' | 'info';
+
+export interface AnalyzerKeywordRule {
+  term: string;
+  result: string;
+  regex?: boolean;
+  severity?: IssueSeverity;
+  context_lines?: number;
+  context_direction?: 'up' | 'down';
+  search_direction?: 'up' | 'down';
+}
+
+export interface AnalyzerFileRule {
+  name: string;
+  /** ZIP 诊断包的日志名称会带设备编号，使用模式匹配但仍只扫描被规则声明的文件。 */
+  file_patterns?: string[];
+  category: string;
+  keywords: AnalyzerKeywordRule[];
+}
 
 /** 由现有系统诊断插件 config.json 演化而来的内置规则格式。 */
 export interface AnalyzerRuleConfig {
   version?: string;
-  files: Array<{
-    name: string;
-    category: string;
-    keywords: Array<{
-      term: string;
-      result: string;
-      regex?: boolean;
-      severity?: IssueSeverity;
-      context_lines?: number;
-      context_direction?: 'up' | 'down';
-      search_direction?: 'up' | 'down';
-    }>;
-  }>;
+  files: AnalyzerFileRule[];
+}
+
+/** TGZ 与 ZIP 各自维护完整规则集，归档入口只会传递当前格式对应的一套规则。 */
+export interface AnalyzerRuleCatalog {
+  tgz: AnalyzerRuleConfig;
+  zip: AnalyzerRuleConfig;
 }
 
 export interface AnalysisContextLine {
@@ -67,10 +80,10 @@ export async function analyzeExtractedDirectory(
 
   let processedFiles = 0;
   for (const filePath of files) {
-    const rule = fileRules.get(basename(filePath).toLowerCase());
+    const rule = findFileRule(basename(filePath), fileRules, rules.files);
     if (!rule) { processedFiles += 1; onProgress?.({ processedFiles, totalFiles: files.length }); continue; }
 
-    const content = await readFile(filePath, 'utf8');
+    const content = await readLogContent(filePath);
     const issues = matchRules(content, rule.keywords);
     if (issues.length === 0) { processedFiles += 1; onProgress?.({ processedFiles, totalFiles: files.length }); continue; }
 
@@ -84,6 +97,17 @@ export async function analyzeExtractedDirectory(
   }
 
   return { files: results };
+}
+
+/** 精确文件名优先，只有精确规则不存在时才使用 ZIP 配置显式声明的文件名模式。 */
+function findFileRule(fileName: string, exactRules: Map<string, AnalyzerFileRule>, rules: AnalyzerFileRule[]): AnalyzerFileRule | undefined {
+  return exactRules.get(fileName.toLowerCase()) ?? rules.find((rule) => rule.file_patterns?.some((pattern) => new RegExp(pattern, 'i').test(fileName)));
+}
+
+/** .gz 仅在命中规则的日志上解压，避免将归档中的其他二进制文件当作文本扫描。 */
+async function readLogContent(filePath: string): Promise<string> {
+  const content = await readFile(filePath);
+  return basename(filePath).toLowerCase().endsWith('.gz') ? gunzipSync(content).toString('utf8') : content.toString('utf8');
 }
 
 async function listFiles(directory: string): Promise<string[]> {
@@ -104,7 +128,7 @@ async function listFiles(directory: string): Promise<string[]> {
 
 function matchRules(
   content: string,
-  keywords: AnalyzerRuleConfig['files'][number]['keywords']
+  keywords: AnalyzerKeywordRule[]
 ): AnalysisIssue[] {
   const lines = content.split(/\r?\n/);
   const issues: AnalysisIssue[] = [];
@@ -130,7 +154,7 @@ function matchRules(
   return issues;
 }
 
-function createMatcher(keyword: AnalyzerRuleConfig['files'][number]['keywords'][number]): (line: string) => boolean {
+function createMatcher(keyword: AnalyzerKeywordRule): (line: string) => boolean {
   if (keyword.regex) {
     const pattern = new RegExp(keyword.term, 'i');
     return (line) => pattern.test(line);

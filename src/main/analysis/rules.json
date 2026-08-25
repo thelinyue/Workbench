@@ -1,4 +1,5 @@
 {
+  "tgz": {
     "files": [
         {
             "name": "sysinfo.json", 
@@ -53,7 +54,14 @@
                 {"term": "i915.*timed out", "result": "i915 GPU异常","regex": true, "context_lines": 0, "context_direction": "down", "search_direction": "up"},
                 {"term": "i915.*GPU HANG", "result": "i915 GPU异常","regex": true, "context_lines": 0, "context_direction": "down", "search_direction": "up"},
                 {"term": "thunderbolt.*retimer disconnected", "result": "雷电连接已断开（查看断开间隔、频率判断问题）","regex": true, "context_lines": 2, "context_direction": "down", "search_direction": "up"},
-                {"term": "usb usb.*-port.*config error", "result": "USB接口识别异常","regex": true, "context_lines": 2, "context_direction": "down", "search_direction": "up"}
+                {"term": "usb usb.*-port.*config error", "result": "USB接口识别异常","regex": true, "context_lines": 2, "context_direction": "down", "search_direction": "up"},
+                {"term": "Linux version", "result": "记录到内核启动标记，可用于确认一次启动或重启","regex": false, "severity": "info", "context_lines": 1, "context_direction": "down", "search_direction": "up"},
+                {"term": "EXT4-fs.*recovery complete", "result": "EXT4 文件系统启动时完成日志恢复，支持上次未正常卸载","regex": true, "severity": "warning", "context_lines": 1, "context_direction": "down", "search_direction": "up"},
+                {"term": "EXT4-fs.*orphan inode(?:s)? deleted", "result": "EXT4 清理未正常关闭遗留的 orphan inode，支持上次异常中断","regex": true, "severity": "warning", "context_lines": 1, "context_direction": "down", "search_direction": "up"},
+                {"term": "Kernel panic", "result": "发现内核崩溃证据，需优先检查内核、驱动和硬件","regex": false, "severity": "critical", "context_lines": 20, "context_direction": "down", "search_direction": "up"},
+                {"term": "(?:Out of memory|oom-kill)", "result": "发现内存耗尽证据，需检查高占用进程或虚拟机","regex": true, "severity": "critical", "context_lines": 2, "context_direction": "down", "search_direction": "up"},
+                {"term": "thermal.*shutdown", "result": "发现过温关机证据，需检查散热和环境温度","regex": true, "severity": "critical", "context_lines": 2, "context_direction": "down", "search_direction": "up"},
+                {"term": "watchdog.*(?:hard|soft) lockup", "result": "发现看门狗锁死证据，需检查内核、驱动和硬件","regex": true, "severity": "critical", "context_lines": 2, "context_direction": "down", "search_direction": "up"}
             ]
         },
         {
@@ -83,7 +91,17 @@
                 {"term": "i915.*timed out", "result": "i915 GPU异常","regex": true, "context_lines": 0, "context_direction": "down", "search_direction": "up"},
                 {"term": "i915.*GPU HANG", "result": "i915 GPU异常","regex": true, "context_lines": 0, "context_direction": "down", "search_direction": "up"},
                 {"term": "earlyoom.*sending SIGKILL", "result": "程序内存占用过高，触发oom","regex": true, "context_lines": 0, "context_direction": "down", "search_direction": "up"},
-                {"term": "earlyoom.*sending SIGKILL.*qemu-system-x86", "result": "虚拟机实例内存占用过高，触发oom","regex": true, "context_lines": 0, "context_direction": "down", "search_direction": "up"}
+                {"term": "earlyoom.*sending SIGKILL.*qemu-system-x86", "result": "虚拟机实例内存占用过高，触发oom","regex": true, "context_lines": 0, "context_direction": "down", "search_direction": "up"},
+                {"term": "Linux version", "result": "记录到内核启动标记，可用于确认一次启动或重启","regex": false, "severity": "info", "context_lines": 1, "context_direction": "down", "search_direction": "up"},
+                {"term": "EXT4-fs.*recovery complete", "result": "EXT4 文件系统启动时完成日志恢复，支持上次未正常卸载","regex": true, "severity": "warning", "context_lines": 1, "context_direction": "down", "search_direction": "up"},
+                {"term": "EXT4-fs.*orphan inode(?:s)? deleted", "result": "EXT4 清理未正常关闭遗留的 orphan inode，支持上次异常中断","regex": true, "severity": "warning", "context_lines": 1, "context_direction": "down", "search_direction": "up"},
+                {"term": "Kernel panic", "result": "发现内核崩溃证据，需优先检查内核、驱动和硬件","regex": false, "severity": "critical", "context_lines": 20, "context_direction": "down", "search_direction": "up"},
+                {"term": "(?:Out of memory|oom-kill)", "result": "发现内存耗尽证据，需检查高占用进程或虚拟机","regex": true, "severity": "critical", "context_lines": 2, "context_direction": "down", "search_direction": "up"},
+                {"term": "thermal.*shutdown", "result": "发现过温关机证据，需检查散热和环境温度","regex": true, "severity": "critical", "context_lines": 2, "context_direction": "down", "search_direction": "up"},
+                {"term": "watchdog.*(?:hard|soft) lockup", "result": "发现看门狗锁死证据，需检查内核、驱动和硬件","regex": true, "severity": "critical", "context_lines": 2, "context_direction": "down", "search_direction": "up"},
+                {"term": "UPS .*on battery", "result": "UPS 已切换至电池供电，说明外部输入曾出现异常","regex": true, "severity": "warning", "context_lines": 1, "context_direction": "down", "search_direction": "up"},
+                {"term": "upsmon.*Communications with UPS.*lost", "result": "UPS 通信丢失，需结合 UPS 事件日志判断是否发生掉电","regex": true, "severity": "warning", "context_lines": 1, "context_direction": "down", "search_direction": "up"},
+                {"term": "upssched.*Event: upsgone", "result": "UPS 设备离线，需结合 UPS 事件日志判断是否发生掉电","regex": true, "severity": "warning", "context_lines": 1, "context_direction": "down", "search_direction": "up"}
             ]
         },
         {
@@ -107,7 +125,17 @@
                 {"term": "BTRFS error", "result": "BTRFS文件系统错误","regex": false, "context_lines": 0, "context_direction": "down", "search_direction": "up"},
                 {"term": "postgres.*No space left on device", "result": "系统存储空间不足，程序可能运行异常，用户登录失败","regex": true, "context_lines": 0, "context_direction": "down", "search_direction": "up"},
                 {"term": "i915.*timed out", "result": "i915 GPU异常","regex": true, "context_lines": 0, "context_direction": "down", "search_direction": "up"},
-                {"term": "i915.*GPU HANG", "result": "i915 GPU异常","regex": true, "context_lines": 0, "context_direction": "down", "search_direction": "up"}
+                {"term": "i915.*GPU HANG", "result": "i915 GPU异常","regex": true, "context_lines": 0, "context_direction": "down", "search_direction": "up"},
+                {"term": "Linux version", "result": "记录到内核启动标记，可用于确认一次启动或重启","regex": false, "severity": "info", "context_lines": 1, "context_direction": "down", "search_direction": "up"},
+                {"term": "EXT4-fs.*recovery complete", "result": "EXT4 文件系统启动时完成日志恢复，支持上次未正常卸载","regex": true, "severity": "warning", "context_lines": 1, "context_direction": "down", "search_direction": "up"},
+                {"term": "EXT4-fs.*orphan inode(?:s)? deleted", "result": "EXT4 清理未正常关闭遗留的 orphan inode，支持上次异常中断","regex": true, "severity": "warning", "context_lines": 1, "context_direction": "down", "search_direction": "up"},
+                {"term": "Kernel panic", "result": "发现内核崩溃证据，需优先检查内核、驱动和硬件","regex": false, "severity": "critical", "context_lines": 20, "context_direction": "down", "search_direction": "up"},
+                {"term": "(?:Out of memory|oom-kill)", "result": "发现内存耗尽证据，需检查高占用进程或虚拟机","regex": true, "severity": "critical", "context_lines": 2, "context_direction": "down", "search_direction": "up"},
+                {"term": "thermal.*shutdown", "result": "发现过温关机证据，需检查散热和环境温度","regex": true, "severity": "critical", "context_lines": 2, "context_direction": "down", "search_direction": "up"},
+                {"term": "watchdog.*(?:hard|soft) lockup", "result": "发现看门狗锁死证据，需检查内核、驱动和硬件","regex": true, "severity": "critical", "context_lines": 2, "context_direction": "down", "search_direction": "up"},
+                {"term": "UPS .*on battery", "result": "UPS 已切换至电池供电，说明外部输入曾出现异常","regex": true, "severity": "warning", "context_lines": 1, "context_direction": "down", "search_direction": "up"},
+                {"term": "upsmon.*Communications with UPS.*lost", "result": "UPS 通信丢失，需结合 UPS 事件日志判断是否发生掉电","regex": true, "severity": "warning", "context_lines": 1, "context_direction": "down", "search_direction": "up"},
+                {"term": "upssched.*Event: upsgone", "result": "UPS 设备离线，需结合 UPS 事件日志判断是否发生掉电","regex": true, "severity": "warning", "context_lines": 1, "context_direction": "down", "search_direction": "up"}
             ]
         },
         {
@@ -244,4 +272,46 @@
             ]
         }
     ]
-}    
+  },
+  "zip": {
+    "files": [
+      {
+        "name": "zip_syslog",
+        "file_patterns": ["^.+_syslog$"],
+        "category": "ZIP 系统日志",
+        "keywords": [
+          {"term": "nvme.*I/O.*timeout,.*aborting", "result": "NVMe I/O 超时，控制器请求已中止", "regex": true, "severity": "warning", "context_lines": 4},
+          {"term": "nvme.*I/O.*timeout,.*reset controller", "result": "NVMe I/O 超时后控制器重置失败", "regex": true, "severity": "critical", "context_lines": 4},
+          {"term": "nvme.*Device not ready; aborting reset", "result": "NVMe 设备未就绪，重置已中止", "regex": true, "severity": "critical", "context_lines": 4},
+          {"term": "nvme.*Removing after probe failure status: -19", "result": "NVMe 探测失败后已移除设备", "regex": true, "severity": "critical", "context_lines": 2},
+          {"term": "blk_update_request: I/O error, dev nvme", "result": "NVMe 块设备发生 I/O 错误", "regex": false, "severity": "critical", "context_lines": 2},
+          {"term": "XFS.*Log I/O Error Detected.*Shutting down filesystem", "result": "XFS 日志 I/O 错误，文件系统已强制关闭", "regex": true, "severity": "critical", "context_lines": 2},
+          {"term": "UPS ups0@localhost on battery", "result": "UPS 已切换至电池供电", "regex": false, "severity": "warning", "context_lines": 2},
+          {"term": "upssched.*Event: upsgone", "result": "UPS 通信中断触发关机事件", "regex": true, "severity": "critical", "context_lines": 2},
+          {"term": "upsmon.*Communications with UPS.*lost", "result": "与 UPS 的通信已丢失", "regex": true, "severity": "info", "context_lines": 2}
+        ]
+      },
+      {
+        "name": "zip_dmsg",
+        "file_patterns": ["^.+_dmsg\\.log\\.gz$"],
+        "category": "ZIP 内核日志",
+        "keywords": [
+          {"term": "nvme.*I/O.*timeout,.*aborting", "result": "NVMe I/O 超时，控制器请求已中止", "regex": true, "severity": "warning", "context_lines": 4},
+          {"term": "nvme.*I/O.*timeout,.*reset controller", "result": "NVMe I/O 超时后控制器重置失败", "regex": true, "severity": "critical", "context_lines": 4},
+          {"term": "nvme.*Device not ready; aborting reset", "result": "NVMe 设备未就绪，重置已中止", "regex": true, "severity": "critical", "context_lines": 4},
+          {"term": "nvme.*Removing after probe failure status: -19", "result": "NVMe 探测失败后已移除设备", "regex": true, "severity": "critical", "context_lines": 2},
+          {"term": "blk_update_request: I/O error, dev nvme", "result": "NVMe 块设备发生 I/O 错误", "regex": false, "severity": "critical", "context_lines": 2},
+          {"term": "XFS.*Log I/O Error Detected.*Shutting down filesystem", "result": "XFS 日志 I/O 错误，文件系统已强制关闭", "regex": true, "severity": "critical", "context_lines": 2}
+        ]
+      },
+      {
+        "name": "zip_storage",
+        "file_patterns": ["^nas_storage\\.log\\.\\d+$"],
+        "category": "ZIP 存储服务日志",
+        "keywords": [
+          {"term": "append hotplug event\\s*:\\s*remove\\s+nvme\\d+(?:n\\d+(?:p\\d+)?)?", "result": "存储服务记录到 NVMe 移除事件", "regex": true, "severity": "critical", "context_lines": 2}
+        ]
+      }
+    ]
+  }
+}

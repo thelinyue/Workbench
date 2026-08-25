@@ -27,10 +27,19 @@ export interface LifecycleDeletionPlan {
   taskIds: string[];
 }
 
+export type DiagnosticPackageFormat = 'tgz' | 'zip';
+
+/** 根据扩展名确定归档格式，格式也是规则目录的唯一选择依据。 */
+export function getDiagnosticPackageFormat(filePath: string): DiagnosticPackageFormat | undefined {
+  const normalizedPath = filePath.trim().toLowerCase();
+  if (normalizedPath.endsWith('.tgz') || normalizedPath.endsWith('.tgz.temp')) return 'tgz';
+  if (normalizedPath.endsWith('.zip')) return 'zip';
+  return undefined;
+}
+
 /** 仅允许工作台已经定义并可被内置引擎处理的诊断包扩展名。 */
 export function isDiagnosticPackagePath(filePath: string): boolean {
-  const normalizedPath = filePath.trim().toLowerCase();
-  return normalizedPath.endsWith('.tgz') || normalizedPath.endsWith('.tgz.temp');
+  return getDiagnosticPackageFormat(filePath) !== undefined;
 }
 
 /**
