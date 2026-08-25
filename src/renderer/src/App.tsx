@@ -483,39 +483,15 @@ function AnalysisCenter({ showError, showNotice }: AnalysisCenterProps) {
   const toggleAll = () => setSelectedIds(selectedIds.length === selectablePackages.length ? [] : selectablePackages.map((item) => item.id));
   const rightClick = (event: React.MouseEvent, item: RendererDiagnosticPackage) => { event.preventDefault(); setContextMenu({ packageItem: item, x: Math.min(event.clientX, window.innerWidth - 210), y: Math.min(event.clientY, window.innerHeight - 180) }); };
 
-  return <div className="analysis-view" onContextMenu={(event) => event.preventDefault()}>
-    <div className="analysis-heading">
-      <div><span className="eyebrow">SYSTEM DIAGNOSTICS</span><h1>分析中心</h1><p>导入诊断包，快速完成系统日志分析并查看报告。</p></div>
-      <div className="analysis-heading-metric"><span>最新诊断包</span><strong>{packages.length.toString().padStart(2, '0')}</strong></div>
-    </div>
-
-    <div className="analysis-actions" aria-label="分析操作">
-      <ActionTile icon={Upload} label="导入诊断包" hint="选择 .tgz / .tgz.temp" onClick={importPackage} busy={busyAction === 'import'} accent="violet" />
-      <ActionTile icon={RefreshCw} label="扫描监控目录" hint="手动发现新文件" onClick={scanDirectory} busy={busyAction === 'scan'} accent="blue" />
-      <ActionTile icon={Play} label="分析全部待处理" hint="批量启动分析" onClick={requestAnalyzeAll} busy={busyAction === 'all'} accent="amber" />
-    </div>
-
-    <div className="analysis-toolbar">
-      <div className="section-title"><FileArchive size={18} /><div><strong>最新诊断包</strong><span>按最近导入或检测时间排列</span></div></div>
-      <div className="toolbar-actions">
-        {completedOrFailed.length > 0 && <button type="button" className="quiet-button" onClick={() => setSelectedIds(completedOrFailed.map((item) => item.id))}><CheckCircle2 size={15} />选择已完成 / 失败</button>}
-        {selectedIds.length > 0 && <button type="button" className="danger-button" onClick={() => void requestDelete(deletableSelected)}><Trash2 size={15} />删除所选（{deletableSelected.length}）</button>}
-        {sortedPackages.length > 0 && <button type="button" className="icon-only-button" aria-label={selectedIds.length === selectablePackages.length ? '取消全选' : '选择可删除项目'} onClick={toggleAll}><ListChecks size={18} /></button>}
-      </div>
-    </div>
-
-    {sortedPackages.length === 0 ? <EmptyPackages onImport={importPackage} onScan={scanDirectory} busyAction={busyAction} /> : <div className="package-grid">
-      {sortedPackages.map((item) => <PackageCard key={item.id} item={item} selected={selectedIds.includes(item.id)} onToggle={() => toggleSelected(item.id)} onContextMenu={(event) => rightClick(event, item)} onAnalyze={() => analyzeOne(item)} onOpenReport={() => void openReport(item)} busy={busyAction === `analyze-${item.id}`} />)}
-    </div>}
-
-    <div className="analysis-footer"><span><ShieldCheck size={14} />删除诊断包会同时删除原始包、解压目录、报告与分析记录</span><span>{runningPackages.length > 0 ? `${runningPackages.length} 个诊断包正在分析，暂不可删除` : '右键诊断包查看更多操作'}</span></div>
-
-    {contextMenu && <ContextMenu menu={contextMenu} onAnalyze={() => { setContextMenu(null); void analyzeOne(contextMenu.packageItem); }} onStorageAnalyze={() => { setContextMenu(null); void analyzeOne(contextMenu.packageItem, 'storage'); }} onLocateSource={() => void locate(contextMenu.packageItem, 'source')} onLocateExtract={() => void locate(contextMenu.packageItem, 'extract')} onDelete={() => void requestDelete([contextMenu.packageItem])} />}
-    {deleteDialog && <DeleteDialog dialog={deleteDialog} confirmPermanent={confirmPermanent} busy={busyAction === 'delete'} onChange={setConfirmPermanent} onCancel={() => setDeleteDialog(null)} onConfirm={() => void confirmDelete()} />}
-    {batchAnalysisOpen && <BatchAnalysisDialog packages={pendingPackages} busy={busyAction === 'all'} onCancel={() => setBatchAnalysisOpen(false)} onConfirm={() => void analyzeAll()} />}
+  const activePackage = selectedPackages.length === 1 ? selectedPackages[0] : undefined;
+  return <div className="analysis-view analysis-explorer" onContextMenu={(event) => event.preventDefault()}>
+    <div className="analysis-compact-toolbar"><button type="button" className="primary-button" onClick={importPackage}><Upload size={15} />导入</button><button type="button" className="secondary-button" onClick={scanDirectory}><RefreshCw size={15} />扫描</button><button type="button" className="secondary-button" onClick={requestAnalyzeAll}><Play size={15} />综合分析</button><span className="analysis-toolbar-spacer" />{sortedPackages.length} 个诊断包</div>
+    <aside className="analysis-sidebar"><strong>诊断包</strong><button type="button">全部 <span>{packages.length}</span></button><button type="button">待分析 <span>{pendingPackages.length}</span></button><button type="button">已完成 <span>{packages.filter((item) => item.status === 'report-ready').length}</span></button><button type="button">失败 <span>{packages.filter((item) => item.status === 'failed').length}</span></button></aside>
+    <section className="analysis-list-pane"><div className="analysis-toolbar"><div className="section-title"><FileArchive size={16} /><strong>诊断包</strong></div><div className="toolbar-actions">{selectedIds.length > 0 && <button type="button" className="danger-button" onClick={() => void requestDelete(deletableSelected)}><Trash2 size={15} />删除（{deletableSelected.length}）</button>}</div></div>{sortedPackages.length === 0 ? <EmptyPackages onImport={importPackage} onScan={scanDirectory} busyAction={busyAction} /> : <div className="package-grid package-list">{sortedPackages.map((item) => <PackageCard key={item.id} item={item} selected={selectedIds.includes(item.id)} onToggle={() => toggleSelected(item.id)} onContextMenu={(event) => rightClick(event, item)} onAnalyze={() => analyzeOne(item)} onOpenReport={() => void openReport(item)} busy={busyAction === `analyze-${item.id}`} />)}</div>}</section>
+    <aside className="analysis-inspector">{activePackage ? <><h2>{activePackage.displayName}</h2><p>{activePackage.sourcePath}</p><button type="button" className="primary-button" onClick={() => void analyzeOne(activePackage)}><Play size={15} />综合分析</button><button type="button" className="secondary-button" onClick={() => void analyzeOne(activePackage, 'storage')}><HardDrive size={15} />存储健康分析</button>{activePackage.reportPath && <button type="button" className="secondary-button" onClick={() => void openReport(activePackage)}><ExternalLink size={15} />打开报告</button>}</> : <><h2>属性</h2><p>选择诊断包可查看状态、路径与快捷操作。</p><button type="button" className="secondary-button" onClick={importPackage}><Upload size={15} />导入诊断包</button></>}</aside>
+    {contextMenu && <ContextMenu menu={contextMenu} onAnalyze={() => { setContextMenu(null); void analyzeOne(contextMenu.packageItem); }} onStorageAnalyze={() => { setContextMenu(null); void analyzeOne(contextMenu.packageItem, 'storage'); }} onLocateSource={() => void locate(contextMenu.packageItem, 'source')} onLocateExtract={() => void locate(contextMenu.packageItem, 'extract')} onDelete={() => void requestDelete([contextMenu.packageItem])} />}{deleteDialog && <DeleteDialog dialog={deleteDialog} confirmPermanent={confirmPermanent} busy={busyAction === 'delete'} onChange={setConfirmPermanent} onCancel={() => setDeleteDialog(null)} onConfirm={() => void confirmDelete()} />}{batchAnalysisOpen && <BatchAnalysisDialog packages={pendingPackages} busy={busyAction === 'all'} onCancel={() => setBatchAnalysisOpen(false)} onConfirm={() => void analyzeAll()} />}
   </div>;
 }
-
 function ActionTile({ icon: Icon, label, hint, onClick, busy, accent }: { icon: LucideIcon; label: string; hint: string; onClick: () => void; busy: boolean; accent: string }) {
   return <button className={`action-tile action-tile-${accent}`} type="button" onClick={onClick} disabled={busy} aria-label={label}>{busy ? <LoaderCircle className="spin" size={22} /> : <Icon size={22} />}<span><strong>{label}</strong><small>{busy ? '处理中…' : hint}</small></span><ChevronDown className="action-arrow" size={15} /></button>;
 }
