@@ -44,7 +44,7 @@ jobs:
       - name: 发布 ZIP 并更新 Catalog
         shell: pwsh
         env:
-          GH_TOKEN: ${{ secrets.APPS_RELEASES_TOKEN }}
+          GH_TOKEN: ${{ secrets.RELEASES_TOKEN }}
         run: |
           if ([string]::IsNullOrWhiteSpace($env:GH_TOKEN)) { throw "未配置 APPS_RELEASES_TOKEN。" }
           $manifest = Get-Content -Raw -Encoding UTF8 "apps/lvm-uncache-tool/manifest.json" | ConvertFrom-Json
