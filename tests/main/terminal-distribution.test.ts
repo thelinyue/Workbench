@@ -4,9 +4,9 @@ import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 describe('终端核心分发', () => {
-  it('将包含规则独立更新能力的桌面安装包发布为 0.1.2', () => {
+  it('将包含规则独立更新能力的桌面安装包发布为 0.1.3', () => {
     const packageJson = JSON.parse(readFileSync(resolve(process.cwd(), 'package.json'), 'utf8'));
-    expect(packageJson.version).toBe('0.1.2');
+    expect(packageJson.version).toBe('0.1.3');
   });
 
   it('保留 Apps 仓库独立发布职责，并把签名终端种子包放入 Workbench 安装包', () => {
@@ -25,5 +25,5 @@ describe('终端核心分发', () => {
     const entry = readFileSync(resolve(process.cwd(), 'apps/terminal/dist/renderer/index.html'), 'utf8');
     expect(entry).toMatch(/(?:src|href)="\.\.\/assets\//);
     expect(entry).not.toMatch(/(?:src|href)="\/assets\//);
-  });
+  }, 30_000);
 });

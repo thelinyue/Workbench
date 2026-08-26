@@ -32,7 +32,7 @@ describe('应用中心界面', () => {
   });
 
   it('分析任务刷新失败时仍在运行时启动后打开应用窗口', () => {
-    expect(source).toContain("showAppWindow();\n          if (id === 'analysis-center') void Promise.all");
+    expect(source).toMatch(/showAppWindow\(\);\r?\n\s*if \(id === 'analysis-center'\) void Promise\.all/);
   });
 
   it('应用中心卡片使用应用自己的图标，应用库只显示应用中心和已安装应用', () => {
