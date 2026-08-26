@@ -647,7 +647,7 @@ function AppCenter({ onOpenApp, showError, showNotice }: AppCenterProps) {
   };
 
   return <div className="app-center-view">
-    <div className="app-center-heading"><div><span className="eyebrow">WORKBENCH APPS</span><h1>应用中心</h1><p>安装、更新和启动独立版本的工作台应用。</p></div><button type="button" className="secondary-button" disabled={refreshing} onClick={() => void refreshCatalog()}>{refreshing ? <LoaderCircle className="spin" size={15} /> : <RefreshCw size={15} />}刷新目录</button></div>
+    <div className="app-center-toolbar"><button type="button" className="secondary-button" disabled={refreshing} onClick={() => void refreshCatalog()}>{refreshing ? <LoaderCircle className="spin" size={15} /> : <RefreshCw size={15} />}刷新目录</button></div>
      {loading ? <div className="app-center-empty"><LoaderCircle className="spin" size={24} /><span>正在读取应用目录…</span></div> : apps.length === 0 ? <div className="app-center-empty"><PackageOpen size={28} /><strong>暂无可用应用</strong><span>请刷新目录，或检查应用目录配置。</span></div> : <div className="app-card-grid">{apps.map((item) => <article className="app-card" key={item.id}><div className="app-card-icon"><img src={resolveAppIconUrl(item.id)} alt="" aria-hidden="true" /></div><div className="app-card-body"><div className="app-card-title"><h2>{item.name}</h2><span className={`app-state app-state-${item.state}`}>{APP_STATE_LABELS[item.state]}</span></div><p>{item.description}</p><small>{item.activeVersion ? `当前版本 ${item.activeVersion}` : item.availableVersion ? `可安装版本 ${item.availableVersion}` : '等待目录信息'}</small>{item.errorMessage && <div className="app-card-error"><CircleAlert size={14} />{item.errorMessage}</div>}</div><div className="app-card-actions">{renderAction(item)}</div></article>)}</div>}
   </div>;
 }

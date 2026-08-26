@@ -13,6 +13,14 @@ describe('应用中心界面', () => {
     expect(source).toContain('应用中心');
   });
 
+  it('将应用名称留在窗口栏，并保留目录刷新操作', () => {
+    expect(source).not.toContain('<h1>应用中心</h1>');
+    expect(source).toContain('刷新目录');
+    expect(source).toContain('refreshCatalog()');
+    expect(styles).toContain('.app-center-toolbar { display: flex; justify-content: flex-end; margin-bottom: 12px; }');
+    expect(styles).toContain('.app-card-grid { display: grid; margin-top: 0;');
+  });
+
   it('应用窗口由 registry 中的应用 ID 打开，而不是写死分析中心组件', () => {
     expect(source).toContain("item.id === 'app-center'");
     expect(source).toContain('item.id !== \'app-center\'');
