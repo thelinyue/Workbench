@@ -8,38 +8,28 @@
   "scripts": {
     "dev": "electron-vite dev",
     "build": "electron-vite build",
-    "build:analysis-center": "node tools/build-analysis-center.mjs",
-    "build:lvm-uncache-tool": "node tools/build-lvm-uncache-tool.mjs",
-    "typecheck:analysis-center": "tsc --noEmit -p apps/analysis-center/tsconfig.json",
-    "test:analysis-center": "vitest run -c apps/analysis-center/vitest.config.ts",
-    "package:win": "npm run build:analysis-center && npm run build && electron-builder --win nsis",
+    "fetch:seed-app": "node tools/fetch-seed-app.mjs",
+    "package:win": "npm run fetch:seed-app && npm run build && electron-builder --win nsis",
     "preview": "electron-vite preview",
     "test": "vitest run",
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit",
-    "typecheck:ssh-terminal": "tsc --noEmit -p apps/ssh-terminal/tsconfig.json",
-    "build:ssh-terminal": "node tools/build-ssh-terminal.mjs"
+    "test:host": "vitest run tests/main tests/renderer"
   },
   "dependencies": {
     "@electron-toolkit/preload": "^3.0.1",
     "@electron-toolkit/utils": "^4.0.0",
-    "@xterm/addon-fit": "^0.11.0",
-    "@xterm/xterm": "^6.0.0",
-    "chokidar": "^4.0.3",
     "extract-zip": "^2.0.1",
     "keytar": "^7.9.0",
     "lucide-react": "^0.468.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
-    "ssh2": "^1.17.0",
-    "tar": "^7.4.3",
     "zod": "^3.24.2"
   },
   "devDependencies": {
     "@types/node": "^22.13.4",
     "@types/react": "^19.0.8",
     "@types/react-dom": "^19.0.3",
-    "@types/ssh2": "^1.15.5",
     "@types/yazl": "^3.3.1",
     "@vitejs/plugin-react": "^4.3.4",
     "electron": "^35.0.0",
@@ -63,12 +53,12 @@
     ],
     "extraResources": [
       {
-        "from": "apps/analysis-center/dist/analysis-center-v1.0.0.zip",
-        "to": "apps/analysis-center/analysis-center-v1.0.0.zip"
+        "from": "build/seed-app/analysis-center.zip",
+        "to": "apps/analysis-center/analysis-center.zip"
       },
       {
-        "from": "apps/analysis-center/dist/release.json",
-        "to": "apps/analysis-center/analysis-center-v1.0.0.release.json"
+        "from": "build/seed-app/release.json",
+        "to": "apps/analysis-center/release.json"
       },
       {
         "from": "src/main/config/app-trusted-keys.json",

@@ -1,8 +1,22 @@
-import type { DiagnosticPackage, DiagnosticPackageStatus } from '../../main/domain/diagnostic-package';
 import type { AppInstallRecord } from '../../shared/app-contract';
 
-/** 渲染进程使用的诊断包模型，保持与主进程领域模型一致但不拥有任何文件系统能力。 */
-export type RendererDiagnosticPackage = DiagnosticPackage;
+export type DiagnosticPackageStatus = 'pending' | 'queued' | 'running' | 'report-ready' | 'failed' | 'cancelled';
+
+/**
+ * 宿主只展示应用通过 RPC 返回的摘要，不再依赖分析应用的主进程领域类型。
+ * 这样 Workbench 可以只维护 Host API，而分析业务类型由 Workbench-Apps 独立演进。
+ */
+export interface RendererDiagnosticPackage {
+  id: string;
+  displayName: string;
+  detectedAt: string;
+  status: DiagnosticPackageStatus;
+  sourcePath?: string;
+  extractPath?: string;
+  reportPath?: string;
+  taskIds?: string[];
+  caseId?: string;
+}
 
 export type WorkbenchNotificationType = 'diagnostic-package' | 'app-update' | 'notice' | 'error';
 

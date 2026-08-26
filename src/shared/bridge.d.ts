@@ -1,4 +1,4 @@
-import type { DesktopIconLayout } from '../main/data/workspace-repository';
+import type { DesktopIconLayout } from '../main/data/desktop-layout-repository';
 import type { AppCatalogSnapshot, AppHostEvent, AppInstallRecord } from './app-contract';
 
 export interface WorkbenchBridge {

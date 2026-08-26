@@ -3,36 +3,25 @@ name: 构建 Electron Windows 安装包
 on:
   push:
     tags:
-      - "v*.*.*"
+      - 'v*.*.*'
   workflow_dispatch:
-    inputs:
-      publish:
-        description: "同时发布到公开 Releases 仓库"
-        required: true
-        default: false
-        type: boolean
 
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
   group: release-${{ github.ref_name }}
   cancel-in-progress: false
 
-env:
-  RELEASES_REPO: thelinyue/Hephaestus-Workbench-Releases
-
 jobs:
   build:
-    name: 构建与校验
+    name: 构建与发布
     runs-on: windows-latest
     timeout-minutes: 30
 
     steps:
       - name: 检出源码
         uses: actions/checkout@v4
-        with:
-          persist-credentials: false
 
       - name: 配置 Node.js
         uses: actions/setup-node@v4
@@ -52,26 +41,13 @@ jobs:
         run: |
           $package = Get-Content -Raw -Encoding UTF8 "package.json" | ConvertFrom-Json
           $version = [string]$package.version
-          if ($version -notmatch '^\d+\.\d+\.\d+$') {
-            throw "package.json 版本号无效：$version；必须为 X.Y.Z。"
-          }
-
+          if ($version -notmatch '^\d+\.\d+\.\d+$') { throw "package.json 版本号无效：$version；必须为 X.Y.Z。" }
           if ("${{ github.event_name }}" -eq "push") {
             $tag = "${{ github.ref_name }}"
-            if ($tag -notmatch '^v(?<tagVersion>\d+\.\d+\.\d+)$') {
-              throw "发布标签格式无效：$tag；必须为 vX.Y.Z。"
-            }
-            if ($Matches.tagVersion -ne $version) {
-              throw "发布标签 $tag 与 package.json 版本 $version 不一致。"
-            }
-          }
-          else {
-            $tag = "v$version"
-          }
-
+            if ($tag -notmatch '^v(?<tagVersion>\d+\.\d+\.\d+)$' -or $Matches.tagVersion -ne $version) { throw "发布标签 $tag 与 package.json 版本 $version 不一致。" }
+          } else { $tag = "v$version" }
           "version=$version" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
           "tag=$tag" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
-          Write-Host "已确认 Electron 发行版本：$tag"
 
       - name: 类型检查
         shell: pwsh
@@ -98,26 +74,18 @@ jobs:
           $version = "${{ steps.version.outputs.version }}"
           $setupName = "Workbench_v$version.exe"
           $setup = Join-Path $PWD "release\$setupName"
-          if (-not (Test-Path -LiteralPath $setup -PathType Leaf)) {
-            throw "未生成预期的 Electron 安装包：$setup"
-          }
-
+          if (-not (Test-Path -LiteralPath $setup -PathType Leaf)) { throw "未生成预期的 Electron 安装包：$setup" }
           $publicDirectory = Join-Path $PWD "release-assets"
           New-Item -ItemType Directory -Force -Path $publicDirectory | Out-Null
           Copy-Item -LiteralPath $setup -Destination $publicDirectory -Force
           $hash = (Get-FileHash -Algorithm SHA256 -LiteralPath $setup).Hash.ToLowerInvariant()
           "$hash  $setupName" | Out-File -FilePath (Join-Path $publicDirectory "SHA256SUMS.txt") -Encoding utf8
-
           $publicFiles = @(Get-ChildItem -LiteralPath $publicDirectory -File)
           $actualNames = ($publicFiles.Name | Sort-Object) -join "|"
           $expectedNames = (@("SHA256SUMS.txt", $setupName) | Sort-Object) -join "|"
-          if ($publicFiles.Count -ne 2 -or $actualNames -ne $expectedNames) {
-            throw "公开资产目录包含未授权文件。"
-          }
-
+          if ($publicFiles.Count -ne 2 -or $actualNames -ne $expectedNames) { throw "公开资产目录包含未授权文件。" }
           "setup_name=$setupName" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
           "setup_hash=$hash" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
-          Write-Host "安装包校验通过：$setupName，SHA-256 $hash"
 
       - name: 上传构建 Artifact
         uses: actions/upload-artifact@v4
@@ -127,39 +95,28 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
-      - name: 发布到公开 Releases 仓库
-        if: github.event_name == 'push' || inputs.publish == true
+      - name: 发布到当前仓库 Releases
         shell: pwsh
         env:
-          GH_TOKEN: ${{ secrets.RELEASES_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
         run: |
-          if ([string]::IsNullOrWhiteSpace($env:GH_TOKEN)) {
-            throw "未配置 RELEASES_TOKEN。请使用仅授予公开 Releases 仓库 Contents 写权限的细粒度令牌。"
-          }
-
           $tag = "${{ steps.version.outputs.tag }}"
           $notes = Join-Path $PWD "distribution\releases\$tag.md"
-          if (-not (Test-Path -LiteralPath $notes -PathType Leaf)) {
-            throw "缺少公开发行说明：$notes"
-          }
-
-          gh release view $tag --repo $env:RELEASES_REPO *> $null
-          if ($LASTEXITCODE -eq 0) {
-            throw "目标 Release 已存在，拒绝覆盖历史资产：$tag"
-          }
-
+          if (-not (Test-Path -LiteralPath $notes -PathType Leaf)) { throw "缺少公开发行说明：$notes" }
+          gh release view $tag --repo $env:GITHUB_REPOSITORY *> $null
+          if ($LASTEXITCODE -eq 0) { throw "当前仓库 Release 已存在，拒绝覆盖历史资产：$tag" }
           gh release create $tag `
             "release-assets\${{ steps.assets.outputs.setup_name }}" `
             "release-assets\SHA256SUMS.txt" `
-            --repo $env:RELEASES_REPO `
+            --repo $env:GITHUB_REPOSITORY `
             --title "Workbench $tag" `
             --notes-file $notes `
             --latest
-          if ($LASTEXITCODE -ne 0) { throw "公开 Release 创建失败，退出码：$LASTEXITCODE" }
 
-      - name: 匿名验证公开下载
-        if: github.event_name == 'push' || inputs.publish == true
+      - name: 匿名验证当前仓库下载
         shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           $tag = "${{ steps.version.outputs.tag }}"
           $setupName = "${{ steps.assets.outputs.setup_name }}"
@@ -167,19 +124,10 @@ jobs:
           New-Item -ItemType Directory -Force -Path $directory | Out-Null
           $setup = Join-Path $directory $setupName
           $checksums = Join-Path $directory "SHA256SUMS.txt"
-
-          curl.exe -L --fail --silent --show-error `
-            -o $setup "https://github.com/$env:RELEASES_REPO/releases/download/$tag/$setupName"
+          curl.exe -L --fail --silent --show-error -o $setup "https://github.com/$env:GITHUB_REPOSITORY/releases/download/$tag/$setupName"
           if ($LASTEXITCODE -ne 0) { throw "匿名下载安装包失败，退出码：$LASTEXITCODE" }
-          curl.exe -L --fail --silent --show-error `
-            -o $checksums "https://github.com/$env:RELEASES_REPO/releases/download/$tag/SHA256SUMS.txt"
+          curl.exe -L --fail --silent --show-error -o $checksums "https://github.com/$env:GITHUB_REPOSITORY/releases/download/$tag/SHA256SUMS.txt"
           if ($LASTEXITCODE -ne 0) { throw "匿名下载校验文件失败，退出码：$LASTEXITCODE" }
-
           $setupHash = (Get-FileHash -Algorithm SHA256 -LiteralPath $setup).Hash.ToLowerInvariant()
           $checksumLine = (Get-Content -Raw -Encoding UTF8 $checksums).Trim()
-          if ($setupHash -ne "${{ steps.assets.outputs.setup_hash }}" -or
-              $checksumLine -ne "$setupHash  $setupName") {
-            throw "匿名下载的安装包或校验文件与构建产物不一致。"
-          }
-
-          Write-Host "匿名下载验收通过：安装包 $setupHash"
+          if ($setupHash -ne "${{ steps.assets.outputs.setup_hash }}" -or $checksumLine -ne "$setupHash  $setupName") { throw "匿名下载的安装包或校验文件与构建产物不一致。" }

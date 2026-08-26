@@ -1,6 +1,6 @@
 # Electron 分发说明
 
-Workbench 的源码仓库保持私有。当前发布物是 Electron Windows 安装包。
+Workbench 的正式安装包发布在当前 `Workbench` 仓库的 GitHub Releases。应用独立包发布在 [Workbench-Apps](https://github.com/thelinyue/Workbench-Apps) 的 GitHub Releases。
 
 ## 本地构建
 
@@ -11,29 +11,31 @@ npm test
 npm run package:win
 ```
 
-安装包由 electron-builder 生成到 `release` 目录，名称为：
+安装包由 electron-builder 生成到 `release` 目录，名称为 `Workbench_v<package.json.version>.exe`。打包前会运行 `npm run fetch:seed-app`，从 `Workbench-Apps` 正式 Release 下载分析中心种子包并执行以下检查：
 
-```text
-Workbench_v<package.json.version>.exe
-```
+- HTTPS 下载地址；
+- SemVer、宿主 API 和最低 Workbench 版本；
+- ZIP 大小和 SHA-256；
+- Ed25519 签名和受信任公钥。
 
-安装器使用 NSIS，支持选择安装目录、桌面/开始菜单快捷方式、升级和卸载。卸载默认不删除 Electron `userData` 中的工作台数据。
+任一检查失败都会阻止安装包构建，并输出中文错误。
 
 ## 正式构建
 
-GitHub Actions 从 `package.json` 读取版本。推送 `vX.Y.Z` 标签时，标签必须与 `package.json.version` 完全一致；手工运行工作流也使用该版本，不接受独立的版本覆盖。
+推送与 `package.json.version` 完全一致的 `vX.Y.Z` 标签后，工作流依次执行：
 
-工作流依次执行：
+1. `npm ci` 安装锁定依赖；
+2. 运行类型检查和测试；
+3. 下载并校验分析中心种子包；
+4. 构建 Electron 主程序和 Windows NSIS 安装包；
+5. 生成仅包含安装包与 `SHA256SUMS.txt` 的公开资产目录；
+6. 发布到当前仓库并匿名下载复核。
 
-1. `npm ci` 安装锁定依赖。
-2. 运行 TypeScript 类型检查和 Vitest。
-3. 运行 `electron-vite build` 生成主进程、preload 和 renderer 产物。
-4. 使用 electron-builder 生成 Windows NSIS 安装包。
-5. 只将安装包和 `SHA256SUMS.txt` 作为公开资产，并进行匿名下载校验。
+工作流使用当前仓库内置的 `contents: write` 权限，不需要跨仓库发布 Token。
 
-## 发布安全边界
+## 安全边界
 
-- 不上传源码、测试日志、内部路径、数据库、密钥或构建缓存。
-- 公开资产只允许安装包和对应 SHA-256 校验文件。
-- 用户数据位于安装目录之外，升级和卸载不能主动删除工作台数据。
-- 当前 Electron 版本使用内置 TypeScript 分析逻辑，不再注入旧版外部插件二进制。
+- 不上传源码、测试日志、内部路径、数据库、密钥或构建缓存；
+- 应用源码和应用 ZIP 不混入 Workbench Release；
+- 用户数据位于安装目录之外，升级和卸载不能主动删除工作台数据；
+- 公开前必须完成密钥、内部路径和敏感文件审查。

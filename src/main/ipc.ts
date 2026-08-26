@@ -3,7 +3,7 @@ import { basename, join } from 'node:path';
 import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron';
 import * as keytar from 'keytar';
 import { z } from 'zod';
-import { WorkspaceRepository } from './data/workspace-repository';
+import { DesktopLayoutRepository } from './data/desktop-layout-repository';
 import { AppRegistryRepository } from './data/app-registry-repository';
 import { AppCatalogClient } from './services/app-catalog-client';
 import { AppCenterService } from './services/app-center-service';
@@ -11,6 +11,8 @@ import { AppPackageInstaller } from './services/app-package-installer';
 import { AppRuntimeManager } from './services/app-runtime-manager';
 import { parseAppCatalog, parseAppManifest } from './services/app-package-validator';
 import { loadTrustedAppKeys } from './services/app-trust-store';
+import { RulesService, type AnalyzerRuleCatalog } from './services/rules-service';
+import officialRules from './config/official-rules.json';
 import type { AppCatalogItem, AppCatalogRelease } from '../shared/app-contract';
 
 const appIdSchema = z.string().regex(/^[a-z0-9]+(?:[.-][a-z0-9]+)*$/);
@@ -26,7 +28,7 @@ const appInvokeSchema = z.object({ appId: appIdSchema, method: z.string().min(1)
  */
 export function registerWorkbenchIpc(userDataPath: string): () => void {
   const dataDirectory = join(userDataPath, 'Workbench');
-  const repository = new WorkspaceRepository(join(dataDirectory, 'workbench.db'));
+  const repository = new DesktopLayoutRepository(join(dataDirectory, 'workbench.db'));
   const appRegistry = new AppRegistryRepository(join(dataDirectory, 'apps.db'));
   const appCatalog = new AppCatalogClient({
     catalogUrl: process.env.HEPHAESTUS_APP_CATALOG_URL ?? 'https://raw.githubusercontent.com/thelinyue/Workbench-Apps/main/catalog.json',
@@ -42,6 +44,7 @@ export function registerWorkbenchIpc(userDataPath: string): () => void {
   });
   const appCenter = new AppCenterService({ repository: appRegistry, catalog: appCatalog, installer: appInstaller, workbenchVersion: app.getVersion(), hostApiVersion: '1.0' });
   const appRuntime = new AppRuntimeManager();
+  const rulesService = new RulesService({ rootDirectory: join(dataDirectory, 'Rules'), officialRules: officialRules as AnalyzerRuleCatalog });
   const notifyRenderer = () => BrowserWindow.getAllWindows().forEach((window) => window.webContents.send('workbench:changed'));
   const seedReady = installSeedApp({ dataDirectory, appRegistry, appInstaller });
 
@@ -58,6 +61,8 @@ export function registerWorkbenchIpc(userDataPath: string): () => void {
     return { item, manifest };
   };
   const appHostCapability = (method: string): string | undefined => {
+    if (method === 'rules.getActive') return 'rules.read';
+    if (method.startsWith('rules.')) return 'rules.edit';
     if (method.startsWith('ssh.credentials.')) return 'ssh.credentials';
     return ({
     'host.chooseFiles': 'file.open',
@@ -73,6 +78,12 @@ export function registerWorkbenchIpc(userDataPath: string): () => void {
     if (!capability) return appRuntime.invoke(appId, method, payload);
     const { manifest } = await loadAppManifest(appId);
     if (!manifest.capabilities.includes(capability)) throw new Error(`应用未获授权使用宿主能力：${capability}`);
+    if (method.startsWith('rules.')) {
+      if (method === 'rules.getActive' && appId !== 'analysis-center') throw new Error('只有分析中心可以读取激活规则。');
+      if (method !== 'rules.getActive' && appId !== 'log-rule-editor') throw new Error('只有规则编辑器可以修改规则。');
+      const result = await rulesService.invoke(method, payload);
+      return method === 'rules.getActive' ? result.data : result;
+    }
     if (capability === 'ssh.credentials') {
       if (appId !== 'ssh-terminal') throw new Error('只有 SSH 终端应用可以访问 SSH 凭据库。');
       const value = z.object({ credentialId: z.string().uuid(), username: z.string().min(1).max(256).optional(), secret: z.string().min(1).max(16 * 1024).optional() }).parse(payload);
@@ -123,8 +134,8 @@ export function registerWorkbenchIpc(userDataPath: string): () => void {
     return undefined;
   };
 
-  ipcMain.handle('desktop:load-layout', () => repository.listDesktopLayout());
-  ipcMain.handle('desktop:save-layout', (_event, input) => repository.saveDesktopLayout(layoutSchema.parse(input)));
+  ipcMain.handle('desktop:load-layout', () => repository.list());
+  ipcMain.handle('desktop:save-layout', (_event, input) => repository.save(layoutSchema.parse(input)));
   ipcMain.handle('shell:minimize-window', (event) => BrowserWindow.fromWebContents(event.sender)?.minimize());
   ipcMain.handle('shell:toggle-maximize-window', (event) => {
     const window = BrowserWindow.fromWebContents(event.sender);
@@ -171,12 +182,12 @@ interface SeedInstallOptions {
 async function installSeedApp(options: SeedInstallOptions): Promise<void> {
   if (options.appRegistry.get('analysis-center')) return;
   const candidates = [
-    join(process.resourcesPath, 'apps', 'analysis-center-v1.0.0.zip'),
-    join(process.cwd(), 'apps', 'analysis-center', 'dist', 'analysis-center-v1.0.0.zip')
+    join(process.resourcesPath, 'apps', 'analysis-center.zip'),
+    join(process.cwd(), 'build', 'seed-app', 'analysis-center.zip')
   ];
   const releaseCandidates = [
-    join(process.resourcesPath, 'apps', 'analysis-center-v1.0.0.release.json'),
-    join(process.cwd(), 'apps', 'analysis-center', 'dist', 'release.json')
+    join(process.resourcesPath, 'apps', 'release.json'),
+    join(process.cwd(), 'build', 'seed-app', 'release.json')
   ];
   const packagePath = await firstExisting(candidates);
   const releasePath = await firstExisting(releaseCandidates);

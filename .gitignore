@@ -15,8 +15,7 @@ node_modules/
 out/
 release/
 release-assets/
-apps/analysis-center/dist/
-apps/*/dist/
+build/seed-app/
 .artifacts/
 .superpowers/
 release-wallpaper-validation/

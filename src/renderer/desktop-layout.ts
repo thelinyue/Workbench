@@ -1,4 +1,4 @@
-import type { DesktopIconLayout } from '../main/data/workspace-repository';
+import type { DesktopIconLayout } from '../main/data/desktop-layout-repository';
 
 export type DesktopIconPoint = Pick<DesktopIconLayout, 'x' | 'y'>;
 export type DesktopAppId = DesktopIconLayout['appId'];
