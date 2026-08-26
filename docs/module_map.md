@@ -1,4 +1,4 @@
-# Hephaestus Workbench 模块地图
+# Workbench 模块地图
 
 > 当前基线：Electron + React。本文只描述当前源码中存在的运行模块，不把历史实现或未实现能力当作产品入口。
 

@@ -52,7 +52,7 @@
   },
   "build": {
     "appId": "com.thelinyue.hephaestus-workbench",
-    "productName": "Hephaestus工作台",
+    "productName": "Workbench",
     "directories": {
       "output": "release",
       "buildResources": "assets"
@@ -78,7 +78,7 @@
     "win": {
       "target": "nsis",
       "icon": "assets/app-icon.ico",
-      "artifactName": "HephaestusWorkbench_v${version}.${ext}"
+      "artifactName": "Workbench_v${version}.${ext}"
     },
     "nsis": {
       "oneClick": false,
@@ -86,7 +86,7 @@
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
-      "shortcutName": "Hephaestus工作台",
+      "shortcutName": "Workbench",
       "deleteAppDataOnUninstall": false
     }
   }

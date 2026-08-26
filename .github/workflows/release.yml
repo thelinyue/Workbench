@@ -96,7 +96,7 @@ jobs:
         shell: pwsh
         run: |
           $version = "${{ steps.version.outputs.version }}"
-          $setupName = "HephaestusWorkbench_v$version.exe"
+          $setupName = "Workbench_v$version.exe"
           $setup = Join-Path $PWD "release\$setupName"
           if (-not (Test-Path -LiteralPath $setup -PathType Leaf)) {
             throw "未生成预期的 Electron 安装包：$setup"
@@ -122,7 +122,7 @@ jobs:
       - name: 上传构建 Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: HephaestusWorkbench-v${{ steps.version.outputs.version }}
+          name: Workbench-v${{ steps.version.outputs.version }}
           path: release-assets/*
           if-no-files-found: error
           retention-days: 14
@@ -152,7 +152,7 @@ jobs:
             "release-assets\${{ steps.assets.outputs.setup_name }}" `
             "release-assets\SHA256SUMS.txt" `
             --repo $env:RELEASES_REPO `
-            --title "Hephaestus Workbench $tag" `
+            --title "Workbench $tag" `
             --notes-file $notes `
             --latest
           if ($LASTEXITCODE -ne 0) { throw "公开 Release 创建失败，退出码：$LASTEXITCODE" }

@@ -1,6 +1,6 @@
 # Electron 分发说明
 
-Hephaestus Workbench 的源码仓库保持私有。当前发布物是 Electron Windows 安装包。
+Workbench 的源码仓库保持私有。当前发布物是 Electron Windows 安装包。
 
 ## 本地构建
 
@@ -14,7 +14,7 @@ npm run package:win
 安装包由 electron-builder 生成到 `release` 目录，名称为：
 
 ```text
-HephaestusWorkbench_v<package.json.version>.exe
+Workbench_v<package.json.version>.exe
 ```
 
 安装器使用 NSIS，支持选择安装目录、桌面/开始菜单快捷方式、升级和卸载。卸载默认不删除 Electron `userData` 中的工作台数据。

@@ -1,6 +1,6 @@
-# 赫菲斯托斯工程工作台（Hephaestus Workbench）
+# Workbench
 
-赫菲斯托斯工程工作台（简称“赫工”）是面向内部工程师的 Windows 本地诊断包分析工作台，当前唯一运行时为 Electron。
+Workbench 是面向内部工程师的 Windows 本地诊断包分析工作台，当前唯一运行时为 Electron。
 
 ## 当前能力
 
@@ -40,7 +40,7 @@ Electron Windows 安装包由 electron-builder 生成，安装包自带运行所
 npm run package:win
 ```
 
-输出位于 `release`，安装包名称为 `HephaestusWorkbench_v<版本号>.exe`。安装器支持选择安装目录、创建桌面和开始菜单快捷方式，以及后续升级和卸载；卸载默认保留用户数据。
+输出位于 `release`，安装包名称为 `Workbench_v<版本号>.exe`。安装器支持选择安装目录、创建桌面和开始菜单快捷方式，以及后续升级和卸载；卸载默认保留用户数据。
 
 ## 用户数据
 
