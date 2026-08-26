@@ -10,4 +10,11 @@ describe('桌面顶栏', () => {
     expect(appSource).not.toContain('health-indicator');
     expect(appSource).not.toContain('health-dot');
   });
+
+  it('返回桌面按钮使用原始 Monitor 图标而不是工作台品牌图标', () => {
+    const appSource = readFileSync(resolve(process.cwd(), 'src/renderer/src/App.tsx'), 'utf8');
+
+    expect(appSource).toContain('<Monitor size={17} />');
+    expect(appSource).not.toContain('aria-label="返回桌面" onClick={() => { setWindows((current) => current.map((item) => ({ ...item, minimized: true }))); setDrawerOpen(false); }}><img className="shell-brand-icon" src={WORKBENCH_ICON_URL}');
+  });
 });

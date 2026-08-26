@@ -13,6 +13,8 @@
 
 发布流水线必须拒绝重复版本、缺少签名、非 HTTPS 下载地址、SHA-256 不一致和未通过 `parseAppCatalog` 的 Catalog。工作台在线目录失败时只使用最后一次有效缓存，已安装版本仍可启动。
 
+应用构建使用固定 ZIP 文件顺序、时间和权限元数据；同一源码的重复构建必须产生相同 ZIP SHA-256。
+
 ## 工作台种子包
 
 `npm run package:win` 会先构建分析中心 ZIP，再由 electron-builder 作为 `extraResources` 放入安装包。首次启动只会尝试通过同一套签名、哈希、manifest、ZIP 路径和兼容性校验安装种子包；没有受信公钥或签名无效时会输出中文错误并保留可运行的工作台壳层。
@@ -31,3 +33,7 @@ LVM 缓存清理工具是纯 Web 应用，不启动 backend Worker。它在工�
 4. 使用 `node tools/update-app-catalog.mjs catalog.json apps/lvm-uncache-tool/dist/release.json` 更新目录。
 
 LVM 应用只申请 `file.save`，保存动作由宿主弹出文件对话框并校验文件名、大小和覆盖选项；应用页面不能访问本机路径或执行命令。
+
+当前 `lvm-uncache-tool-v1.0.0` 已发布到 `thelinyue/Workbench-Apps`。该版本的 ZIP、`release.json`、SHA-256 和 Ed25519 签名均视为不可变发布基线；工作流发现同名 Release 时只做内容一致性校验，不覆盖既有资产。后续行为变更必须递增应用版本号。
+
+LVM 应用安装成功后由应用注册表驱动显示桌面图标；未安装时只在应用中心和应用库中显示，不会占用桌面槽位。

@@ -1,6 +1,7 @@
 import { access, readFile, writeFile } from 'node:fs/promises';
 import { basename, join } from 'node:path';
 import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron';
+import * as keytar from 'keytar';
 import { z } from 'zod';
 import { WorkspaceRepository } from './data/workspace-repository';
 import { AppRegistryRepository } from './data/app-registry-repository';
@@ -12,8 +13,8 @@ import { parseAppCatalog, parseAppManifest } from './services/app-package-valida
 import { loadTrustedAppKeys } from './services/app-trust-store';
 import type { AppCatalogItem, AppCatalogRelease } from '../shared/app-contract';
 
-const layoutSchema = z.array(z.object({ appId: z.enum(['analysis-center', 'app-center']), x: z.number().int().min(0).max(5000), y: z.number().int().min(0).max(5000) }));
 const appIdSchema = z.string().regex(/^[a-z0-9]+(?:[.-][a-z0-9]+)*$/);
+const layoutSchema = z.array(z.object({ appId: appIdSchema, x: z.number().int().min(0).max(5000), y: z.number().int().min(0).max(5000) }));
 const appInstallSchema = z.object({ appId: appIdSchema, version: z.string().optional() });
 const appInvokeSchema = z.object({ appId: appIdSchema, method: z.string().min(1).max(200), payload: z.unknown().optional() });
 
@@ -56,18 +57,38 @@ export function registerWorkbenchIpc(userDataPath: string): () => void {
     if (manifest.id !== item.id || manifest.version !== item.activeVersion) throw new Error(`应用 manifest 与注册表不一致：${item.id}`);
     return { item, manifest };
   };
-  const appHostCapability = (method: string): string | undefined => ({
+  const appHostCapability = (method: string): string | undefined => {
+    if (method.startsWith('ssh.credentials.')) return 'ssh.credentials';
+    return ({
     'host.chooseFiles': 'file.open',
     'host.chooseDirectory': 'file.open',
     'host.saveFile': 'file.save',
     'host.openPath': 'shell.openPath',
-    'host.showItemInFolder': 'shell.showItemInFolder'
-  }[method]);
+    'host.showItemInFolder': 'shell.showItemInFolder',
+    'ssh.credentials': 'ssh.credentials'
+    }[method]);
+  };
   const invokeHostCapability = async (appId: string, method: string, payload: unknown): Promise<unknown> => {
     const capability = appHostCapability(method);
     if (!capability) return appRuntime.invoke(appId, method, payload);
     const { manifest } = await loadAppManifest(appId);
     if (!manifest.capabilities.includes(capability)) throw new Error(`应用未获授权使用宿主能力：${capability}`);
+    if (capability === 'ssh.credentials') {
+      if (appId !== 'ssh-terminal') throw new Error('只有 SSH 终端应用可以访问 SSH 凭据库。');
+      const value = z.object({ credentialId: z.string().uuid(), username: z.string().min(1).max(256).optional(), secret: z.string().min(1).max(16 * 1024).optional() }).parse(payload);
+      const service = 'com.thelinyue.hephaestus-workbench.ssh';
+      if (method === 'ssh.credentials.read') return keytar.getPassword(service, value.credentialId);
+      if (method === 'ssh.credentials.write') {
+        if (!value.secret) throw new Error('保存 SSH 凭据时缺少密钥或密码。');
+        await keytar.setPassword(service, value.credentialId, value.secret);
+        return undefined;
+      }
+      if (method === 'ssh.credentials.delete') {
+        await keytar.deletePassword(service, value.credentialId);
+        return undefined;
+      }
+      throw new Error(`不支持的 SSH 凭据请求：${method}`);
+    }
     if (method === 'host.chooseFiles') {
       const result = await dialog.showOpenDialog({ properties: ['openFile', 'multiSelections'], filters: [{ name: '诊断包', extensions: ['tgz', 'temp', 'zip'] }] });
       return result.canceled ? [] : result.filePaths;

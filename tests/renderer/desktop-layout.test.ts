@@ -55,6 +55,25 @@ describe('桌面应用图标网格布局', () => {
     ]);
   });
 
+  it('应用注册表包含已安装 LVM 工具时才为它分配桌面槽位', () => {
+    expect(normalizeDesktopLayout([], ['analysis-center', 'app-center', 'lvm-uncache-tool'])).toEqual([
+      { appId: 'analysis-center', x: 44, y: 96 },
+      { appId: 'app-center', x: 160, y: 96 },
+      { appId: 'lvm-uncache-tool', x: 276, y: 96 }
+    ]);
+  });
+
+  it('未安装应用不会从历史布局恢复到桌面', () => {
+    expect(normalizeDesktopLayout([
+      { appId: 'analysis-center', x: 44, y: 96 },
+      { appId: 'app-center', x: 160, y: 96 },
+      { appId: 'lvm-uncache-tool', x: 276, y: 96 }
+    ], ['analysis-center', 'app-center'])).toEqual([
+      { appId: 'analysis-center', x: 44, y: 96 },
+      { appId: 'app-center', x: 160, y: 96 }
+    ]);
+  });
+
   it('公开当前桌面网格的固定参数，避免拖拽和持久化使用不同网格', () => {
     expect(DESKTOP_GRID).toEqual({ originX: 44, originY: 96, cellWidth: 116, cellHeight: 142 });
   });

@@ -9,6 +9,8 @@ import {
   type AnalyzerRuleCatalog
 } from './log-analyzer';
 import { escapeHtml, renderReportTemplate, reportCss, reportScript } from './report-template';
+import bootstrapCss from './static/bootstrap.min.css?raw';
+import bootstrapScript from './static/bootstrap.bundle.min.js?raw';
 import { analyzeStructuredExtract, type StructuredAnalysis } from './structured-analysis';
 
 export type AnalysisScope = 'comprehensive' | 'storage';
@@ -77,16 +79,16 @@ async function writeReportArtifacts(directory: string, sourceName: string, analy
   await mkdir(staticDirectory, { recursive: true });
   await mkdir(structuredDirectory, { recursive: true });
   await Promise.all([
-    writeFile(join(staticDirectory, 'workbench-report.css'), reportCss, 'utf8'),
-    writeFile(join(staticDirectory, 'workbench-report.js'), reportScript, 'utf8'),
+    writeFile(join(staticDirectory, 'bootstrap.min.css'), bootstrapCss, 'utf8'),
+    writeFile(join(staticDirectory, 'bootstrap.bundle.min.js'), bootstrapScript, 'utf8'),
     writeFile(join(structuredDirectory, 'analysis.json'), JSON.stringify(analysis, null, 2), 'utf8'),
     writeFile(join(structuredDirectory, 'storage-health.json'), JSON.stringify(structured, null, 2), 'utf8'),
     writeFile(join(structuredDirectory, 'sysinfo.json'), JSON.stringify(structured.sysInfo, null, 2), 'utf8'),
     writeFile(join(structuredDirectory, 'network.json'), JSON.stringify(structured.networks, null, 2), 'utf8'),
     writeFile(join(structuredDirectory, 'lsblk.txt'), structured.blockDevicesRaw, 'utf8'),
-    writeFile(join(directory, 'lsblk.html'), renderListPage('块设备信息', structured.blockDevices), 'utf8'),
+    writeFile(join(structuredDirectory, 'lsblk.html'), renderListPage('块设备信息', structured.blockDevices), 'utf8'),
     writeFile(join(directory, 'index.html'), renderReportTemplate({ sourceName, analysis, structured, scope, ruleVersion }), 'utf8')
   ]);
 }
 
-function renderListPage(title: string, rows: string[]): string { return `<!doctype html><meta charset="utf-8"><link rel="stylesheet" href="static/workbench-report.css"><main class="dashboard"><section class="hero"><h1>${escapeHtml(title)}</h1></section><section class="raw-log-box">${escapeHtml(rows.join('\n') || '未提供数据')}</section></main>`; }
+function renderListPage(title: string, rows: string[]): string { return `<!doctype html><meta charset="utf-8"><link href="../static/bootstrap.min.css" rel="stylesheet"><style>${reportCss}</style><main class="dashboard"><section class="hero"><h1>${escapeHtml(title)}</h1></section><section class="raw-log-box">${escapeHtml(rows.join('\n') || '未提供数据')}</section></main>`; }

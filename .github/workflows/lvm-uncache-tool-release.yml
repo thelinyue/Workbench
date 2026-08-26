@@ -44,15 +44,41 @@ jobs:
       - name: 发布 ZIP 并更新 Catalog
         shell: pwsh
         env:
-          GH_TOKEN: ${{ secrets.RELEASES_TOKEN }}
+          GH_TOKEN: ${{ secrets.APPS_RELEASES_TOKEN }}
         run: |
+          $ErrorActionPreference = "Stop"
           if ([string]::IsNullOrWhiteSpace($env:GH_TOKEN)) { throw "未配置 APPS_RELEASES_TOKEN。" }
           $manifest = Get-Content -Raw -Encoding UTF8 "apps/lvm-uncache-tool/manifest.json" | ConvertFrom-Json
+          $releasePath = "apps/lvm-uncache-tool/dist/release.json"
+          $zipName = "lvm-uncache-tool-v$($manifest.version).zip"
+          $zipPath = Join-Path $PWD "apps/lvm-uncache-tool/dist/$zipName"
+          $localRelease = Get-Content -Raw -Encoding UTF8 $releasePath | ConvertFrom-Json
           $tag = "lvm-uncache-tool-v$($manifest.version)"
-          gh release view $tag --repo $env:APPS_REPO *> $null
+          gh release view $tag --repo $env:APPS_REPO --json tagName *> $null
+          if ($LASTEXITCODE -eq 0) {
+            $existingReleaseDirectory = Join-Path $env:RUNNER_TEMP "lvm-existing-release"
+            New-Item -ItemType Directory -Force $existingReleaseDirectory | Out-Null
+            gh release download $tag --repo $env:APPS_REPO --pattern $zipName --pattern release.json --dir $existingReleaseDirectory
+            if ($LASTEXITCODE -ne 0) { throw "无法下载既有 LVM 应用 Release 进行一致性校验。" }
+            $remoteRelease = Get-Content -Raw -Encoding UTF8 (Join-Path $existingReleaseDirectory "release.json") | ConvertFrom-Json
+            $remoteSha256 = (Get-FileHash (Join-Path $existingReleaseDirectory $zipName) -Algorithm SHA256).Hash.ToLowerInvariant()
+            if ($remoteRelease.appId -ne $localRelease.appId -or
+                $remoteRelease.version -ne $localRelease.version -or
+                $remoteRelease.hostApiVersion -ne $localRelease.hostApiVersion -or
+                $remoteRelease.minWorkbenchVersion -ne $localRelease.minWorkbenchVersion -or
+                $remoteRelease.size -ne $localRelease.size -or
+                $remoteRelease.sha256.ToLowerInvariant() -ne $localRelease.sha256.ToLowerInvariant() -or
+                $remoteSha256 -ne $localRelease.sha256.ToLowerInvariant() -or
+                $remoteRelease.signature.keyId -ne $localRelease.signature.keyId -or
+                $remoteRelease.signature.signature -ne $localRelease.signature.signature) {
+              throw "应用 Release 已存在但内容不一致，拒绝覆盖既有版本。"
+            }
+            Write-Output "既有 LVM 应用 Release 校验通过，保持版本不可变：$tag"
+            exit 0
+          }
+          gh release create $tag $zipPath $releasePath --repo $env:APPS_REPO --title "LVM 缓存清理工具 $tag" --notes "工作台内嵌 LVM 缓存清理工具。" --latest
           if ($LASTEXITCODE -ne 0) {
-            gh release create $tag "apps/lvm-uncache-tool/dist/lvm-uncache-tool-v$($manifest.version).zip" "apps/lvm-uncache-tool/dist/release.json" --repo $env:APPS_REPO --title "LVM 缓存清理工具 $tag" --notes "工作台内嵌 LVM 缓存清理工具。" --latest
-            if ($LASTEXITCODE -ne 0) { throw "LVM 工具应用 Release 创建失败。" }
+            throw "LVM 工具应用 Release 创建失败。"
           }
           $catalogRoot = Join-Path $env:RUNNER_TEMP "hephaestus-app-catalog"
           gh repo clone $env:APPS_REPO $catalogRoot -- --depth=1

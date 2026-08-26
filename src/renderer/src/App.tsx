@@ -12,6 +12,7 @@ import {
   LoaderCircle,
   Maximize2,
   Menu,
+  Monitor,
   Minimize2,
   PackageOpen,
   Play,
@@ -92,7 +93,8 @@ export function App() {
   const [taskClearBusyId, setTaskClearBusyId] = useState<string | null>(null);
   const [taskClearAllBusy, setTaskClearAllBusy] = useState(false);
   const [taskClearDialogOpen, setTaskClearDialogOpen] = useState(false);
-  const [iconLayout, setIconLayout] = useState(DEFAULT_ICON_LAYOUT);
+  const [iconLayout, setIconLayout] = useState<Record<DesktopAppId, { x: number; y: number }>>(DEFAULT_ICON_LAYOUT);
+  const [desktopLayoutReady, setDesktopLayoutReady] = useState(false);
   const iconLayoutRef = useRef(iconLayout);
   const iconDragRef = useRef<{ id: DesktopAppId; offsetX: number; offsetY: number; moved: boolean } | null>(null);
   const suppressOpenRef = useRef(false);
@@ -143,13 +145,13 @@ export function App() {
    * 全局状态变化由主进程统一广播，消息中心在这里比较前后快照，避免每个应用各自维护通知逻辑。
    * 使用队列串行化刷新，防止扫描和应用目录更新同时广播时出现竞态或重复消息。
    */
-  const refreshNotificationSnapshot = useCallback(async () => {
+  const refreshNotificationSnapshot = useCallback(async (includePackages = false) => {
     if (!hasWorkbenchBridge()) return;
     const refresh = notificationRefreshQueueRef.current.then(async () => {
       const apps = await window.workbench.apps.list();
       const analysisApp = apps.find((item) => item.id === 'analysis-center' && item.activeVersion);
       let packages: NotificationSnapshot['packages'] = [];
-      if (analysisApp) {
+      if (includePackages && analysisApp) {
         try {
           const result = await window.workbench.apps.invoke('analysis-center', 'packages.list');
           if (Array.isArray(result)) packages = result as NotificationSnapshot['packages'];
@@ -175,17 +177,21 @@ export function App() {
     void (async () => {
       try {
         if (!hasWorkbenchBridge()) throw new Error('工作台接口尚未就绪，请启动 Electron 主进程后重试。');
-        const savedLayout = await window.workbench.desktop.loadLayout();
-        if (active && savedLayout.length) {
-          const normalizedLayout = normalizeDesktopLayout(savedLayout);
-          setIconLayout((current) => normalizedLayout.reduce((next, item) => ({ ...next, [item.appId]: { x: item.x, y: item.y } }), current));
-          const changed = normalizedLayout.length !== savedLayout.length || normalizedLayout.some((item, index) => {
-            const saved = savedLayout[index];
-            return saved?.appId !== item.appId || saved?.x !== item.x || saved?.y !== item.y;
-          });
-          if (changed) await window.workbench.desktop.saveLayout(normalizedLayout);
-        }
-        await Promise.all([refreshAppRegistry(), refreshNotificationSnapshot()]);
+        const [savedLayout, apps] = await Promise.all([window.workbench.desktop.loadLayout(), window.workbench.apps.list()]);
+        if (!active) return;
+        setRegisteredApps(apps);
+        const installedAppIds = apps.filter((item) => item.activeVersion).map((item) => item.id);
+        const normalizedLayout = normalizeDesktopLayout(savedLayout, installedAppIds);
+        const nextLayout = normalizedLayout.reduce<Record<DesktopAppId, { x: number; y: number }>>((next, item) => ({ ...next, [item.appId]: { x: item.x, y: item.y } }), {});
+        setIconLayout(nextLayout);
+        iconLayoutRef.current = nextLayout;
+        const changed = normalizedLayout.length !== savedLayout.length || normalizedLayout.some((item, index) => {
+          const saved = savedLayout[index];
+          return saved?.appId !== item.appId || saved?.x !== item.x || saved?.y !== item.y;
+        });
+        if (changed || savedLayout.length === 0) await window.workbench.desktop.saveLayout(normalizedLayout);
+        setDesktopLayoutReady(true);
+        await refreshNotificationSnapshot();
       } catch (caught) {
         if (active) showError(caught);
       }
@@ -196,7 +202,7 @@ export function App() {
   useEffect(() => {
     if (!hasWorkbenchBridge()) return;
     return window.workbench.apps.onEvent((event) => {
-      if (event.appId === 'analysis-center') void refreshNotificationSnapshot();
+      if (event.appId === 'analysis-center') void refreshNotificationSnapshot(true);
       if (event.event !== 'tasks.changed' || !event.payload || typeof event.payload !== 'object') return;
       const payload = event.payload as { tasks?: TaskRecord[] };
       if (Array.isArray(payload.tasks)) setTasks(payload.tasks.map((task) => ({ ...task, appId: event.appId })));
@@ -238,7 +244,7 @@ export function App() {
     }
     if (id === 'analysis-center' && hasWorkbenchBridge()) {
       void window.workbench.apps.launch('analysis-center')
-        .then(() => Promise.all([refreshNotificationSnapshot(), loadAnalysisTasks()]))
+        .then(() => Promise.all([refreshNotificationSnapshot(true), loadAnalysisTasks()]))
         .catch(showError);
     }
     setWindows((current) => createAppWindow(current, id, appMeta?.title ?? id));
@@ -258,6 +264,23 @@ export function App() {
       showError(caught);
     }
   };
+
+  /** 应用安装或状态变化后同步桌面图标，已保存的用户位置优先保留。 */
+  useEffect(() => {
+    if (!desktopLayoutReady) return;
+    const installedAppIds = registeredApps.filter((item) => item.activeVersion).map((item) => item.id);
+    const currentLayout = Object.entries(iconLayoutRef.current).map(([appId, point]) => ({ appId, ...point }));
+    const normalizedLayout = normalizeDesktopLayout(currentLayout, installedAppIds);
+    const nextLayout = normalizedLayout.reduce<Record<DesktopAppId, { x: number; y: number }>>((next, item) => ({ ...next, [item.appId]: { x: item.x, y: item.y } }), {});
+    const changed = Object.keys(iconLayoutRef.current).length !== Object.keys(nextLayout).length || Object.entries(nextLayout).some(([appId, point]) => {
+      const current = iconLayoutRef.current[appId];
+      return !current || current.x !== point.x || current.y !== point.y;
+    });
+    if (!changed) return;
+    setIconLayout(nextLayout);
+    iconLayoutRef.current = nextLayout;
+    if (hasWorkbenchBridge()) void window.workbench.desktop.saveLayout(normalizedLayout).catch(showError);
+  }, [desktopLayoutReady, registeredApps, showError]);
 
   const beginIconDrag = (event: ReactPointerEvent<HTMLButtonElement>, id: DesktopAppId) => {
     const point = iconLayoutRef.current[id];
@@ -304,7 +327,7 @@ export function App() {
       const app = registeredApps.find((item) => item.id === 'analysis-center' && item.activeVersion);
       if (!app) throw new Error('请先在应用中心安装分析中心。');
       await window.workbench.apps.launch('analysis-center');
-      await Promise.all([refreshNotificationSnapshot(), loadAnalysisTasks()]);
+      await Promise.all([refreshNotificationSnapshot(true), loadAnalysisTasks()]);
       const paths = await window.workbench.apps.invoke('analysis-center', 'host.chooseFiles') as string[];
       for (const path of paths) await window.workbench.apps.invoke('analysis-center', 'packages.import', { sourcePath: path });
       if (paths.length) { showNotice(`已导入 ${paths.length} 个诊断包。`); openApp('analysis-center'); }
@@ -344,7 +367,7 @@ export function App() {
       <div className="ambient-shape ambient-shape-two" aria-hidden="true" />
       <header className="topbar">
         <div className="shell-left-tools">
-          <button className="shell-launcher-button" type="button" aria-label="返回桌面" onClick={() => { setWindows((current) => current.map((item) => ({ ...item, minimized: true }))); setDrawerOpen(false); }}><img className="shell-brand-icon" src={WORKBENCH_ICON_URL} alt="" aria-hidden="true" /></button>
+          <button className="shell-launcher-button" type="button" aria-label="返回桌面" onClick={() => { setWindows((current) => current.map((item) => ({ ...item, minimized: true }))); setDrawerOpen(false); }}><Monitor size={17} /></button>
           <button className="shell-launcher-button" type="button" aria-label="打开应用库" aria-expanded={appLibraryOpen} onClick={() => setAppLibraryOpen((value) => !value)}><LayoutGrid size={17} /></button>
           {windows.length > 0 && <><span className="topbar-divider shell-left-divider" aria-hidden="true" /><div className="open-app-switcher" aria-label="已打开应用">{windows.map((item) => <button key={item.id} type="button" className={`open-app-icon ${item.minimized ? 'open-app-icon-minimized' : ''}`} aria-label={`切换到${item.title}`} title={item.title} onClick={() => focusWindow(item.id)}><img className="shell-brand-icon" src={resolveAppIconUrl(item.id)} alt="" aria-hidden="true" /></button>)}</div></>}
           {appLibraryOpen && <div className="app-library" role="menu" aria-label="应用库">{(Object.keys(APP_META) as AppId[]).map((id) => { const app = APP_META[id]; return <button key={id} type="button" role="menuitem" onClick={() => { openApp(id); setAppLibraryOpen(false); }}><img className="app-library-icon" src={APP_ICON_URLS[id]} alt="" aria-hidden="true" /><span>{app.title}</span></button>; })}</div>}
@@ -368,13 +391,16 @@ export function App() {
       </header>
 
       <section className="desktop-icons" aria-label="应用入口">
-        {(Object.keys(DEFAULT_ICON_LAYOUT) as DesktopAppId[]).map((id) => {
-          const meta = APP_META[id];
+        {(Object.keys(iconLayout) as DesktopAppId[]).map((id) => {
+          const registered = registeredApps.find((item) => item.id === id);
+          const meta = APP_META[id as AppId];
+          const title = meta?.title ?? registered?.name ?? id;
+          const description = meta?.description ?? registered?.description ?? '工作台应用';
           const point = iconLayout[id];
-          return <button key={id} className="desktop-icon" style={{ left: point.x, top: point.y }} type="button" onPointerDown={(event) => beginIconDrag(event, id)} onPointerMove={moveIcon} onPointerUp={finishIconDrag} onPointerCancel={finishIconDrag} onDoubleClick={() => openApp(id)} onClick={() => { if (!suppressOpenRef.current) openApp(id); }} aria-label={`打开${meta.title}`}>
-            <span className={`desktop-icon-image desktop-icon-${id}`}><img className="desktop-brand-icon" src={APP_ICON_URLS[id]} alt="" aria-hidden="true" /></span>
-            <span className="desktop-icon-label">{meta.title}</span>
-            <span className="desktop-icon-caption">{meta.description}</span>
+          return <button key={id} className="desktop-icon" style={{ left: point.x, top: point.y }} type="button" onPointerDown={(event) => beginIconDrag(event, id)} onPointerMove={moveIcon} onPointerUp={finishIconDrag} onPointerCancel={finishIconDrag} onDoubleClick={() => openApp(id)} onClick={() => { if (!suppressOpenRef.current) openApp(id); }} aria-label={`打开${title}`}>
+            <span className={`desktop-icon-image desktop-icon-${id}`}><img className="desktop-brand-icon" src={resolveAppIconUrl(id)} alt="" aria-hidden="true" /></span>
+            <span className="desktop-icon-label">{title}</span>
+            <span className="desktop-icon-caption">{description}</span>
           </button>;
         })}
       </section>

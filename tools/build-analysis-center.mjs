@@ -1,10 +1,9 @@
 import { execFileSync } from 'node:child_process';
 import { createHash, createPrivateKey, sign } from 'node:crypto';
-import { createWriteStream } from 'node:fs';
-import { access, copyFile, mkdir, readdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
-import { dirname, join, relative, resolve } from 'node:path';
+import { access, copyFile, mkdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
+import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import yazl from 'yazl';
+import { createDeterministicZip } from './create-deterministic-zip.mjs';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const appRoot = join(root, 'apps', 'analysis-center');
@@ -21,7 +20,7 @@ await mkdir(join(dist, 'renderer'), { recursive: true });
 await copyFile(join(appRoot, 'renderer', 'icon.svg'), join(dist, 'renderer', 'icon.svg'));
 
 const zipPath = join(dist, `analysis-center-v${manifest.version}.zip`);
-await createZip(dist, zipPath);
+await createDeterministicZip(dist, zipPath);
 const bytes = await readFile(zipPath);
 const release = {
   version: manifest.version,
@@ -43,26 +42,4 @@ if (!release.signature) console.warn('警告：未提供签名私钥，当前 ZI
 
 function runVite(config) {
   execFileSync(process.execPath, [join(root, 'node_modules', 'vite', 'bin', 'vite.js'), 'build', '--config', join(appRoot, config)], { cwd: root, stdio: 'inherit' });
-}
-
-async function createZip(sourceRoot, outputPath) {
-  const zip = new yazl.ZipFile();
-  const files = await listFiles(sourceRoot, outputPath);
-  files.forEach((file) => zip.addFile(file, relative(sourceRoot, file).replaceAll('\\', '/')));
-  await new Promise((resolvePromise, reject) => {
-    zip.outputStream.pipe(createWriteStream(outputPath)).on('close', resolvePromise).on('error', reject);
-    zip.end();
-  });
-}
-
-async function listFiles(directory, excludedPath) {
-  const entries = await readdir(directory, { withFileTypes: true });
-  const files = [];
-  for (const entry of entries) {
-    const file = join(directory, entry.name);
-    if (file === excludedPath) continue;
-    if (entry.isDirectory()) files.push(...await listFiles(file, excludedPath));
-    else if (entry.isFile()) files.push(file);
-  }
-  return files;
 }

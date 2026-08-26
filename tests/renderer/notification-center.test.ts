@@ -21,6 +21,12 @@ describe('全局消息中心', () => {
     expect(appSource).toContain('update-available');
   });
 
+  it('工作台首屏不在应用 Worker 启动前读取私有诊断包列表', () => {
+    expect(appSource).toContain('useCallback(async (includePackages = false)');
+    expect(appSource).toContain('if (includePackages && analysisApp)');
+    expect(appSource).toContain('refreshNotificationSnapshot(true)');
+  });
+
   it('消息点击后打开对应应用并标记已读', () => {
     expect(appSource).toContain('handleNotificationClick');
     expect(appSource).toContain('setNotificationCenterOpen(false)');

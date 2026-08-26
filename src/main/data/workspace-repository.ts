@@ -5,7 +5,7 @@ import type { DiagnosticPackage, DiagnosticPackageStatus } from '../domain/diagn
 
 export const MIN_MONITOR_SCAN_INTERVAL_MINUTES = 1;
 export const DEFAULT_MONITOR_SCAN_INTERVAL_MINUTES = 5;
-export interface DesktopIconLayout { appId: 'analysis-center' | 'app-center' | 'settings'; x: number; y: number; }
+export interface DesktopIconLayout { appId: string; x: number; y: number; }
 export interface AnalysisTaskRecord { id: string; packageId: string; scope: 'comprehensive' | 'storage'; status: 'queued' | 'running' | 'succeeded' | 'failed' | 'cancelled'; createdAt: string; progress: number; message: string; errorMessage?: string; }
 export interface AnalysisRecord { id: string; packageId: string; taskId: string; status: AnalysisTaskRecord['status']; createdAt: string; updatedAt: string; }
 

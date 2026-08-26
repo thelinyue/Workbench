@@ -1,7 +1,7 @@
 import type { DesktopIconLayout } from '../main/data/workspace-repository';
 
 export type DesktopIconPoint = Pick<DesktopIconLayout, 'x' | 'y'>;
-export type DesktopAppId = 'analysis-center' | 'app-center';
+export type DesktopAppId = DesktopIconLayout['appId'];
 
 /**
  * 桌面应用图标使用独立于背景装饰线的槽位网格，保证拖动和持久化使用同一套坐标。
@@ -18,6 +18,33 @@ export const DEFAULT_ICON_LAYOUT: Record<DesktopAppId, DesktopIconPoint> = {
   'analysis-center': { x: DESKTOP_GRID.originX, y: DESKTOP_GRID.originY },
   'app-center': { x: DESKTOP_GRID.originX + DESKTOP_GRID.cellWidth, y: DESKTOP_GRID.originY }
 };
+
+/**
+ * 应用中心始终保留桌面入口，其余入口由已安装应用注册表决定。
+ * 已知应用沿用固定顺序，新增应用按标识符排序，确保每次启动的布局稳定。
+ */
+export function getDesktopAppIds(installedAppIds: readonly DesktopAppId[]): DesktopAppId[] {
+  const appIds = new Set<DesktopAppId>(['app-center', ...installedAppIds]);
+  return [...appIds].sort((left, right) => desktopAppOrder(left) - desktopAppOrder(right) || left.localeCompare(right));
+}
+
+/** 根据当前已安装应用生成默认槽位；新应用从现有图标之后的首个空槽位开始。 */
+export function getDefaultIconLayout(installedAppIds: readonly DesktopAppId[]): Record<DesktopAppId, DesktopIconPoint> {
+  const layout: Record<DesktopAppId, DesktopIconPoint> = {};
+  const occupiedPoints: DesktopIconPoint[] = [];
+
+  for (const appId of getDesktopAppIds(installedAppIds)) {
+    const preferredPoint = DEFAULT_ICON_LAYOUT[appId] ?? {
+      x: DESKTOP_GRID.originX + occupiedPoints.length * DESKTOP_GRID.cellWidth,
+      y: DESKTOP_GRID.originY
+    };
+    const point = resolveDesktopIconPoint(preferredPoint, occupiedPoints);
+    layout[appId] = point;
+    occupiedPoints.push(point);
+  }
+
+  return layout;
+}
 
 /** 将任意拖动坐标吸附到最近的桌面图标槽位，并限制在网格起点之后。 */
 export function snapDesktopIconPoint(point: DesktopIconPoint): DesktopIconPoint {
@@ -69,13 +96,23 @@ export function resolveDesktopIconPoint(point: DesktopIconPoint, occupiedPoints:
 }
 
 /** 过滤已移除的历史图标、归一化旧版本坐标，并为当前图标分配唯一网格槽位。 */
-export function normalizeDesktopLayout(layout: readonly DesktopIconLayout[]): DesktopIconLayout[] {
+export function normalizeDesktopLayout(
+  layout: readonly DesktopIconLayout[],
+  installedAppIds: readonly DesktopAppId[] = Object.keys(DEFAULT_ICON_LAYOUT)
+): DesktopIconLayout[] {
   const occupiedPoints: DesktopIconPoint[] = [];
+  const defaults = getDefaultIconLayout(installedAppIds);
 
-  return (Object.keys(DEFAULT_ICON_LAYOUT) as DesktopAppId[]).map((appId) => {
+  return getDesktopAppIds(installedAppIds).map((appId) => {
     const savedPoint = layout.find((item) => item.appId === appId);
-    const point = resolveDesktopIconPoint(savedPoint ?? DEFAULT_ICON_LAYOUT[appId], occupiedPoints);
+    const point = resolveDesktopIconPoint(savedPoint ?? defaults[appId], occupiedPoints);
     occupiedPoints.push(point);
     return { appId, ...point };
   });
+}
+
+function desktopAppOrder(appId: DesktopAppId): number {
+  if (appId === 'analysis-center') return 0;
+  if (appId === 'app-center') return 1;
+  return 2;
 }

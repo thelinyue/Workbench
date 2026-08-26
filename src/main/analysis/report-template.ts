@@ -48,7 +48,8 @@ function renderComprehensiveReportTemplate(options: ReportTemplateOptions): stri
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>系统日志诊断报告 · ${escapeHtml(sourceName)}</title>
-  <link rel="stylesheet" href="static/workbench-report.css">
+  <link href="static/bootstrap.min.css" rel="stylesheet">
+  <style>${reportCss}</style>
 </head>
 <body>
 <main class="dashboard">
@@ -112,7 +113,8 @@ function renderComprehensiveReportTemplate(options: ReportTemplateOptions): stri
     </aside>
   </div>
 </main>
-<script src="static/workbench-report.js"></script>
+<script src="static/bootstrap.bundle.min.js"></script>
+<script>${reportScript}</script>
 </body>
 </html>`;
 }
@@ -121,13 +123,19 @@ function renderComprehensiveReportTemplate(options: ReportTemplateOptions): stri
 function renderStorageReportTemplate(options: ReportTemplateOptions): string {
   const { sourceName, structured, ruleVersion } = options;
   const diagnosticTarget = storageDiagnosticTarget(structured);
+  const statistics = storageStatistics(structured);
+  const summary = storageSummary(structured);
+  const rootCause = storageRootCause(structured);
+  const confidence = structured.evidence.length > 0 || structured.disks.length > 0 ? '中' : '低';
+  const evidence = storageEvidence(structured);
   return `<!doctype html>
 <html lang="zh-CN">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>系统日志诊断报告 · ${escapeHtml(sourceName)}</title>
-  <link rel="stylesheet" href="static/workbench-report.css">
+  <link href="static/bootstrap.min.css" rel="stylesheet">
+  <style>${reportCss}</style>
 </head>
 <body>
 <main class="dashboard storage-report">
@@ -143,32 +151,46 @@ function renderStorageReportTemplate(options: ReportTemplateOptions): string {
     <div class="hero-meta"><span>生成时间：${escapeHtml(new Date().toLocaleString('zh-CN', { hour12: false }))}</span><span>诊断包：${escapeHtml(sourceName)}</span></div>
   </section>
 
-  <section class="diagnostic-banner ${healthClass(structured.overallHealth)}" id="diagnosticSummary">
-    <div class="diagnostic-copy"><div class="small-label">快速诊断结论</div><div class="diagnostic-message">${escapeHtml(structured.customerReply)}</div></div>
+  <section class="metrics" aria-label="存储健康统计">
+    <div class="metric"><span>物理硬盘</span><strong>${statistics.recognizedDisks} / ${statistics.expectedDisks}</strong><span>掉线 ${statistics.missingDisks} · 异常 ${statistics.abnormalDisks}</span></div>
+    <div class="metric"><span>存储池 / RAID</span><strong>${statistics.pools}</strong><span>异常 ${statistics.abnormalPools}</span></div>
+    <div class="metric"><span>存储空间</span><strong>${statistics.volumes}</strong><span>异常 ${statistics.abnormalVolumes}</span></div>
+    <div class="metric"><span>文件系统异常</span><strong>${structured.raids.length > 0 ? structured.raids.length : 0}</strong><span>需要工程师确认</span></div>
+    <div class="metric"><span>工程处理项</span><strong>${statistics.engineerActionItems}</strong><span>仅生成建议，不自动操作</span></div>
+  </section>
+
+  <section class="panel summary ${healthClass(structured.overallHealth)}" id="diagnosticSummary">
+    <div class="section-head"><div><div class="text-muted">故障摘要</div><h2>${escapeHtml(summary)}</h2></div><span class="tag ${healthClass(structured.overallHealth)}">${escapeHtml(healthLabel(structured.overallHealth))}</span></div>
+    <div class="facts"><div class="fact"><span>根因判断</span><strong>${escapeHtml(rootCause)}</strong></div><div class="fact"><span>可信度</span><strong>${confidence}</strong></div></div>
     <button class="outline-button" type="button" data-detail-target="${diagnosticTarget}">查看详情</button>
   </section>
 
-  <div class="dashboard-layout storage-layout">
-    <section class="layout-left storage-primary">
-      ${renderSystemPanel(structured)}
-      ${renderBlockDevices(structured)}
+  <div class="workspace">
+    <section class="panel"><div class="section-head"><h2>存储拓扑与异常链路</h2><span class="text-muted">Disk → RAID → Volume → Filesystem → Mount</span></div>
+      ${renderStorageTopology(structured)}
+      <div class="section"><h2>物理硬盘</h2>${structured.disks.length > 0 ? structured.disks.map((disk, index) => renderDiskCard(disk, index)).join('') : '<p class="text-muted">未识别到物理硬盘快照。</p>'}</div>
     </section>
-    <section class="layout-center storage-center">
-      ${renderRecommendations(structured)}
-      ${renderTextPanel('关键存储证据', structured.evidence, 'evidenceAnchor')}
-      ${renderTextPanel('RAID 信息', structured.raids, 'raidAnchor')}
-    </section>
-    <aside class="layout-right">
-      ${renderNetworkPanel(structured.networks, 'networkAnchor')}
-      ${renderTextPanel('卷与文件系统', structured.volumes, 'volumeAnchor')}
-      ${renderTextPanel('系统原始信息', [JSON.stringify(structured.sysInfo, null, 2)], 'rawSysinfoAnchor')}
-    </aside>
+    <section class="panel"><h2>根因、证据与处理建议</h2><div class="section" id="evidenceAnchor"><h3>证据时间线</h3>${evidence || '<p class="text-muted">日志中没有可追溯的存储证据。</p>'}</div><div class="section"><h3>工程师处理建议</h3><ol class="recommendations">${structured.recommendations.map((value) => `<li>${escapeHtml(value)}</li>`).join('')}</ol><p class="text-muted">安全边界：报告不会自动执行 fsck、xfs_repair、RAID 或 LVM 写操作。</p></div></section>
   </div>
+  <section class="customer"><div class="section-head"><h2>客户回复话术</h2><button id="copyReply" class="copy" type="button">复制话术</button></div><div id="customerReply" class="reply">${escapeHtml(structured.customerReply)}</div></section>
 </main>
-<script src="static/workbench-report.js"></script>
+<script src="static/bootstrap.bundle.min.js"></script>
+<script>${reportScript}</script>
 </body>
 </html>`;
 }
+
+function storageStatistics(data: StructuredAnalysis): { expectedDisks: number; recognizedDisks: number; missingDisks: number; abnormalDisks: number; pools: number; abnormalPools: number; volumes: number; abnormalVolumes: number; engineerActionItems: number } {
+  const abnormalDisks = data.disks.filter((disk) => disk.health === 'critical' || disk.health === 'attention').length;
+  const pools = data.raids.filter(Boolean).length;
+  const volumes = data.volumes.filter(Boolean).length;
+  return { expectedDisks: data.disks.length, recognizedDisks: data.disks.length, missingDisks: 0, abnormalDisks, pools, abnormalPools: data.overallHealth === 'critical' ? pools : 0, volumes, abnormalVolumes: data.overallHealth === 'critical' ? volumes : 0, engineerActionItems: data.recommendations.length };
+}
+
+function storageSummary(data: StructuredAnalysis): string { return data.overallHealth === 'critical' ? '检测到存储相关异常，需要优先保护数据并安排工程师检查。' : data.overallHealth === 'attention' ? '检测到需要关注的存储证据，建议安排工程师进一步确认。' : '当前未检测到需要立即处理的严重存储风险。'; }
+function storageRootCause(data: StructuredAnalysis): string { return data.evidence[0] ? data.evidence[0] : data.disks.find((disk) => disk.health !== 'normal')?.evidence[0] ?? '未形成明确根因，需结合现场状态确认。'; }
+function storageEvidence(data: StructuredAnalysis): string { const values = [...data.evidence, ...data.disks.flatMap((disk) => disk.evidence)]; return values.map((value, index) => `<div class="evidence"><div><strong>存储证据</strong></div><div class="evidence-time">时间未知 · 诊断日志</div><div>${escapeHtml(value)}</div></div>`).filter((_value, index) => index < 300).join(''); }
+function renderStorageTopology(data: StructuredAnalysis): string { const disk = data.disks[0]; if (!disk && data.raids.length === 0 && data.volumes.length === 0) return '<p class="text-muted">日志中没有足够信息建立完整链路，以下仍保留已识别证据，不推测缺失节点。</p>'; return `<div class="chain">${disk ? `<div class="node ${healthClass(disk.health)}"><div class="node-head"><strong>${escapeHtml(disk.device || disk.name || '未命名硬盘')}</strong><span class="tag ${healthClass(disk.health)}">${escapeHtml(healthLabel(disk.health))}</span></div><div class="text-muted">${escapeHtml(disk.evidence[0] || '未见明确异常')}</div></div>` : ''}${data.raids[0] ? `<div class="arrow">↓</div><div class="node"><strong>${escapeHtml(data.raids[0])}</strong></div>` : ''}${data.volumes[0] ? `<div class="arrow">↓</div><div class="node"><strong>${escapeHtml(data.volumes[0])}</strong></div>` : ''}</div>`; }
 
 function renderMetricCard(label: string, value: number, tone: string): string {
   return `<div class="metric-card ${tone}"><div class="metric-label">${escapeHtml(label)}</div><div class="metric-value">${value}</div></div>`;
@@ -236,7 +258,7 @@ function renderRecommendations(data: StructuredAnalysis): string {
 
 function renderBlockDevices(data: StructuredAnalysis): string {
   if (!data.blockDevicesRaw && data.blockDevices.length === 0) return '';
-  return `<details class="sysinfo-card layout-block"><summary class="panel-summary"><span>块设备信息</span><span class="badge bg-secondary">${data.blockDevices.length} 行</span></summary><div class="raw-log-box">${escapeHtml(data.blockDevicesRaw || data.blockDevices.join('\n') || '未提供数据')}</div><p class="panel-link"><a href="lsblk.html">打开独立块设备页面</a></p></details>`;
+  return `<details class="sysinfo-card layout-block"><summary class="panel-summary"><span>块设备信息</span><span class="badge bg-secondary">${data.blockDevices.length} 行</span></summary><div class="raw-log-box">${escapeHtml(data.blockDevicesRaw || data.blockDevices.join('\n') || '未提供数据')}</div><p class="panel-link"><a href="structured/lsblk.html">打开独立块设备页面</a></p></details>`;
 }
 
 function renderTextPanel(title: string, values: string[], id: string): string {
@@ -398,6 +420,19 @@ export const reportScript = String.raw`(function () {
     }
     window.setTimeout(() => { button.textContent = '复制全部上下文'; }, 1200);
   }));
+  document.getElementById('copyReply')?.addEventListener('click', async function () {
+    const button = this;
+    const reply = document.getElementById('customerReply');
+    if (!reply) return;
+    try {
+      if (!navigator.clipboard) throw new Error('clipboard unavailable');
+      await navigator.clipboard.writeText(reply.innerText);
+      button.textContent = '已复制';
+    } catch (_) {
+      button.textContent = '复制失败';
+    }
+    window.setTimeout(() => { button.textContent = '复制话术'; }, 1200);
+  });
   applyFilters();
 })();`;
 
@@ -536,6 +571,42 @@ a { color: #1d4ed8; }
 .empty-inline { margin-top: 12px; color: var(--muted); font-size: .85rem; }
 .hidden-by-filter { display: none !important; }
 .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
+.metrics { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 12px; margin: 18px 0; }
+.metric, .panel { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; box-shadow: 0 4px 14px rgba(15, 23, 42, .05); }
+.metric { padding: 15px 17px; }
+.metric span { display: block; color: var(--muted); font-size: .82rem; }
+.metric strong { display: block; margin-top: 4px; font-size: 1.45rem; }
+.workspace { display: grid; grid-template-columns: minmax(360px, .9fr) minmax(520px, 1.25fr); gap: 18px; }
+.panel { padding: 20px; }
+.panel h2 { margin: 0; font-size: 1.18rem; }
+.section-head, .node-head { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+.summary { border-left: 5px solid #dc2626; padding: 18px 20px; margin-bottom: 18px; }
+.summary.diagnostic-attention { border-left-color: #b54708; }
+.summary.diagnostic-normal { border-left-color: #067647; }
+.facts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px 18px; margin: 15px 0; }
+.fact span { display: block; color: var(--muted); font-size: .75rem; }
+.fact strong { overflow-wrap: anywhere; }
+.chain { margin-top: 16px; }
+.node { padding: 14px 15px; border: 1px solid var(--line); border-left: 5px solid #067647; border-radius: 11px; background: #fff; }
+.node.diagnostic-critical { border-color: #fecdca; border-left-color: #b42318; background: #fff1f0; }
+.node.diagnostic-attention { border-color: #fedf89; border-left-color: #b54708; background: #fff7e8; }
+.arrow { color: #98a2b3; font-size: 21px; line-height: 28px; text-align: center; }
+.tag { padding: 3px 8px; border-radius: 999px; font-size: .75rem; font-weight: 700; }
+.tag.diagnostic-critical { color: #b42318; background: #fee4e2; }
+.tag.diagnostic-attention { color: #b54708; background: #fef0c7; }
+.tag.diagnostic-normal { color: #067647; background: #d1fadf; }
+.tag.diagnostic-unknown { color: #475467; background: #f2f4f7; }
+.section { border-top: 1px solid var(--line); padding-top: 17px; margin-top: 17px; }
+.evidence { padding: 11px 0; border-bottom: 1px solid #eef2f6; }
+.evidence-time { color: var(--muted); font: .75rem Consolas, monospace; }
+.recommendations { margin: 12px 0 0; padding-left: 22px; }
+.recommendations li { margin: 7px 0; }
+.customer { margin-top: 18px; padding: 19px 21px; background: #eef4ff; border: 1px solid #b2ccff; border-radius: 14px; }
+.customer h2 { color: #1849a9; }
+.reply { white-space: pre-wrap; font-size: 1rem; }
+.copy { padding: 7px 10px; color: #1849a9; background: #fff; border: 1px solid #84adff; border-radius: 8px; }
+@media (max-width: 1000px) { .workspace { grid-template-columns: 1fr; } .metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 620px) { .metrics, .facts { grid-template-columns: 1fr; } .panel { padding: 16px; } }
 @media (max-width: 1180px) { .dashboard-layout { grid-template-columns: minmax(190px, .8fr) minmax(400px, 1.8fr); } .storage-layout { grid-template-columns: minmax(280px, 1fr) minmax(280px, 1fr); } .layout-right { grid-column: 1 / -1; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 @media (max-width: 800px) { .dashboard { padding: 18px 12px 40px; } .hero { padding: 22px 20px; } .hero-heading, .diagnostic-banner { align-items: flex-start; flex-direction: column; } .metrics-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } .dashboard-layout { display: flex; flex-direction: column; } .layout-left, .layout-right, .layout-center { width: 100%; } .layout-right { display: flex; } .toolbar { position: static; } }
 @media (max-width: 520px) { .overview-grid, .memory-grid, .info-grid { grid-template-columns: 1fr; } .metrics-grid { grid-template-columns: 1fr; } .toolbar-grid { grid-template-columns: 1fr; } .toolbar-actions { grid-column: auto; justify-content: flex-start; } .sysinfo-card { padding: 16px; } .result-head { align-items: flex-start; } .issue-count { width: 100%; margin-left: 0; } }
