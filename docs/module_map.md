@@ -38,7 +38,7 @@ electron-builder ──> Windows NSIS 安装包
 
 - `analysis-center`：诊断包导入、日志规则分析、结构化存储分析和离线报告；
 - `lvm-uncache-tool`：LVM 文本转换与安全保存；
-- `ssh-terminal`：SSH 连接和凭据 Host API；
+- `terminal`：SSH 连接和凭据 Host API；
 - `log-rule-editor`：用户规则读取、校验、保存、提交和导出。
 
 应用不得引用 Workbench 主进程内部模块，只能通过版本化 App Host API 通信。

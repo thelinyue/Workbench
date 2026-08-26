@@ -16,6 +16,7 @@ out/
 release/
 release-assets/
 build/seed-app/
+apps/terminal/dist/
 .artifacts/
 .superpowers/
 release-wallpaper-validation/

@@ -1,0 +1,50 @@
+name: 发布终端应用
+
+on:
+  push:
+    tags: ["terminal-v*.*.*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  APPS_REPO: thelinyue/Workbench-Apps
+
+jobs:
+  release:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: { persist-credentials: false }
+      - uses: actions/setup-node@v4
+        with: { node-version: 22.x, cache: npm }
+      - run: npm ci
+      - name: 校验并构建签名应用包
+        shell: pwsh
+        env:
+          HEPHAESTUS_APP_SIGNING_PRIVATE_KEY: ${{ secrets.HEPHAESTUS_APP_SIGNING_PRIVATE_KEY }}
+          HEPHAESTUS_APP_SIGNING_KEY_ID: thelinyue-apps-ed25519-2026
+        run: |
+          npm run typecheck:terminal
+          npm test -- --reporter=dot
+          if ([string]::IsNullOrWhiteSpace($env:HEPHAESTUS_APP_SIGNING_PRIVATE_KEY)) { throw "未配置 SSH 终端签名私钥 Secret。" }
+          npm run build:terminal
+      - name: 发布 ZIP 并更新应用目录
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.APPS_RELEASES_TOKEN }}
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:GH_TOKEN)) { throw "未配置 APPS_RELEASES_TOKEN。" }
+          $manifest = Get-Content -Raw "apps/terminal/manifest.json" | ConvertFrom-Json
+          $tag = "terminal-v$($manifest.version)"
+          gh release create $tag "apps/terminal/dist/terminal-v$($manifest.version).zip" "apps/terminal/dist/release.json" --repo $env:APPS_REPO --title "终端 $tag" --notes "独立 SSH 终端应用包。"
+          $catalogRoot = Join-Path $env:RUNNER_TEMP "hephaestus-app-catalog"
+          gh repo clone $env:APPS_REPO $catalogRoot -- --depth=1
+          node tools/update-app-catalog.mjs (Join-Path $catalogRoot "catalog.json") "apps/terminal/dist/release.json" "apps/terminal/manifest.json"
+          Push-Location $catalogRoot
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add catalog.json
+          git commit -m "发布 terminal@$($manifest.version)"
+          git push

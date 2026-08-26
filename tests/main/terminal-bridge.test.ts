@@ -9,6 +9,6 @@ describe('SSH 终端凭据桥接', () => {
     expect(ipcSource).toContain("method === 'ssh.credentials.read'");
     expect(ipcSource).toContain("method === 'ssh.credentials.write'");
     expect(ipcSource).toContain("method === 'ssh.credentials.delete'");
-    expect(ipcSource).toContain("if (appId !== 'ssh-terminal')");
+    expect(ipcSource).toContain("if (appId !== 'terminal')");
   });
 });
