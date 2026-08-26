@@ -3,6 +3,23 @@ import { pathToFileURL } from 'node:url';
 import { net, protocol } from 'electron';
 import { assertSafeAppArchiveEntry } from './app-package-validator';
 
+/**
+ * 在 Electron 就绪前声明应用资源协议的安全能力。
+ *
+ * `standard` 让浏览器按标准 URL 规则解析 iframe 内的相对资源，
+ * `secure` 将该协议标记为安全上下文，`supportFetchAPI` 和 `corsEnabled`
+ * 允许 Vite 生成的 module/CSS 资源在受控协议下加载。
+ * 这里只声明协议能力，实际文件读取仍由下方的路径校验和只读处理器负责。
+ */
+export function registerAppProtocolScheme(): void {
+  protocol.registerSchemesAsPrivileged([
+    {
+      scheme: 'workbench-app',
+      privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: true }
+    }
+  ]);
+}
+
 export function resolveInstalledAppFile(appsRoot: string, appId: string, version: string, relativePath: string): string {
   if (!/^[a-z0-9]+(?:[.-][a-z0-9]+)*$/.test(appId) || !/^\d+\.\d+\.\d+(?:-[\w.-]+)?(?:\+[\w.-]+)?$/.test(version)) throw new Error('应用资源标识无效');
   assertSafeAppArchiveEntry(relativePath, '应用资源路径');

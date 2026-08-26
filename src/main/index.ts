@@ -1,7 +1,10 @@
 import { app, BrowserWindow, Menu } from 'electron';
 import { join } from 'node:path';
 import { registerWorkbenchIpc } from './ipc';
-import { registerAppResourceProtocol } from './services/app-resource-protocol';
+import { registerAppProtocolScheme, registerAppResourceProtocol } from './services/app-resource-protocol';
+
+// 自定义协议必须在 app.whenReady() 之前声明，否则 iframe 中的 CSS 和 ES module 资源无法按标准方式加载。
+registerAppProtocolScheme();
 
 let closeWorkbench: (() => void) | undefined;
 let unregisterAppProtocol: (() => void) | undefined;
