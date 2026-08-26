@@ -13,7 +13,7 @@ describe('内嵌应用资源协议', () => {
     expect(protocolMock.registerSchemesAsPrivileged).toHaveBeenCalledWith([
       {
         scheme: 'workbench-app',
-        privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: true }
+        privileges: { standard: true, secure: true }
       }
     ]);
   });

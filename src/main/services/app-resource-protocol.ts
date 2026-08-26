@@ -7,15 +7,14 @@ import { assertSafeAppArchiveEntry } from './app-package-validator';
  * 在 Electron 就绪前声明应用资源协议的安全能力。
  *
  * `standard` 让浏览器按标准 URL 规则解析 iframe 内的相对资源，
- * `secure` 将该协议标记为安全上下文，`supportFetchAPI` 和 `corsEnabled`
- * 允许 Vite 生成的 module/CSS 资源在受控协议下加载。
+ * `secure` 将该协议标记为安全上下文。权限仅限终端页面加载所需的标准、安全协议能力。
  * 这里只声明协议能力，实际文件读取仍由下方的路径校验和只读处理器负责。
  */
 export function registerAppProtocolScheme(): void {
   protocol.registerSchemesAsPrivileged([
     {
       scheme: 'workbench-app',
-      privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: true }
+      privileges: { standard: true, secure: true }
     }
   ]);
 }
