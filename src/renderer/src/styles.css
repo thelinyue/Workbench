@@ -1,31 +1,31 @@
 :root {
   font-family: "Segoe UI", "Microsoft YaHei", sans-serif;
-  color: #16324F;
-  background: #F4FAF8;
+  color: #1E3044;
+  background: #F4F7FB;
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   /* 主题令牌按“页面—表面—文字—状态”分层，组件只引用语义，不直接依赖页面色值。 */
-  --page-background: #F4FAF8;
-  --text: #16324F;
-  --muted: #5F7284;
-  --faint: #748796;
-  --line: #D7E8E3;
+  --page-background: #F4F7FB;
+  --text: #1E3044;
+  --muted: #60748A;
+  --faint: #75879A;
+  --line: #DBE4EF;
   --surface: #FFFFFF;
   --surface-strong: #FFFFFF;
-  --surface-soft: #F0F7F5;
-  --primary: #0F766E;
+  --surface-soft: #EEF3F8;
+  --primary: #2D6A9F;
   --violet: var(--primary);
   --blue: #256B86;
   --amber: #8A5A00;
   --warning: #8A5A00;
   --danger: #C53D55;
   --success: #2B8A63;
-  --focus: #0F766E;
-  --shadow: rgba(22, 50, 79, .14);
-  --window-control-color: var(--muted);
-  --window-control-hover-background: #EAF7F3;
-  --window-control-active-background: #DDF5EF;
-  --window-control-close-background: var(--danger);
+  --focus: #2D6A9F;
+  --shadow: rgba(31, 47, 67, .14);
+  --window-control-color: #6B7280;
+  --window-control-hover-color: #374151;
+  --window-control-hover-background: #E5E7EB;
+  --window-control-active-background: #D1D5DB;
   --window-control-transition: .16s ease;
 }
 
@@ -58,12 +58,14 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--focus); out
 .status-dot { display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: var(--success); box-shadow: 0 0 10px var(--success); }
 .topbar-icon-button, .icon-only-button { position: relative; display: grid; width: 36px; height: 36px; padding: 0; place-items: center; border: 1px solid transparent; border-radius: 9px; background: transparent; cursor: pointer; transition: background .16s ease, border-color .16s ease, color .16s ease; -webkit-app-region: no-drag; }
 .topbar-icon-button:hover, .icon-only-button:hover { border-color: var(--line); color: var(--text); background: rgba(255,255,255,.07); }
-.window-control-button { display: grid; width: var(--window-control-size); height: var(--window-control-size); padding: 0; place-items: center; border: 1px solid transparent; border-radius: 6px; color: var(--window-control-color); background: transparent; cursor: pointer; transition: background var(--window-control-transition), border-color var(--window-control-transition), color var(--window-control-transition); -webkit-app-region: no-drag; }
-.window-control-button-shell { --window-control-size: 46px; }
-.window-control-button-window { --window-control-size: 30px; }
-.window-control-button:hover { color: var(--text); background: var(--window-control-hover-background); }
-.window-control-button:active { background: var(--window-control-active-background); }
-.window-control-button-close:hover, .window-control-button-close:active { color: #fff; background: var(--window-control-close-background); }
+.window-control-button { display: grid; width: var(--window-control-size); height: var(--window-control-size); padding: 0; place-items: center; border: 0; border-radius: 0; color: var(--window-control-color); background: transparent; cursor: pointer; transition: background var(--window-control-transition), border-color var(--window-control-transition), color var(--window-control-transition); -webkit-app-region: no-drag; }
+.window-control-button-shell, .window-control-button-window { --window-control-size: 46px; }
+.window-control-button:hover { color: var(--window-control-hover-color); background: var(--window-control-hover-background); }
+.window-control-button:active { color: var(--window-control-hover-color); background: var(--window-control-active-background); }
+/* 分析中心的设置入口属于窗口标题栏，尺寸与系统控制按钮一致，避免误触和视觉跳动。 */
+.analysis-titlebar-settings { display: grid; width: 46px; height: 46px; margin-left: auto; padding: 0; place-items: center; border: 0; border-radius: 0; color: var(--window-control-color); background: transparent; cursor: pointer; transition: background var(--window-control-transition), color var(--window-control-transition); -webkit-app-region: no-drag; }
+.analysis-titlebar-settings:hover { color: var(--window-control-hover-color); background: var(--window-control-hover-background); }
+.analysis-titlebar-settings:active { color: var(--window-control-hover-color); background: var(--window-control-active-background); }
 .notification-dot { position: absolute; top: 1px; right: 0; min-width: 15px; height: 15px; padding: 0 4px; border: 2px solid #0d102b; border-radius: 9px; color: #17162f; background: var(--amber); font-size: 9px; line-height: 11px; text-align: center; }
 .topbar-divider { width: 1px; height: 20px; background: var(--line); }
 .window-control { width: 25px; color: #8189a6; font-size: 18px; line-height: 1; text-align: center; }
@@ -90,25 +92,25 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--focus); out
 .window-controls { gap: 0; }
 .window-content { min-height: 0; flex: 1; overflow: auto; }
 
-.analysis-view { min-height: 100%; padding: 28px 32px 22px; background: linear-gradient(145deg, rgba(20, 25, 60, .86), rgba(12, 16, 41, .9)); }
-.app-center-view { min-height: 100%; padding: 30px 34px; background: linear-gradient(145deg, rgba(20, 25, 60, .86), rgba(12, 16, 41, .9)); }
+.analysis-view { min-height: 100%; padding: 28px 32px 22px; background: var(--page-background); }
+.app-center-view { min-height: 100%; padding: 30px 34px; background: var(--page-background); }
 .app-center-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 20px; }
 .app-center-heading h1 { margin: 7px 0 5px; color: var(--text); font-size: 26px; letter-spacing: -.04em; }
 .app-center-heading p { color: var(--muted); font-size: 12px; }
 .app-card-grid { display: grid; margin-top: 26px; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
-.app-card { display: flex; min-height: 148px; padding: 16px; align-items: flex-start; gap: 13px; border: 1px solid var(--line); border-radius: 12px; background: rgba(255,255,255,.045); }
-.app-card-icon { display: grid; width: 48px; height: 48px; flex: 0 0 auto; place-items: center; border-radius: 13px; background: rgba(125,112,255,.16); overflow: hidden; }
+.app-card { display: flex; min-height: 148px; padding: 16px; align-items: flex-start; gap: 13px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); }
+.app-card-icon { display: grid; width: 48px; height: 48px; flex: 0 0 auto; place-items: center; border-radius: 13px; background: #E6F1FF; overflow: hidden; }
 .app-card-icon img { width: 100%; height: 100%; object-fit: cover; }
 .app-card-body { min-width: 0; flex: 1; }
 .app-card-title { display: flex; align-items: center; gap: 8px; }
 .app-card-title h2 { color: var(--text); font-size: 15px; }
 .app-card-body p { min-height: 32px; margin-top: 7px; color: var(--muted); font-size: 11px; line-height: 1.5; }
 .app-card-body small { display: block; margin-top: 10px; color: var(--faint); font-size: 10px; }
-.app-state { padding: 3px 6px; border-radius: 5px; color: var(--muted); background: rgba(255,255,255,.08); font-size: 9px; white-space: nowrap; }
+.app-state { padding: 3px 6px; border-radius: 5px; color: var(--muted); background: #EEF3F8; font-size: 9px; white-space: nowrap; }
 .app-state-installed { color: var(--success); background: rgba(29, 173, 133, .12); }
-.app-state-update-available { color: #b6a7ff; background: rgba(125,112,255,.14); }
-.app-state-incompatible, .app-state-broken { color: #e99aa9; background: rgba(226,91,118,.12); }
-.app-card-error { display: flex; margin-top: 8px; align-items: flex-start; gap: 5px; color: #e99aa9; font-size: 10px; line-height: 1.4; }
+.app-state-update-available { color: var(--primary); background: #EDF5FC; }
+.app-state-incompatible, .app-state-broken { color: var(--danger); background: #FFF2F4; }
+.app-card-error { display: flex; margin-top: 8px; align-items: flex-start; gap: 5px; color: var(--danger); font-size: 10px; line-height: 1.4; }
 .app-card-actions { display: flex; flex: 0 0 auto; align-items: flex-end; align-self: stretch; }
 .app-center-empty { display: flex; min-height: 280px; flex-direction: column; align-items: center; justify-content: center; gap: 9px; color: var(--faint); font-size: 12px; }
 .app-center-empty strong { color: var(--text); font-size: 16px; }
@@ -190,7 +192,7 @@ h1, h2, h3, p { margin: 0; }
 .shell-window-controls { display: flex; align-self: stretch; margin: 0 -16px 0 5px; -webkit-app-region: no-drag; }
 .desktop-icons { inset: 46px 0 0; }.virtual-window-layer { inset: 46px 0 0; }.task-drawer { top: 46px; }
 .desktop-icon { width: 86px; min-height: 102px; border-radius: 8px; }.desktop-icon-image { width: 54px; height: 54px; border-radius: 13px; box-shadow: 0 10px 20px rgba(0,0,0,.32), inset 0 1px rgba(255,255,255,.18); }.desktop-icon-caption { display: none; }.desktop-icon-label { font-size: 12px; text-shadow: 0 1px 3px #02030b; }
-.app-window { border-radius: 8px; box-shadow: 0 24px 56px rgba(0,0,0,.52); background: rgba(14, 18, 45, .95); }.window-titlebar { min-height: 39px; padding-left: 12px; background: rgba(13, 17, 42, .98); }.analysis-view, .settings-view { background: linear-gradient(140deg, rgba(18, 24, 58, .98), rgba(9, 13, 34, .98)); }.analysis-heading h1, .settings-heading h1 { font-size: 22px; }.analysis-actions { margin-top: 19px; gap: 7px; }.action-tile { min-height: 62px; border-radius: 8px; }.package-grid { gap: 7px; }.package-card { min-height: 208px; border-radius: 8px; }.analysis-heading-metric { border-radius: 7px; }
+.app-window { border-radius: 8px; box-shadow: 0 24px 56px rgba(0,0,0,.52); background: rgba(14, 18, 45, .95); }.window-titlebar { min-height: 46px; padding: 0 0 0 12px; background: rgba(13, 17, 42, .98); }.analysis-view, .settings-view { background: linear-gradient(140deg, rgba(18, 24, 58, .98), rgba(9, 13, 34, .98)); }.analysis-heading h1, .settings-heading h1 { font-size: 22px; }.analysis-actions { margin-top: 19px; gap: 7px; }.action-tile { min-height: 62px; border-radius: 8px; }.package-grid { gap: 7px; }.package-card { min-height: 208px; border-radius: 8px; }.analysis-heading-metric { border-radius: 7px; }
 @media (max-width: 1120px) { .app-window { min-width: 560px; }.analysis-view, .settings-view { padding: 22px 24px 18px; }.package-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { scroll-behavior: auto !important; transition-duration: .01ms !important; animation-duration: .01ms !important; } }
 
@@ -334,7 +336,7 @@ html, body, #root { color: var(--text); background: var(--page-background); }
 .desktop-shell {
   background-color: #EAFBF5;
   background-image: linear-gradient(90deg, rgba(243, 252, 250, .42), rgba(243, 252, 250, .1) 58%, rgba(255, 255, 255, .05)), var(--workbench-wallpaper);
-  background-position: center;
+  background-position: right center;
   background-repeat: no-repeat;
   background-size: cover;
 }
@@ -460,4 +462,234 @@ html, body, #root { color: var(--text); background: var(--page-background); }
 
 @media (max-width: 560px) {
   .notification-center { width: min(380px, calc(100% - 8px)); }
+}
+
+/* 亮色主题边界：宿主界面统一继承冷灰蓝令牌，后续主题只需新增同级令牌集合。 */
+html[data-theme='light'] {
+  color-scheme: light;
+  --page-background: #F4F7FB;
+  --text: #1E3044;
+  --muted: #60748A;
+  --faint: #75879A;
+  --line: #DBE4EF;
+  --surface: #FFFFFF;
+  --surface-strong: #FFFFFF;
+  --surface-soft: #EEF3F8;
+  --primary: #2D6A9F;
+  --violet: var(--primary);
+  --blue: #256B86;
+  --amber: #8A5A00;
+  --warning: #8A5A00;
+  --danger: #C53D55;
+  --success: #2B8A63;
+  --focus: #2D6A9F;
+  --shadow: rgba(31, 47, 67, .14);
+  --window-control-color: #60748A;
+  --window-control-hover-color: #1E3044;
+  --window-control-hover-background: #E5ECF4;
+  --window-control-active-background: #D7E3EF;
+}
+
+/* 桌面保留现有壁纸，移除深色遮罩与装饰，让壁纸和宿主控件保持明亮层级。 */
+html[data-theme='light'] .desktop-shell {
+  color: var(--text);
+  background-color: var(--page-background);
+  background-image: var(--workbench-wallpaper);
+  background-position: right center;
+  background-repeat: no-repeat;
+  background-size: cover;
+}
+html[data-theme='light'] .desktop-shell::before,
+html[data-theme='light'] .desktop-shell::after,
+html[data-theme='light'] .ambient-shape { opacity: 0; background-image: none; display: none; }
+html[data-theme='light'] .topbar {
+  border-bottom-color: var(--line);
+  background: var(--surface);
+  box-shadow: 0 1px 0 rgba(31, 47, 67, .04);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+html[data-theme='light'] .brand-lockup strong,
+html[data-theme='light'] .desktop-icon-label,
+html[data-theme='light'] .window-title { color: var(--text); text-shadow: none; }
+html[data-theme='light'] .brand-lockup span,
+html[data-theme='light'] .desktop-icon-caption,
+html[data-theme='light'] .desktop-hint { color: var(--muted); }
+html[data-theme='light'] .brand-mark { border-color: #B6CDE3; color: var(--primary); background: #EDF5FC; }
+html[data-theme='light'] .topbar-actions { color: var(--muted); }
+html[data-theme='light'] .shell-launcher-button,
+html[data-theme='light'] .open-app-icon { color: #355A7A; }
+html[data-theme='light'] .shell-launcher-button:hover,
+html[data-theme='light'] .open-app-icon:hover,
+html[data-theme='light'] .topbar-icon-button:hover,
+html[data-theme='light'] .icon-only-button:hover { border-color: #B6CDE3; background: #EDF5FC; }
+html[data-theme='light'] .open-app-icon { color: var(--primary); background: #E6F1FF; }
+html[data-theme='light'] .open-app-icon-minimized { color: #8A9BAD; background: transparent; }
+html[data-theme='light'] .app-library {
+  border-color: var(--line);
+  box-shadow: 0 18px 38px var(--shadow);
+  background: var(--surface);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+html[data-theme='light'] .app-library button { color: var(--text); }
+html[data-theme='light'] .app-library button:hover { border-color: #B6CDE3; background: var(--surface-soft); }
+html[data-theme='light'] .app-library button svg { color: var(--primary); }
+html[data-theme='light'] .notification-dot { border-color: var(--surface); color: #FFFFFF; background: var(--amber); }
+html[data-theme='light'] .window-control { color: var(--muted); }
+html[data-theme='light'] .desktop-icon:hover,
+html[data-theme='light'] .desktop-icon:focus-visible { border-color: #B6CDE3; background: rgba(230, 241, 255, .84); }
+html[data-theme='light'] .desktop-icon-image { border-color: rgba(255, 255, 255, .88); box-shadow: 0 10px 20px rgba(31, 47, 67, .12), inset 0 1px rgba(255, 255, 255, .82); }
+html[data-theme='light'] .desktop-icon-app-center,
+html[data-theme='light'] .desktop-icon-analysis-center { color: #24547D; background: #DDEBFA; }
+
+/* 窗口与内置页面使用白色表面，边框和阴影只承担轻量的层级分隔。 */
+html[data-theme='light'] .app-window {
+  border-color: #C9D8E6;
+  box-shadow: 0 24px 56px rgba(31, 47, 67, .16), 0 3px 18px rgba(45, 106, 159, .08);
+  background: var(--surface);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+html[data-theme='light'] .app-window:hover { box-shadow: 0 30px 78px rgba(31, 47, 67, .2), 0 4px 24px rgba(45, 106, 159, .1); }
+html[data-theme='light'] .app-window-resizer::after { border-color: #8FA9C0; }
+html[data-theme='light'] .window-titlebar {
+  border-bottom-color: var(--line);
+  background: var(--surface-soft);
+  box-shadow: none;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+html[data-theme='light'] .window-title-icon { color: var(--primary); background: #E6F1FF; }
+html[data-theme='light'] .analysis-view,
+html[data-theme='light'] .settings-view,
+html[data-theme='light'] .app-center-view { background: var(--page-background); }
+html[data-theme='light'] .app-card { border-color: var(--line); background: var(--surface); }
+html[data-theme='light'] .app-card-icon { background: #E6F1FF; }
+html[data-theme='light'] .app-state { color: var(--muted); background: #EEF3F8; }
+html[data-theme='light'] .app-state-installed { color: var(--success); background: #EAF7F0; }
+html[data-theme='light'] .app-state-update-available { color: var(--primary); background: #EDF5FC; }
+html[data-theme='light'] .app-state-incompatible,
+html[data-theme='light'] .app-state-broken { color: var(--danger); background: #FFF2F4; }
+html[data-theme='light'] .app-card-error { color: var(--danger); }
+
+/* 分析中心和设置页面沿用同一套冷灰蓝信息层级，状态色仍保持独立语义。 */
+html[data-theme='light'] .eyebrow,
+html[data-theme='light'] .section-title > svg,
+html[data-theme='light'] .analysis-heading-metric strong { color: var(--primary); }
+html[data-theme='light'] .analysis-heading-metric { border-color: #B6CDE3; color: var(--muted); background: #EDF5FC; }
+html[data-theme='light'] .action-tile { border-color: var(--line); color: var(--text); background: var(--surface); }
+html[data-theme='light'] .action-tile:hover { border-color: #AFC9E1; background: #F3F7FB; }
+html[data-theme='light'] .action-tile-violet { color: var(--primary); background: #EDF5FC; }
+html[data-theme='light'] .action-tile-blue { color: var(--blue); background: #EAF3FB; }
+html[data-theme='light'] .action-tile-amber { color: var(--amber); background: #FFF7E8; }
+html[data-theme='light'] .action-arrow { color: var(--faint); }
+html[data-theme='light'] .quiet-button,
+html[data-theme='light'] .secondary-button,
+html[data-theme='light'] .primary-button,
+html[data-theme='light'] .danger-button,
+html[data-theme='light'] .card-action-button,
+html[data-theme='light'] .report-button { border-color: var(--line); color: var(--muted); background: var(--surface); }
+html[data-theme='light'] .quiet-button:hover,
+html[data-theme='light'] .secondary-button:hover { color: var(--text); border-color: #AFC9E1; background: #EDF5FC; }
+html[data-theme='light'] .primary-button { border-color: var(--primary); color: #FFFFFF; background: var(--primary); }
+html[data-theme='light'] .primary-button:hover { border-color: #255A87; background: #255A87; }
+html[data-theme='light'] .danger-button { border-color: #E4A7B2; color: var(--danger); background: #FFF2F4; }
+html[data-theme='light'] .danger-button:hover { border-color: #D9798B; background: #FFE4E9; }
+html[data-theme='light'] .danger-button:disabled,
+html[data-theme='light'] .primary-button:disabled,
+html[data-theme='light'] .secondary-button:disabled,
+html[data-theme='light'] .card-action-button:disabled { opacity: .48; }
+html[data-theme='light'] .package-card { border-color: var(--line); background: var(--surface); }
+html[data-theme='light'] .package-card:hover,
+html[data-theme='light'] .package-card-selected { border-color: #AFC9E1; background: #F0F6FC; }
+html[data-theme='light'] .custom-checkbox { border-color: #AEBFD0; color: #FFFFFF; background: var(--surface); }
+html[data-theme='light'] .checkbox-wrap input:checked + .custom-checkbox,
+html[data-theme='light'] .confirm-check input:checked + .custom-checkbox { border-color: var(--primary); background: var(--primary); }
+html[data-theme='light'] .status-neutral { color: #526B78; background: #EEF3F8; }
+html[data-theme='light'] .status-info { color: #256B86; background: #EAF3FB; }
+html[data-theme='light'] .status-success { color: #2B8A63; background: #EAF7F0; }
+html[data-theme='light'] .status-danger { color: #C53D55; background: #FFF2F4; }
+html[data-theme='light'] .status-info .status-dot { background: var(--blue); box-shadow: 0 0 0 3px rgba(37, 107, 134, .12); }
+html[data-theme='light'] .status-success .status-dot { background: var(--success); box-shadow: 0 0 0 3px rgba(43, 138, 99, .12); }
+html[data-theme='light'] .status-danger .status-dot { background: var(--danger); box-shadow: 0 0 0 3px rgba(197, 61, 85, .12); }
+html[data-theme='light'] .status-neutral .status-dot { background: #7A919B; box-shadow: none; }
+html[data-theme='light'] .card-more:hover { color: var(--text); background: #EDF5FC; }
+html[data-theme='light'] .package-icon { border-color: #B6CDE3; color: var(--primary); background: #E6F1FF; }
+html[data-theme='light'] .package-card h3 { color: var(--text); }
+html[data-theme='light'] .package-path { color: #5C7186; }
+html[data-theme='light'] .package-path svg { color: var(--blue); }
+html[data-theme='light'] .card-action-button { color: var(--primary); border-color: #B6CDE3; background: #EDF5FC; }
+html[data-theme='light'] .card-action-button:hover { background: #E1EEF9; }
+html[data-theme='light'] .report-button { border-color: #B5DFC9; color: var(--success); background: #EAF7F0; }
+html[data-theme='light'] .report-button:hover { background: #D9F2E4; }
+html[data-theme='light'] .card-hint,
+html[data-theme='light'] .analysis-footer { color: var(--faint); }
+html[data-theme='light'] .empty-packages { border-color: #B6CDE3; color: var(--muted); background: rgba(255, 255, 255, .82); }
+html[data-theme='light'] .empty-icon { color: var(--primary); background: #E6F1FF; }
+
+/* 菜单、弹窗、任务抽屉和通知均使用白色浮层，避免出现孤立的深色面板。 */
+html[data-theme='light'] .context-menu { border-color: var(--line); box-shadow: 0 18px 40px rgba(31, 47, 67, .18); background: var(--surface); }
+html[data-theme='light'] .context-menu-title { color: var(--muted); }
+html[data-theme='light'] .context-menu button { color: var(--text); }
+html[data-theme='light'] .context-menu button:hover:not(:disabled) { background: #EDF5FC; }
+html[data-theme='light'] .context-menu button:disabled { color: #9AAAB2; }
+html[data-theme='light'] .context-menu .context-danger { color: var(--danger); }
+html[data-theme='light'] .modal-backdrop { background: rgba(31, 47, 67, .24); }
+html[data-theme='light'] .confirm-dialog { border-color: #E4A7B2; box-shadow: 0 28px 70px rgba(31, 47, 67, .24); background: var(--surface); }
+html[data-theme='light'] .dialog-icon { border-color: #E4A7B2; color: var(--danger); background: #FFF2F4; }
+html[data-theme='light'] .delete-summary div { border-color: var(--line); background: #F7F9FC; }
+html[data-theme='light'] .delete-paths { border-color: var(--line); background: #F3F7FB; }
+html[data-theme='light'] .delete-paths code { color: #4D687A; }
+html[data-theme='light'] .confirm-check { color: var(--text); }
+html[data-theme='light'] .batch-dialog { border-color: #B6CDE3; }
+html[data-theme='light'] .batch-dialog-icon { border-color: #B6CDE3; color: var(--primary); background: #E6F1FF; }
+html[data-theme='light'] .batch-package-list { border-color: var(--line); background: #F3F7FB; }
+html[data-theme='light'] .batch-package-list div { color: var(--text); }
+html[data-theme='light'] .batch-package-list div:hover { background: #EDF5FC; }
+html[data-theme='light'] .batch-package-list svg { color: var(--primary); }
+html[data-theme='light'] .task-drawer { border-left-color: var(--line); box-shadow: -20px 0 40px rgba(31, 47, 67, .14); background: rgba(255, 255, 255, .98); }
+html[data-theme='light'] .drawer-summary div,
+html[data-theme='light'] .task-row,
+html[data-theme='light'] .settings-section { border-color: var(--line); background: var(--surface); }
+html[data-theme='light'] .drawer-empty,
+html[data-theme='light'] .drawer-summary span,
+html[data-theme='light'] .settings-loading,
+html[data-theme='light'] .settings-empty { color: var(--muted); }
+html[data-theme='light'] .task-row-icon { color: var(--primary); background: #E6F1FF; }
+html[data-theme='light'] .task-row-body strong { color: var(--text); }
+html[data-theme='light'] .task-cancel { color: var(--danger); }
+html[data-theme='light'] .progress-track { background: #DCE6F0; }
+html[data-theme='light'] .progress-track span { background: var(--primary); }
+html[data-theme='light'] .settings-symbol { border-color: #B6D0E8; color: var(--blue); background: #EAF3FB; }
+html[data-theme='light'] .settings-section p,
+html[data-theme='light'] .info-line small { color: var(--muted); }
+html[data-theme='light'] .directory-row { border-color: var(--line); background: #F4F7FB; }
+html[data-theme='light'] .directory-row svg,
+html[data-theme='light'] .info-line > svg { color: var(--blue); }
+html[data-theme='light'] .directory-row code { color: #4D687A; }
+html[data-theme='light'] .toast { border-color: var(--line); box-shadow: 0 15px 34px rgba(31, 47, 67, .18); color: var(--text); background: var(--surface); }
+html[data-theme='light'] .toast-error { border-color: #E4A7B2; }
+html[data-theme='light'] .toast-success { border-color: #B5DFC9; }
+html[data-theme='light'] .toast button:hover { background: #EDF5FC; }
+
+/* 分析中心列表和目录设置保持亮色工具栏，主题边界覆盖历史深色 !important 声明。 */
+html[data-theme='light'] .analysis-explorer { background: var(--surface-soft) !important; }
+html[data-theme='light'] .analysis-compact-toolbar { border-bottom-color: var(--line); color: var(--muted); background: var(--surface); }
+html[data-theme='light'] .analysis-list-pane { background: #F7F9FC; }
+html[data-theme='light'] .analysis-settings-trigger:hover,
+html[data-theme='light'] .analysis-settings-trigger[aria-expanded='true'] { border-color: #B6CDE3; color: var(--primary); background: #EDF5FC; }
+html[data-theme='light'] .analysis-directory-settings { border-color: #C9D8E6; box-shadow: 0 18px 42px rgba(31, 47, 67, .2); background: rgba(255, 255, 255, .98); }
+html[data-theme='light'] .analysis-directory-settings-symbol { border-color: #B6D0E8; color: var(--blue); background: #EAF3FB; }
+html[data-theme='light'] .analysis-directory-section { background: #F7F9FC; }
+html[data-theme='light'] .analysis-scan-interval-input input { border-color: var(--line); color: var(--text); background: var(--surface); }
+html[data-theme='light'] .task-clear-all,
+html[data-theme='light'] .task-clear { border-color: #E4A7B2; color: var(--danger); background: #FFF7F8; }
+html[data-theme='light'] .task-clear-all:hover:not(:disabled),
+html[data-theme='light'] .task-clear:hover:not(:disabled) { border-color: #D9798B; background: #FFECEF; }
+
+@media (prefers-reduced-transparency: reduce) {
+  html[data-theme='light'] .topbar,
+  html[data-theme='light'] .window-titlebar,
+  html[data-theme='light'] .app-library { background: var(--surface); backdrop-filter: none; -webkit-backdrop-filter: none; }
 }

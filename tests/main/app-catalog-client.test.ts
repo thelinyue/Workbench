@@ -71,6 +71,50 @@ describe('应用目录客户端', () => {
     repository.close();
   });
 
+  it('下载 GitHub Release 应用包时跟随重定向', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'workbench-app-catalog-'));
+    directories.push(root);
+    const repository = new AppRegistryRepository(join(root, 'apps.db'));
+    const payload = new Uint8Array([1, 2, 3]);
+    let requestedUrl = '';
+    let requestOptions: RequestInit | undefined;
+    const client = new AppCatalogClient({
+      catalogUrl: 'https://example.test/catalog.json',
+      repository,
+      request: async (url, options) => {
+        requestedUrl = url;
+        requestOptions = options;
+        return { ok: true, status: 200, text: async () => '', arrayBuffer: async () => payload.buffer };
+      }
+    });
+
+    try {
+      await expect(client.download(catalog.apps[0]!.releases[0]!)).resolves.toEqual(payload);
+
+      expect(requestedUrl).toBe('https://example.test/old.zip');
+      expect(requestOptions).toMatchObject({ redirect: 'follow' });
+    } finally {
+      repository.close();
+    }
+  });
+
+  it('下载应用包的网络异常包含中文上下文', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'workbench-app-catalog-'));
+    directories.push(root);
+    const repository = new AppRegistryRepository(join(root, 'apps.db'));
+    const client = new AppCatalogClient({
+      catalogUrl: 'https://example.test/catalog.json',
+      repository,
+      request: async () => { throw new Error('网络不可用'); }
+    });
+
+    try {
+      await expect(client.download(catalog.apps[0]!.releases[0]!)).rejects.toThrow('下载应用包失败：网络不可用');
+    } finally {
+      repository.close();
+    }
+  });
+
   it('选择满足宿主版本的最高稳定应用版本', () => {
     const app = catalog.apps[0] as AppCatalogItem;
     expect(selectLatestCompatibleAppRelease(app, '0.1.0', '1.0')?.version).toBe('1.2.0');

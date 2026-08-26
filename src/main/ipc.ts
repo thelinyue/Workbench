@@ -9,7 +9,7 @@ import { AppCatalogClient } from './services/app-catalog-client';
 import { AppCenterService } from './services/app-center-service';
 import { AppPackageInstaller } from './services/app-package-installer';
 import { AppRuntimeManager } from './services/app-runtime-manager';
-import { parseAppCatalog, parseAppManifest } from './services/app-package-validator';
+import { compareAppVersions, parseAppCatalog, parseAppManifest } from './services/app-package-validator';
 import { loadTrustedAppKeys } from './services/app-trust-store';
 import { RulesService, type AnalyzerRuleCatalog } from './services/rules-service';
 import officialRules from './config/official-rules.json';
@@ -19,6 +19,16 @@ const appIdSchema = z.string().regex(/^[a-z0-9]+(?:[.-][a-z0-9]+)*$/);
 const layoutSchema = z.array(z.object({ appId: appIdSchema, x: z.number().int().min(0).max(5000), y: z.number().int().min(0).max(5000) }));
 const appInstallSchema = z.object({ appId: appIdSchema, version: z.string().optional() });
 const appInvokeSchema = z.object({ appId: appIdSchema, method: z.string().min(1).max(200), payload: z.unknown().optional() });
+
+/**
+ * 核心功能应用随 Workbench 安装包提供签名种子包，首次启动无需联网即可安装。
+ * 该清单只描述壳层的内置职责；应用版本与运行能力仍完全由签名 Release 和 manifest 决定，
+ * 因而应用中心后续可像普通应用一样独立更新。
+ */
+const CORE_SEED_APPS = [
+  { id: 'analysis-center', name: '分析中心', description: '诊断包导入、监控扫描、综合分析、存储健康分析和离线报告', publisherId: 'thelinyue' },
+  { id: 'terminal', name: 'SSH 终端', description: '保存连接、使用密码或私钥安全登录远程主机，并在多标签终端中进行运维操作', publisherId: 'thelinyue' }
+] as const;
 
 /**
  * 注册工作台全部受控 IPC 入口。
@@ -44,9 +54,14 @@ export function registerWorkbenchIpc(userDataPath: string): () => void {
   });
   const appCenter = new AppCenterService({ repository: appRegistry, catalog: appCatalog, installer: appInstaller, workbenchVersion: app.getVersion(), hostApiVersion: '1.0' });
   const appRuntime = new AppRuntimeManager();
-  const rulesService = new RulesService({ rootDirectory: join(dataDirectory, 'Rules'), officialRules: officialRules as AnalyzerRuleCatalog });
+  const rulesService = new RulesService({
+    rootDirectory: join(dataDirectory, 'Rules'),
+    officialRules: officialRules as AnalyzerRuleCatalog,
+    catalogUrl: process.env.HEPHAESTUS_ANALYSIS_RULES_CATALOG_URL ?? 'https://raw.githubusercontent.com/thelinyue/Hephaestus-Workbench-Plugins/main/rules/analysis-center-rules/catalog.json',
+    trustedKeys
+  });
   const notifyRenderer = () => BrowserWindow.getAllWindows().forEach((window) => window.webContents.send('workbench:changed'));
-  const seedReady = installSeedApp({ dataDirectory, appRegistry, appInstaller });
+  const seedReady = installCoreSeedApps({ dataDirectory, appRegistry, appInstaller });
 
   const getInstalledApp = (input: unknown) => {
     const appId = appIdSchema.parse(input);
@@ -62,6 +77,7 @@ export function registerWorkbenchIpc(userDataPath: string): () => void {
   };
   const appHostCapability = (method: string): string | undefined => {
     if (method === 'rules.getActive') return 'rules.read';
+    if (method === 'rules.getUpdateState' || method === 'rules.updateOfficial') return 'rules.update';
     if (method.startsWith('rules.')) return 'rules.edit';
     if (method.startsWith('ssh.credentials.')) return 'ssh.credentials';
     return ({
@@ -79,13 +95,15 @@ export function registerWorkbenchIpc(userDataPath: string): () => void {
     const { manifest } = await loadAppManifest(appId);
     if (!manifest.capabilities.includes(capability)) throw new Error(`应用未获授权使用宿主能力：${capability}`);
     if (method.startsWith('rules.')) {
-      if (method === 'rules.getActive' && appId !== 'analysis-center') throw new Error('只有分析中心可以读取激活规则。');
-      if (method !== 'rules.getActive' && appId !== 'log-rule-editor') throw new Error('只有规则编辑器可以修改规则。');
+      const analysisCenterMethod = method === 'rules.getActive' || method === 'rules.getUpdateState' || method === 'rules.updateOfficial';
+      if (analysisCenterMethod && appId !== 'analysis-center') throw new Error('只有分析中心可以读取或更新官方规则。');
+      if (!analysisCenterMethod && appId !== 'log-rule-editor') throw new Error('只有规则编辑器可以修改本地规则。');
       const result = await rulesService.invoke(method, payload);
-      return method === 'rules.getActive' ? result.data : result;
+      if (analysisCenterMethod) return result.data;
+      return result;
     }
     if (capability === 'ssh.credentials') {
-      if (appId !== 'ssh-terminal') throw new Error('只有 SSH 终端应用可以访问 SSH 凭据库。');
+      if (appId !== 'terminal') throw new Error('只有 SSH 终端应用可以访问 SSH 凭据库。');
       const value = z.object({ credentialId: z.string().uuid(), username: z.string().min(1).max(256).optional(), secret: z.string().min(1).max(16 * 1024).optional() }).parse(payload);
       const service = 'com.thelinyue.hephaestus-workbench.ssh';
       if (method === 'ssh.credentials.read') return keytar.getPassword(service, value.credentialId);
@@ -105,8 +123,9 @@ export function registerWorkbenchIpc(userDataPath: string): () => void {
       return result.canceled ? [] : result.filePaths;
     }
     if (method === 'host.chooseDirectory') {
-      const result = await dialog.showOpenDialog({ properties: ['openDirectory', 'createDirectory'] });
-      return result.canceled ? null : result.filePaths[0] ?? null;
+      // 分析中心可累计监控多个目录，取消选择统一返回空数组，避免 renderer 处理 null 分支。
+      const result = await dialog.showOpenDialog({ properties: ['openDirectory', 'createDirectory', 'multiSelections'] });
+      return result.canceled ? [] : result.filePaths;
     }
     if (method === 'host.saveFile') {
       const value = z.object({
@@ -178,34 +197,36 @@ interface SeedInstallOptions {
   appInstaller: AppPackageInstaller;
 }
 
-/** 首次启动时安装安装包内的官方种子应用；安装仍经过与在线包相同的哈希、签名和 ZIP 安全校验。 */
-async function installSeedApp(options: SeedInstallOptions): Promise<void> {
-  if (options.appRegistry.get('analysis-center')) return;
-  const candidates = [
-    join(process.resourcesPath, 'apps', 'analysis-center.zip'),
-    join(process.cwd(), 'build', 'seed-app', 'analysis-center.zip')
-  ];
-  const releaseCandidates = [
-    join(process.resourcesPath, 'apps', 'release.json'),
-    join(process.cwd(), 'build', 'seed-app', 'release.json')
-  ];
-  const packagePath = await firstExisting(candidates);
-  const releasePath = await firstExisting(releaseCandidates);
-  if (!packagePath || !releasePath) return;
-  try {
-    const release = JSON.parse(await readFile(releasePath, 'utf8')) as AppCatalogRelease & { url?: string };
-    const app: AppCatalogItem = {
-      id: 'analysis-center',
-      name: '分析中心',
-      description: '诊断包导入、监控扫描、综合分析、存储健康分析和离线报告',
-      publisherId: 'thelinyue',
-      releases: [{ ...release, url: release.url ?? 'https://github.com/thelinyue/Workbench-Apps/releases/download/analysis-center-v1.0.0/analysis-center-v1.0.0.zip' }]
-    };
-    parseAppCatalog({ schemaVersion: 1, apps: [app] });
-    const payload = await readFile(packagePath);
-    await options.appInstaller.installRelease(app, app.releases[0]!, payload);
-  } catch (error) {
-    console.error(`预置应用安装失败：${error instanceof Error ? error.message : String(error)}`);
+/**
+ * 启动时导入安装包内版本更高的核心应用。
+ * 每次升级仍使用在线安装相同的哈希、签名和 ZIP 校验，应用私有数据目录不会被替换。
+ */
+async function installCoreSeedApps(options: SeedInstallOptions): Promise<void> {
+  for (const seed of CORE_SEED_APPS) {
+    const packagePath = await firstExisting([
+      join(process.resourcesPath, 'apps', seed.id, `${seed.id}.zip`),
+      join(process.cwd(), 'build', 'seed-app', seed.id, `${seed.id}.zip`)
+    ]);
+    const releasePath = await firstExisting([
+      join(process.resourcesPath, 'apps', seed.id, 'release.json'),
+      join(process.cwd(), 'build', 'seed-app', seed.id, 'release.json')
+    ]);
+    if (!packagePath || !releasePath) {
+      console.error(`内置核心应用资源缺失，跳过安装：${seed.id}。`);
+      continue;
+    }
+    try {
+      const release = JSON.parse(await readFile(releasePath, 'utf8')) as AppCatalogRelease & { appId?: string };
+      // 构建工具为追踪种子来源附加 appId，安装前必须恢复为严格的目录 Release 结构。
+      delete release.appId;
+      const current = options.appRegistry.get(seed.id);
+      if (current?.activeVersion && compareAppVersions(release.version, current.activeVersion) <= 0) continue;
+      const app: AppCatalogItem = { ...seed, releases: [release] };
+      parseAppCatalog({ schemaVersion: 1, apps: [app] });
+      await options.appInstaller.installRelease(app, app.releases[0]!, await readFile(packagePath));
+    } catch (error) {
+      console.error(`预置应用安装失败：${seed.id}，${error instanceof Error ? error.message : String(error)}`);
+    }
   }
 }
 

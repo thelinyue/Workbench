@@ -14,11 +14,36 @@ describe('应用中心 Electron 桥接', () => {
     expect(ipcSource).toContain("ipcMain.handle('apps:invoke'");
   });
 
+  it('逐项安装分析中心和 SSH 终端的内置种子资源', () => {
+    expect(ipcSource).toContain("id: 'analysis-center'");
+    expect(ipcSource).toContain("id: 'terminal'");
+    expect(ipcSource).toContain("join(process.resourcesPath, 'apps', seed.id, `${seed.id}.zip`)");
+    expect(ipcSource).toContain('const current = options.appRegistry.get(seed.id);');
+    expect(ipcSource).toContain('compareAppVersions(release.version, current.activeVersion) <= 0');
+  });
+
+  it('种子安装会移除工具附带的 appId 元数据，并在单个应用失败后继续处理', () => {
+    expect(ipcSource).toContain('delete release.appId;');
+    expect(ipcSource).toContain('预置应用安装失败：${seed.id}');
+  });
+
   it('preload 和共享类型声明同步暴露应用中心 API', () => {
     expect(preloadSource).toContain('apps: {');
     expect(preloadSource).toContain("ipcRenderer.invoke('apps:list'");
     expect(preloadSource).toContain("ipcRenderer.invoke('apps:invoke'");
     expect(bridgeSource).toContain('apps: {');
     expect(bridgeSource).toContain('invoke(appId: string, method: string, payload?: unknown)');
+  });
+
+  it('只允许分析中心通过独立能力读取和更新官方规则', () => {
+    expect(ipcSource).toContain("if (method === 'rules.getActive') return 'rules.read';");
+    expect(ipcSource).toContain("if (method === 'rules.getUpdateState' || method === 'rules.updateOfficial') return 'rules.update';");
+    expect(ipcSource).toContain("appId !== 'analysis-center'");
+    expect(ipcSource).toContain("return result.data;");
+  });
+
+  it('目录选择器支持多选并在取消时返回空数组', () => {
+    expect(ipcSource).toContain("properties: ['openDirectory', 'createDirectory', 'multiSelections']");
+    expect(ipcSource).toContain('return result.canceled ? [] : result.filePaths;');
   });
 });

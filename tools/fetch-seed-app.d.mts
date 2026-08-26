@@ -10,4 +10,4 @@ export interface SeedRelease {
 
 export function validateSeedRelease(release: unknown): SeedRelease;
 export function verifySeedPayload(payload: Uint8Array, release: SeedRelease, trustedKeys: Record<string, string>): void;
-export function fetchSeedApp(options?: { fetchImpl?: typeof fetch; outputDir?: string; trustedKeys?: Record<string, string> }): Promise<SeedRelease>;
+export function fetchSeedApp(options?: { fetchImpl?: typeof fetch; outputDir?: string; trustedKeys?: Record<string, string> }): Promise<SeedRelease[]>;

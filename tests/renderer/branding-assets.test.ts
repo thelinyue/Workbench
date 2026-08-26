@@ -11,13 +11,15 @@ describe('工作台品牌资源', () => {
     await expect(access(resolve(workspaceRoot, 'src/renderer/src/assets/workbench-icon.png'))).resolves.toBeUndefined();
   });
 
-  it('为应用中心和分析中心提供独立 SVG 图标并在渲染层分别引用', async () => {
+  it('为应用中心、分析中心和 SSH 终端提供独立 SVG 图标并在渲染层分别引用', async () => {
     await expect(access(resolve(workspaceRoot, 'src/renderer/src/assets/app-center-icon.svg'))).resolves.toBeUndefined();
     await expect(access(resolve(workspaceRoot, 'src/renderer/src/assets/analysis-center-icon.svg'))).resolves.toBeUndefined();
+    await expect(access(resolve(workspaceRoot, 'src/renderer/src/assets/terminal-icon.svg'))).resolves.toBeUndefined();
 
     const appSource = readFileSync(resolve(workspaceRoot, 'src/renderer/src/App.tsx'), 'utf8');
     expect(appSource).toContain("'./assets/app-center-icon.svg'");
     expect(appSource).toContain("'./assets/analysis-center-icon.svg'");
+    expect(appSource).toContain("'./assets/terminal-icon.svg'");
     expect(appSource).toContain('APP_ICON_URLS[id]');
   });
 });

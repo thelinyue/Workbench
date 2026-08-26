@@ -64,9 +64,28 @@ describe('应用包安装器', () => {
     expect(repository.get('analysis-center')).toMatchObject({ activeVersion: '1.0.0', state: 'installed' });
     repository.close();
   });
+
+  it('安装更高版本时切换激活版本并保留旧版本目录', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'workbench-app-installer-'));
+    directories.push(root);
+    const keyPair = generateKeyPairSync('ed25519');
+    const first = await createPackage('analysis-center', '1.0.0', [], false, keyPair);
+    const second = await createPackage('analysis-center', '1.0.1', [], false, keyPair);
+    const repository = new AppRegistryRepository(join(root, 'apps.db'));
+    const installer = new AppPackageInstaller({ appsRoot: join(root, 'apps'), workbenchVersion: '0.1.1', hostApiVersion: '1.0', trustedKeys: { 'test-key': keyPair.publicKey }, repository });
+    const app: AppCatalogItem = { id: 'analysis-center', name: '分析中心', description: '诊断包与日志报告', publisherId: 'thelinyue', releases: [first.release, second.release] };
+
+    await installer.installRelease(app, first.release, first.bytes);
+    await installer.installRelease(app, second.release, second.bytes);
+
+    expect(repository.get('analysis-center')).toMatchObject({ installedVersion: '1.0.1', activeVersion: '1.0.1', state: 'installed' });
+    await expect(access(join(root, 'apps', 'analysis-center', '1.0.0', 'manifest.json'))).resolves.toBeUndefined();
+    await expect(access(join(root, 'apps', 'analysis-center', '1.0.1', 'manifest.json'))).resolves.toBeUndefined();
+    repository.close();
+  });
 });
 
-async function createPackage(id: string, version: string, extra: Array<{ name: string; content: string }> = [], web = false) {
+async function createPackage(id: string, version: string, extra: Array<{ name: string; content: string }> = [], web = false, keyPair = generateKeyPairSync('ed25519')) {
   const manifest = {
     schemaVersion: 1,
     id,
@@ -93,7 +112,7 @@ async function createPackage(id: string, version: string, extra: Array<{ name: s
     zip.end();
   });
   const bytes = await readFile(zipPath);
-  const { privateKey, publicKey } = generateKeyPairSync('ed25519');
+  const { privateKey, publicKey } = keyPair;
   const release: AppCatalogRelease = {
     version,
     hostApiVersion: '1.0',

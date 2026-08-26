@@ -7,16 +7,18 @@ import {
   CircleAlert,
   ClipboardList,
   CloudDownload,
+  Copy,
   Inbox,
   LayoutGrid,
   LoaderCircle,
-  Maximize2,
   Menu,
   Monitor,
-  Minimize2,
+  Minus,
   PackageOpen,
   Play,
   RefreshCw,
+  Settings,
+  Square,
   Trash2,
   X
 } from 'lucide-react';
@@ -36,7 +38,7 @@ import {
 const WORKBENCH_ICON_URL = new URL('./assets/workbench-icon.png', import.meta.url).href;
 const WORKBENCH_WALLPAPER_URL = new URL('./assets/workbench-wallpaper.png', import.meta.url).href;
 
-type AppId = 'app-center' | 'analysis-center' | 'lvm-uncache-tool';
+type AppId = 'app-center' | 'analysis-center' | 'terminal' | 'lvm-uncache-tool';
 
 /**
  * 工作台品牌图标与具体应用图标分离：品牌图标表示“返回工作台”，
@@ -45,6 +47,7 @@ type AppId = 'app-center' | 'analysis-center' | 'lvm-uncache-tool';
 const APP_ICON_URLS: Record<AppId, string> = {
   'app-center': new URL('./assets/app-center-icon.svg', import.meta.url).href,
   'analysis-center': new URL('./assets/analysis-center-icon.svg', import.meta.url).href,
+  terminal: new URL('./assets/terminal-icon.svg', import.meta.url).href,
   'lvm-uncache-tool': new URL('./assets/lvm-uncache-tool-icon.svg', import.meta.url).href
 };
 
@@ -69,6 +72,7 @@ function isTaskClearable(task: TaskRecord): boolean {
 const APP_META: Record<AppId, { title: string; description: string }> = {
   'app-center': { title: '应用中心', description: '安装与更新工作台应用' },
   'analysis-center': { title: '分析中心', description: '诊断包与日志报告' },
+  'terminal': { title: 'SSH 终端', description: '远程主机连接与运维操作' },
   'lvm-uncache-tool': { title: 'LVM 缓存清理工具', description: '清理 LVM2 VG 缓存配置' }
 };
 
@@ -85,6 +89,8 @@ export function App() {
   const [tasks, setTasks] = useState<TaskRecord[]>([]);
   const [registeredApps, setRegisteredApps] = useState<AppInstallRecord[]>([]);
   const [drawerOpen, setDrawerOpen] = useState(false);
+  // 主窗口由 Electron 管理，渲染层只在切换调用成功后同步控制按钮图标状态。
+  const [shellMaximized, setShellMaximized] = useState(false);
   const [notificationCenterOpen, setNotificationCenterOpen] = useState(false);
   const [notifications, setNotifications] = useState<WorkbenchNotification[]>([]);
   const [appLibraryOpen, setAppLibraryOpen] = useState(false);
@@ -101,6 +107,16 @@ export function App() {
   const notificationSnapshotRef = useRef<NotificationSnapshot | null>(null);
   const notificationRefreshQueueRef = useRef<Promise<void>>(Promise.resolve());
   const notificationSequenceRef = useRef(0);
+  const analysisFrameRef = useRef<Window | null>(null);
+
+  /** 分析中心设置属于独立应用；宿主标题栏只发出打开命令，不读取或保存其配置。 */
+  const openAnalysisSettings = () => {
+    if (!analysisFrameRef.current) {
+      showError('分析中心尚未加载完成，请稍后重试。');
+      return;
+    }
+    analysisFrameRef.current.postMessage({ type: 'workbench-app-command', appId: 'analysis-center', command: 'settings.open' }, '*');
+  };
 
   useEffect(() => { iconLayoutRef.current = iconLayout; }, [iconLayout]);
 
@@ -125,6 +141,11 @@ export function App() {
     setNotice('');
     appendSystemNotification('error', '工作台操作失败', translated);
   }, [appendSystemNotification]);
+
+  /** iframe 仅在实际卸载或加载完成时同步引用，避免壳层状态变化触发应用重新加载。 */
+  const handleAnalysisFrameWindowChange = useCallback((frameWindow: Window | null) => {
+    analysisFrameRef.current = frameWindow;
+  }, []);
 
   const showNotice = useCallback((message: string) => {
     setNotice(message);
@@ -242,13 +263,21 @@ export function App() {
       showNotice(`请先在应用中心安装${appMeta?.title ?? id}。`);
       return;
     }
-    if (id === 'analysis-center' && hasWorkbenchBridge()) {
-      void window.workbench.apps.launch('analysis-center')
-        .then(() => Promise.all([refreshNotificationSnapshot(true), loadAnalysisTasks()]))
+    const showAppWindow = () => {
+      setWindows((current) => createAppWindow(current, id, appMeta?.title ?? id));
+      window.setTimeout(() => focusWindow(id), 0);
+    };
+    if ((id === 'analysis-center' || id === 'terminal') && hasWorkbenchBridge()) {
+      // 带 backend 的应用必须在 iframe 发起首个 RPC 前启动 Worker，避免终端配置读取落入未启动运行时。
+      void window.workbench.apps.launch(id)
+        .then(() => {
+          showAppWindow();
+          if (id === 'analysis-center') void Promise.all([refreshNotificationSnapshot(true), loadAnalysisTasks()]).catch(showError);
+        })
         .catch(showError);
+      return;
     }
-    setWindows((current) => createAppWindow(current, id, appMeta?.title ?? id));
-    window.setTimeout(() => focusWindow(id), 0);
+    showAppWindow();
   };
 
   const closeWindow = (id: string) => setWindows((current) => current.filter((item) => item.id !== id));
@@ -360,6 +389,8 @@ export function App() {
 
   const runningCount = tasks.filter((task) => task.status === 'running' || task.status === 'queued').length;
   const clearableTaskCount = tasks.filter(isTaskClearable).length;
+  // 应用库是已安装应用的快捷入口；应用中心始终保留，便于安装其他应用。
+  const appLibraryIds = (Object.keys(APP_META) as AppId[]).filter((id) => id === 'app-center' || registeredApps.some((item) => item.id === id && item.activeVersion));
 
   return (
     <main className="desktop-shell" style={{ '--workbench-wallpaper': `url("${WORKBENCH_WALLPAPER_URL}")` } as CSSProperties} onDragOver={(event) => event.preventDefault()} onDrop={(event) => { event.preventDefault(); void importDroppedFiles(event.dataTransfer.files); }}>
@@ -370,7 +401,7 @@ export function App() {
           <button className="shell-launcher-button" type="button" aria-label="返回桌面" onClick={() => { setWindows((current) => current.map((item) => ({ ...item, minimized: true }))); setDrawerOpen(false); }}><Monitor size={17} /></button>
           <button className="shell-launcher-button" type="button" aria-label="打开应用库" aria-expanded={appLibraryOpen} onClick={() => setAppLibraryOpen((value) => !value)}><LayoutGrid size={17} /></button>
           {windows.length > 0 && <><span className="topbar-divider shell-left-divider" aria-hidden="true" /><div className="open-app-switcher" aria-label="已打开应用">{windows.map((item) => <button key={item.id} type="button" className={`open-app-icon ${item.minimized ? 'open-app-icon-minimized' : ''}`} aria-label={`切换到${item.title}`} title={item.title} onClick={() => focusWindow(item.id)}><img className="shell-brand-icon" src={resolveAppIconUrl(item.id)} alt="" aria-hidden="true" /></button>)}</div></>}
-          {appLibraryOpen && <div className="app-library" role="menu" aria-label="应用库">{(Object.keys(APP_META) as AppId[]).map((id) => { const app = APP_META[id]; return <button key={id} type="button" role="menuitem" onClick={() => { openApp(id); setAppLibraryOpen(false); }}><img className="app-library-icon" src={APP_ICON_URLS[id]} alt="" aria-hidden="true" /><span>{app.title}</span></button>; })}</div>}
+          {appLibraryOpen && <div className="app-library" role="menu" aria-label="应用库">{appLibraryIds.map((id) => { const app = APP_META[id]; return <button key={id} type="button" role="menuitem" onClick={() => { openApp(id); setAppLibraryOpen(false); }}><img className="app-library-icon" src={APP_ICON_URLS[id]} alt="" aria-hidden="true" /><span>{app.title}</span></button>; })}</div>}
         </div>
         <div className="topbar-actions">
           <button className="topbar-icon-button" type="button" aria-label={`打开任务中心${runningCount ? `，${runningCount} 项进行中` : ''}`} aria-expanded={drawerOpen} onClick={() => { setNotificationCenterOpen(false); setDrawerOpen((value) => !value); }}>
@@ -382,9 +413,10 @@ export function App() {
           <WindowControls
             title="工作台"
             variant="shell"
+            maximized={shellMaximized}
             maximizeAriaLabel="最大化或还原工作台"
             onMinimize={() => void window.workbench.shell.minimize()}
-            onMaximize={() => void window.workbench.shell.toggleMaximize()}
+            onMaximize={async () => { await window.workbench.shell.toggleMaximize(); setShellMaximized((value) => !value); }}
             onClose={() => void window.workbench.shell.close()}
           />
         </div>
@@ -397,8 +429,9 @@ export function App() {
           const title = meta?.title ?? registered?.name ?? id;
           const description = meta?.description ?? registered?.description ?? '工作台应用';
           const point = iconLayout[id];
-          return <button key={id} className="desktop-icon" style={{ left: point.x, top: point.y }} type="button" onPointerDown={(event) => beginIconDrag(event, id)} onPointerMove={moveIcon} onPointerUp={finishIconDrag} onPointerCancel={finishIconDrag} onDoubleClick={() => openApp(id)} onClick={() => { if (!suppressOpenRef.current) openApp(id); }} aria-label={`打开${title}`}>
-            <span className={`desktop-icon-image desktop-icon-${id}`}><img className="desktop-brand-icon" src={resolveAppIconUrl(id)} alt="" aria-hidden="true" /></span>
+          // 桌面图标位置由 PointerEvent 控制，禁止图片触发 Chromium 原生拖动，避免误进入文件导入 drop。
+          return <button key={id} className="desktop-icon" style={{ left: point.x, top: point.y }} type="button" onPointerDown={(event) => beginIconDrag(event, id)} onPointerMove={moveIcon} onPointerUp={finishIconDrag} onPointerCancel={finishIconDrag} onDragStart={(event) => event.preventDefault()} onDoubleClick={() => openApp(id)} onClick={() => { if (!suppressOpenRef.current) openApp(id); }} aria-label={`打开${title}`}>
+            <span className={`desktop-icon-image desktop-icon-${id}`}><img draggable={false} className="desktop-brand-icon" src={resolveAppIconUrl(id)} alt="" aria-hidden="true" /></span>
             <span className="desktop-icon-label">{title}</span>
             <span className="desktop-icon-caption">{description}</span>
           </button>;
@@ -408,9 +441,9 @@ export function App() {
       <div className="desktop-hint"><Menu size={14} /> 拖动图标整理桌面，自动吸附网格，单击打开应用</div>
 
       <section className="virtual-window-layer" aria-label="应用窗口">
-        {getVisibleWindows(windows).map((item) => <VirtualWindow key={item.id} item={item} onClose={closeWindow} onFocus={focusWindow} onMinimize={toggleMinimize} onMaximize={toggleMaximize} onMove={moveVirtualWindow} onResize={(id, width, height) => setWindows((current) => resizeWindow(current, id, width, height))}>
+        {getVisibleWindows(windows).map((item) => <VirtualWindow key={item.id} item={item} onClose={closeWindow} onFocus={focusWindow} onMinimize={toggleMinimize} onMaximize={toggleMaximize} onMove={moveVirtualWindow} onResize={(id, width, height) => setWindows((current) => resizeWindow(current, id, width, height))} onOpenSettings={item.id === 'analysis-center' ? openAnalysisSettings : undefined}>
           {item.id === 'app-center' && <AppCenter onOpenApp={openApp} showError={showError} showNotice={showNotice} />}
-          {item.id === 'analysis-center' && <EmbeddedApp appId="analysis-center" showError={showError} />}
+          {item.id === 'analysis-center' && <EmbeddedApp appId="analysis-center" showError={showError} onFrameWindowChange={handleAnalysisFrameWindowChange} />}
           {item.id !== 'app-center' && item.id !== 'analysis-center' && <EmbeddedApp appId={item.id} showError={showError} />}
         </VirtualWindow>)}
       </section>
@@ -441,11 +474,12 @@ interface VirtualWindowProps {
   onMaximize: (id: string) => void;
   onMove: (id: string, x: number, y: number) => void;
   onResize: (id: string, width: number, height: number) => void;
+  onOpenSettings?: () => void;
   children: ReactNode;
 }
 
 /** 应用内虚拟窗口，只更新 React 状态，不创建额外 Electron BrowserWindow。 */
-function VirtualWindow({ item, onClose, onFocus, onMinimize, onMaximize, onMove, onResize, children }: VirtualWindowProps) {
+function VirtualWindow({ item, onClose, onFocus, onMinimize, onMaximize, onMove, onResize, onOpenSettings, children }: VirtualWindowProps) {
   const dragState = useRef<{ offsetX: number; offsetY: number } | null>(null);
   const resizeState = useRef<{ startX: number; startY: number; width: number; height: number } | null>(null);
   const style: CSSProperties = item.maximized ? { zIndex: item.zIndex } : { left: item.x, top: item.y, width: item.width, height: item.height, zIndex: item.zIndex };
@@ -474,6 +508,7 @@ function VirtualWindow({ item, onClose, onFocus, onMinimize, onMaximize, onMove,
   return <article className={`app-window ${item.maximized ? 'app-window-maximized' : ''}`} style={style} onMouseDown={() => onFocus(item.id)}>
     <div className="window-titlebar" onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={stopDrag} onPointerCancel={stopDrag}>
       <div className="window-title"><span className="window-title-icon"><img className="window-brand-icon" src={resolveAppIconUrl(item.id)} alt="" aria-hidden="true" /></span><strong>{item.title}</strong></div>
+      {item.id === 'analysis-center' && onOpenSettings && <button className="analysis-titlebar-settings" type="button" aria-label="打开分析中心设置" title="打开分析中心设置" onClick={onOpenSettings}><Settings size={15} strokeWidth={1.5} /></button>}
       <WindowControls
         title={item.title}
         variant="window"
@@ -506,9 +541,9 @@ function WindowControls({ title, variant, maximized = false, maximizeAriaLabel, 
   const resolvedMaximizeAriaLabel = maximizeAriaLabel ?? `${maximized ? '还原' : '最大化'}${title}`;
 
   return <div className={`window-controls ${variant === 'shell' ? 'shell-window-controls' : ''}`} aria-label={`窗口控制：${title}`}>
-    <button className={buttonClassName} type="button" aria-label={`最小化${title}`} onClick={onMinimize}><Minimize2 size={16} strokeWidth={1.8} /></button>
-    <button className={buttonClassName} type="button" aria-label={resolvedMaximizeAriaLabel} onClick={onMaximize}><Maximize2 size={16} strokeWidth={1.8} /></button>
-    <button className={`${buttonClassName} window-control-button-close`} type="button" aria-label={`关闭${title}`} onClick={onClose}><X size={16} strokeWidth={1.8} /></button>
+    <button className={buttonClassName} type="button" aria-label={`最小化${title}`} onClick={onMinimize}><Minus size={14} strokeWidth={1.5} /></button>
+    <button className={buttonClassName} type="button" aria-label={resolvedMaximizeAriaLabel} onClick={onMaximize}>{maximized ? <Copy size={14} strokeWidth={1.5} /> : <Square size={14} strokeWidth={1.5} />}</button>
+    <button className={buttonClassName} type="button" aria-label={`关闭${title}`} onClick={onClose}><X size={14} strokeWidth={1.5} /></button>
   </div>;
 }
 
@@ -613,14 +648,14 @@ function AppCenter({ onOpenApp, showError, showNotice }: AppCenterProps) {
 
   return <div className="app-center-view">
     <div className="app-center-heading"><div><span className="eyebrow">WORKBENCH APPS</span><h1>应用中心</h1><p>安装、更新和启动独立版本的工作台应用。</p></div><button type="button" className="secondary-button" disabled={refreshing} onClick={() => void refreshCatalog()}>{refreshing ? <LoaderCircle className="spin" size={15} /> : <RefreshCw size={15} />}刷新目录</button></div>
-    {loading ? <div className="app-center-empty"><LoaderCircle className="spin" size={24} /><span>正在读取应用目录…</span></div> : apps.length === 0 ? <div className="app-center-empty"><PackageOpen size={28} /><strong>暂无可用应用</strong><span>请刷新目录，或检查应用目录配置。</span></div> : <div className="app-card-grid">{apps.map((item) => <article className="app-card" key={item.id}><div className="app-card-icon"><img src={WORKBENCH_ICON_URL} alt="" aria-hidden="true" /></div><div className="app-card-body"><div className="app-card-title"><h2>{item.name}</h2><span className={`app-state app-state-${item.state}`}>{APP_STATE_LABELS[item.state]}</span></div><p>{item.description}</p><small>{item.activeVersion ? `当前版本 ${item.activeVersion}` : item.availableVersion ? `可安装版本 ${item.availableVersion}` : '等待目录信息'}</small>{item.errorMessage && <div className="app-card-error"><CircleAlert size={14} />{item.errorMessage}</div>}</div><div className="app-card-actions">{renderAction(item)}</div></article>)}</div>}
+     {loading ? <div className="app-center-empty"><LoaderCircle className="spin" size={24} /><span>正在读取应用目录…</span></div> : apps.length === 0 ? <div className="app-center-empty"><PackageOpen size={28} /><strong>暂无可用应用</strong><span>请刷新目录，或检查应用目录配置。</span></div> : <div className="app-card-grid">{apps.map((item) => <article className="app-card" key={item.id}><div className="app-card-icon"><img src={resolveAppIconUrl(item.id)} alt="" aria-hidden="true" /></div><div className="app-card-body"><div className="app-card-title"><h2>{item.name}</h2><span className={`app-state app-state-${item.state}`}>{APP_STATE_LABELS[item.state]}</span></div><p>{item.description}</p><small>{item.activeVersion ? `当前版本 ${item.activeVersion}` : item.availableVersion ? `可安装版本 ${item.availableVersion}` : '等待目录信息'}</small>{item.errorMessage && <div className="app-card-error"><CircleAlert size={14} />{item.errorMessage}</div>}</div><div className="app-card-actions">{renderAction(item)}</div></article>)}</div>}
   </div>;
 }
 
-interface EmbeddedAppProps { appId: string; showError: (error: unknown) => void; }
+interface EmbeddedAppProps { appId: string; showError: (error: unknown) => void; onFrameWindowChange?: (frameWindow: Window | null) => void; }
 
 /** 未内置到壳层的应用通过 workbench-app 协议加载自己的 renderer 资源。 */
-function EmbeddedApp({ appId, showError }: EmbeddedAppProps) {
+function EmbeddedApp({ appId, showError, onFrameWindowChange }: EmbeddedAppProps) {
   const [entryUrl, setEntryUrl] = useState('');
   const frameRef = useRef<HTMLIFrameElement>(null);
   useEffect(() => {
@@ -632,8 +667,8 @@ function EmbeddedApp({ appId, showError }: EmbeddedAppProps) {
         if (active) setEntryUrl(url);
       } catch (caught) { if (active) showError(caught); }
     })();
-    return () => { active = false; };
-  }, [appId, showError]);
+    return () => { active = false; onFrameWindowChange?.(null); };
+  }, [appId, showError, onFrameWindowChange]);
   useEffect(() => {
     if (!entryUrl || !hasWorkbenchBridge()) return;
     const frame = frameRef.current;
@@ -653,7 +688,7 @@ function EmbeddedApp({ appId, showError }: EmbeddedAppProps) {
     });
     return () => { window.removeEventListener('message', onMessage); unsubscribe(); };
   }, [appId, entryUrl]);
-  return entryUrl ? <iframe ref={frameRef} className="embedded-app-frame" title={appId} src={entryUrl} /> : <div className="app-center-empty"><LoaderCircle className="spin" size={22} /><span>正在加载应用…</span></div>;
+  return entryUrl ? <iframe ref={frameRef} className="embedded-app-frame" title={appId} src={entryUrl} onLoad={() => onFrameWindowChange?.(frameRef.current?.contentWindow ?? null)} /> : <div className="app-center-empty"><LoaderCircle className="spin" size={22} /><span>正在加载应用…</span></div>;
 }
 
 /** 任务中心批量清理确认框，只删除历史任务记录，不触碰诊断包和报告文件。 */

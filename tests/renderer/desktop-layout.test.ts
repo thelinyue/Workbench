@@ -17,6 +17,15 @@ describe('桌面应用图标网格布局', () => {
     expect(snapDesktopIconPoint({ x: 0, y: 0 })).toEqual(DEFAULT_ICON_LAYOUT['analysis-center']);
   });
 
+  it('为内置 SSH 终端保留分析中心之后的固定默认槽位', () => {
+    expect(DEFAULT_ICON_LAYOUT.terminal).toEqual({ x: 276, y: 96 });
+    expect(normalizeDesktopLayout([], ['analysis-center', 'app-center', 'terminal'])).toEqual([
+      { appId: 'analysis-center', x: 44, y: 96 },
+      { appId: 'app-center', x: 160, y: 96 },
+      { appId: 'terminal', x: 276, y: 96 }
+    ]);
+  });
+
   it('目标槽位被占用时吸附到最近的空槽位', () => {
     expect(resolveDesktopIconPoint(DEFAULT_ICON_LAYOUT['analysis-center'], [DEFAULT_ICON_LAYOUT['analysis-center']])).toEqual({ x: 160, y: 96 });
   });
@@ -28,10 +37,11 @@ describe('桌面应用图标网格布局', () => {
     expect(resolveDesktopIconPoint(target, occupied)).toEqual({ x: 44, y: 238 });
   });
 
-  it('启动归一化历史布局并补充应用中心图标', () => {
+  it('启动归一化历史布局并补充两个内置核心应用入口', () => {
     expect(normalizeDesktopLayout([{ appId: 'analysis-center', x: 198, y: 390 }])).toEqual([
       { appId: 'analysis-center', x: 160, y: 380 },
-      { appId: 'app-center', x: 160, y: 96 }
+      { appId: 'app-center', x: 160, y: 96 },
+      { appId: 'terminal', x: 276, y: 96 }
     ]);
   });
 
@@ -41,7 +51,8 @@ describe('桌面应用图标网格布局', () => {
       { appId: 'settings', x: 44, y: 238 }
     ])).toEqual([
       { appId: 'analysis-center', x: 44, y: 238 },
-      { appId: 'app-center', x: 160, y: 96 }
+      { appId: 'app-center', x: 160, y: 96 },
+      { appId: 'terminal', x: 276, y: 96 }
     ]);
   });
 
@@ -51,7 +62,8 @@ describe('桌面应用图标网格布局', () => {
       { appId: 'analysis-center', x: 44, y: 238 }
     ])).toEqual([
       { appId: 'analysis-center', x: 44, y: 238 },
-      { appId: 'app-center', x: 160, y: 96 }
+      { appId: 'app-center', x: 160, y: 96 },
+      { appId: 'terminal', x: 276, y: 96 }
     ]);
   });
 

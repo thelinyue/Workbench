@@ -10,7 +10,7 @@
 4. 主进程校验 HTTPS、大小、SHA-256、Ed25519 签名、manifest 和宿主兼容版本；
 5. 通过 App Host API 启动应用并隔离应用 backend。
 
-分析中心首次随 Workbench 安装包提供签名种子包，后续更新仍从 `Workbench-Apps` Release 安装。规则编辑器通过版本化 `rules.*` Host API 读取、校验、保存、提交和导出用户规则。
+分析中心和 SSH 终端首次均随 Workbench 安装包提供签名种子包，后续更新仍由用户通过应用中心从 `Workbench-Apps` Release 安装。规则编辑器通过版本化 `rules.*` Host API 读取、校验、保存、提交和导出用户规则。
 
 ## 维护边界
 

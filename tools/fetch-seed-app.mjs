@@ -4,10 +4,13 @@ import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const root = resolve(fileURLToPath(new URL('..', import.meta.url)));
-const version = process.env.HEPHAESTUS_SEED_APP_VERSION ?? '1.0.0';
 const baseUrl = (process.env.HEPHAESTUS_APPS_RELEASE_BASE_URL ?? 'https://github.com/thelinyue/Workbench-Apps/releases/download').replace(/\/$/, '');
 const outputDirectory = join(root, 'build', 'seed-app');
 const trustedKeysPath = join(root, 'src', 'main', 'config', 'app-trusted-keys.json');
+const coreSeedApps = [
+  { id: 'analysis-center', version: process.env.HEPHAESTUS_SEED_APP_VERSION ?? '1.0.1' },
+  { id: 'terminal', version: process.env.HEPHAESTUS_TERMINAL_SEED_APP_VERSION ?? '1.0.1' }
+];
 
 export function validateSeedRelease(release) {
   if (!release || typeof release !== 'object') throw new Error('种子应用 release.json 格式无效。');
@@ -36,19 +39,26 @@ export function verifySeedPayload(payload, release, trustedKeys) {
 export async function fetchSeedApp(options = {}) {
   const { fetchImpl = fetch, outputDir = outputDirectory, trustedKeys: configuredKeys } = options;
   const trustedKeys = configuredKeys ?? await loadTrustedKeys();
-  const releaseUrl = `${baseUrl}/analysis-center-v${version}/release.json`;
-  const releaseResponse = await fetchImpl(releaseUrl);
-  if (!releaseResponse.ok) throw new Error(`无法下载种子应用 release.json：HTTP ${releaseResponse.status} ${releaseResponse.statusText ?? ''}`.trim());
-  const release = validateSeedRelease(await releaseResponse.json());
-  const packageResponse = await fetchImpl(release.url);
-  if (!packageResponse.ok) throw new Error(`无法下载种子应用 ZIP：HTTP ${packageResponse.status} ${packageResponse.statusText ?? ''}`.trim());
-  const payload = Buffer.from(await packageResponse.arrayBuffer());
-  verifySeedPayload(payload, release, trustedKeys);
-  await mkdir(outputDir, { recursive: true });
-  await writeFile(join(outputDir, 'analysis-center.zip'), payload);
-  await writeFile(join(outputDir, 'release.json'), `${JSON.stringify({ appId: 'analysis-center', ...release }, null, 2)}\n`, 'utf8');
-  console.log(`已下载并校验分析中心种子包：${release.version}，SHA-256 ${release.sha256}`);
-  return release;
+  const releases = [];
+
+  for (const seed of coreSeedApps) {
+    const releaseUrl = `${baseUrl}/${seed.id}-v${seed.version}/release.json`;
+    const releaseResponse = await fetchImpl(releaseUrl);
+    if (!releaseResponse.ok) throw new Error(`无法下载 ${seed.id} 种子应用 release.json：HTTP ${releaseResponse.status} ${releaseResponse.statusText ?? ''}`.trim());
+    const release = validateSeedRelease(await releaseResponse.json());
+    const packageResponse = await fetchImpl(release.url);
+    if (!packageResponse.ok) throw new Error(`无法下载 ${seed.id} 种子应用 ZIP：HTTP ${packageResponse.status} ${packageResponse.statusText ?? ''}`.trim());
+    const payload = Buffer.from(await packageResponse.arrayBuffer());
+    verifySeedPayload(payload, release, trustedKeys);
+    const seedDirectory = join(outputDir, seed.id);
+    await mkdir(seedDirectory, { recursive: true });
+    await writeFile(join(seedDirectory, `${seed.id}.zip`), payload);
+    await writeFile(join(seedDirectory, 'release.json'), `${JSON.stringify({ ...release, appId: seed.id }, null, 2)}\n`, 'utf8');
+    console.log(`已下载并校验${seed.id}种子包：${release.version}，SHA-256 ${release.sha256}`);
+    releases.push(release);
+  }
+
+  return releases;
 }
 
 async function loadTrustedKeys() {

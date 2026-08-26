@@ -1,6 +1,6 @@
 {
   "name": "workbench-desktop",
-  "version": "0.1.0",
+  "version": "0.1.2",
   "private": true,
   "author": "thelinyue",
   "description": "Workbench（工作台）Windows 本地诊断与运维平台",
@@ -59,12 +59,20 @@
     ],
     "extraResources": [
       {
-        "from": "build/seed-app/analysis-center.zip",
+        "from": "build/seed-app/analysis-center/analysis-center.zip",
         "to": "apps/analysis-center/analysis-center.zip"
       },
       {
-        "from": "build/seed-app/release.json",
+        "from": "build/seed-app/analysis-center/release.json",
         "to": "apps/analysis-center/release.json"
+      },
+      {
+        "from": "build/seed-app/terminal/terminal.zip",
+        "to": "apps/terminal/terminal.zip"
+      },
+      {
+        "from": "build/seed-app/terminal/release.json",
+        "to": "apps/terminal/release.json"
       },
       {
         "from": "src/main/config/app-trusted-keys.json",

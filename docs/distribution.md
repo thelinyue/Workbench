@@ -11,7 +11,7 @@ npm test
 npm run package:win
 ```
 
-安装包由 electron-builder 生成到 `release` 目录，名称为 `Workbench_v<package.json.version>.exe`。打包前会运行 `npm run fetch:seed-app`，从 `Workbench-Apps` 正式 Release 下载分析中心种子包并执行以下检查：
+安装包由 electron-builder 生成到 `release` 目录，名称为 `Workbench_v<package.json.version>.exe`。打包前会运行 `npm run fetch:seed-app`，从 `Workbench-Apps` 正式 Release 下载分析中心和 SSH 终端的签名种子包并执行以下检查：
 
 - HTTPS 下载地址；
 - SemVer、宿主 API 和最低 Workbench 版本；
@@ -26,7 +26,7 @@ npm run package:win
 
 1. `npm ci` 安装锁定依赖；
 2. 运行类型检查和测试；
-3. 下载并校验分析中心种子包；
+3. 下载并校验分析中心和 SSH 终端种子包；
 4. 构建 Electron 主程序和 Windows NSIS 安装包；
 5. 生成仅包含安装包与 `SHA256SUMS.txt` 的公开资产目录；
 6. 发布到当前仓库并匿名下载复核。

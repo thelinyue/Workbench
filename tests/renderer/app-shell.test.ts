@@ -17,4 +17,12 @@ describe('桌面顶栏', () => {
     expect(appSource).toContain('<Monitor size={17} />');
     expect(appSource).not.toContain('aria-label="返回桌面" onClick={() => { setWindows((current) => current.map((item) => ({ ...item, minimized: true }))); setDrawerOpen(false); }}><img className="shell-brand-icon" src={WORKBENCH_ICON_URL}');
   });
+
+  it('桌面图标不触发原生拖放，同时保留外部文件拖入处理', () => {
+    const appSource = readFileSync(resolve(process.cwd(), 'src/renderer/src/App.tsx'), 'utf8');
+
+    expect(appSource).toContain('onDragStart={(event) => event.preventDefault()}');
+    expect(appSource).toContain('<img draggable={false} className="desktop-brand-icon"');
+    expect(appSource).toContain('onDrop={(event) => { event.preventDefault(); void importDroppedFiles(event.dataTransfer.files); }}');
+  });
 });

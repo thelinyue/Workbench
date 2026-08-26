@@ -16,7 +16,8 @@ export const DESKTOP_GRID = {
 
 export const DEFAULT_ICON_LAYOUT: Record<DesktopAppId, DesktopIconPoint> = {
   'analysis-center': { x: DESKTOP_GRID.originX, y: DESKTOP_GRID.originY },
-  'app-center': { x: DESKTOP_GRID.originX + DESKTOP_GRID.cellWidth, y: DESKTOP_GRID.originY }
+  'app-center': { x: DESKTOP_GRID.originX + DESKTOP_GRID.cellWidth, y: DESKTOP_GRID.originY },
+  terminal: { x: DESKTOP_GRID.originX + DESKTOP_GRID.cellWidth * 2, y: DESKTOP_GRID.originY }
 };
 
 /**
@@ -114,5 +115,6 @@ export function normalizeDesktopLayout(
 function desktopAppOrder(appId: DesktopAppId): number {
   if (appId === 'analysis-center') return 0;
   if (appId === 'app-center') return 1;
-  return 2;
+  if (appId === 'terminal') return 2;
+  return 3;
 }

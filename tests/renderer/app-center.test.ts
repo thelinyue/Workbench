@@ -2,6 +2,7 @@ import { readFile } from 'node:fs/promises';
 import { describe, expect, it } from 'vitest';
 
 const source = await readFile(new URL('../../src/renderer/src/App.tsx', import.meta.url), 'utf8');
+const styles = await readFile(new URL('../../src/renderer/src/styles.css', import.meta.url), 'utf8');
 
 describe('应用中心界面', () => {
   it('提供应用中心窗口并从应用 API 加载目录状态', () => {
@@ -17,5 +18,37 @@ describe('应用中心界面', () => {
     expect(source).toContain('item.id !== \'app-center\'');
     expect(source).toContain('APP_META');
     expect(source).toContain('onOpenApp(item.id)');
+  });
+
+  it('将 SSH 终端作为内置核心应用提供固定元数据和启动入口', () => {
+    expect(source).toContain("'terminal': { title: 'SSH 终端'");
+    expect(source).toContain("terminal: new URL('./assets/terminal-icon.svg'");
+    expect(source).toContain("item.id !== 'app-center' && item.id !== 'analysis-center'");
+  });
+
+  it('打开 SSH 终端时启动独立运行时', () => {
+    expect(source).toContain("if ((id === 'analysis-center' || id === 'terminal') && hasWorkbenchBridge())");
+    expect(source).toContain('window.workbench.apps.launch(id)');
+  });
+
+  it('分析任务刷新失败时仍在运行时启动后打开应用窗口', () => {
+    expect(source).toContain("showAppWindow();\n          if (id === 'analysis-center') void Promise.all");
+  });
+
+  it('应用中心卡片使用应用自己的图标，应用库只显示应用中心和已安装应用', () => {
+    expect(source).toContain('<img src={resolveAppIconUrl(item.id)}');
+    expect(source).not.toContain('<img src={WORKBENCH_ICON_URL} alt="" aria-hidden="true" /></div><div className="app-card-body">');
+    expect(source).toContain("filter((id) => id === 'app-center'");
+    expect(source).toContain("registeredApps.some((item) => item.id === id && item.activeVersion)");
+  });
+
+  it('应用中心页面和卡片使用冷灰蓝亮色表面', () => {
+    expect(styles).toMatch(/\.app-center-view\s*\{[^}]*background:\s*var\(--page-background\);/);
+    expect(styles).toMatch(/\.app-card\s*\{[^}]*background:\s*var\(--surface\);/);
+    expect(styles).toContain('.app-card-title h2 { color: var(--text);');
+    expect(styles).toContain("html[data-theme='light'] .app-state-installed { color: var(--success); background: #EAF7F0; }");
+    expect(styles).toContain("html[data-theme='light'] .app-state-incompatible,");
+    expect(styles).toContain("html[data-theme='light'] .app-state-broken { color: var(--danger); background: #FFF2F4; }");
+    expect(styles).toContain('.primary-button { border-color: var(--primary); color: #FFFFFF; background: var(--primary); }');
   });
 });

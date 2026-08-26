@@ -12,7 +12,7 @@ export interface AppHttpResponse {
 export interface AppCatalogClientOptions {
   catalogUrl: string;
   repository: AppRegistryRepository;
-  request?: (url: string) => Promise<AppHttpResponse>;
+  request?: (url: string, init?: RequestInit) => Promise<AppHttpResponse>;
 }
 
 /**
@@ -20,7 +20,7 @@ export interface AppCatalogClientOptions {
  * 在线失败时保留最近一次有效目录，使离线用户仍可启动已安装应用。
  */
 export class AppCatalogClient {
-  private readonly request: (url: string) => Promise<AppHttpResponse>;
+  private readonly request: (url: string, init?: RequestInit) => Promise<AppHttpResponse>;
 
   public constructor(private readonly options: AppCatalogClientOptions) {
     let url: URL;
@@ -31,7 +31,7 @@ export class AppCatalogClient {
 
   public async refresh(): Promise<AppCatalogSnapshot> {
     try {
-      const response = await this.request(this.options.catalogUrl);
+      const response = await this.request(this.options.catalogUrl, { redirect: 'error' });
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
       const catalog = parseAppCatalog(JSON.parse(await response.text())) as AppCatalogDocumentV1;
       const snapshot: AppCatalogSnapshot = { catalog, fetchedAt: new Date().toISOString(), fromCache: false };
@@ -47,9 +47,14 @@ export class AppCatalogClient {
   }
 
   public async download(release: AppCatalogRelease): Promise<Uint8Array> {
-    const response = await this.request(release.url);
-    if (!response.ok) throw new Error(`下载应用包失败，HTTP 状态码：${response.status}`);
-    return new Uint8Array(await response.arrayBuffer());
+    try {
+      // GitHub Releases 会重定向到临时资源地址；内容仍由后续 SHA-256 与 Ed25519 校验保护。
+      const response = await this.request(release.url, { redirect: 'follow' });
+      if (!response.ok) throw new Error(`HTTP 状态码：${response.status}`);
+      return new Uint8Array(await response.arrayBuffer());
+    } catch (error) {
+      throw new Error(`下载应用包失败：${describeError(error)}`);
+    }
   }
 }
 
@@ -59,8 +64,8 @@ export function selectLatestCompatibleAppRelease(app: AppCatalogItem, workbenchV
     .sort((left, right) => compareAppVersions(right.version, left.version))[0];
 }
 
-async function defaultRequest(url: string): Promise<AppHttpResponse> {
-  const response = await fetch(url, { redirect: 'error' });
+async function defaultRequest(url: string, init?: RequestInit): Promise<AppHttpResponse> {
+  const response = await fetch(url, init);
   return {
     ok: response.ok,
     status: response.status,
