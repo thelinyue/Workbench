@@ -133,6 +133,8 @@ interface HostedAppSurfaceProps {
  */
 export function HostedAppSurface({ appId, name, entryUrl, onError, onReady = () => undefined }: HostedAppSurfaceProps) {
   const frameRef = useRef<HTMLIFrameElement>(null);
+  // SSH 终端现有凭据输入和首次主机密钥确认依赖浏览器模态框，其他应用仍保持更严格的沙箱权限。
+  const sandbox = appId === 'terminal' ? 'allow-scripts allow-same-origin allow-modals' : 'allow-scripts allow-same-origin';
 
   useEffect(() => {
     const frameWindow = frameRef.current?.contentWindow;
@@ -163,7 +165,7 @@ export function HostedAppSurface({ appId, name, entryUrl, onError, onReady = () 
     className="embedded-app-frame hosted-app-frame"
     title={name}
     src={entryUrl}
-    sandbox="allow-scripts allow-same-origin"
+    sandbox={sandbox}
     onLoad={onReady}
     onError={() => onError(`应用界面加载失败：${name}`)}
   />;

@@ -44,6 +44,20 @@ describe('应用窗口 renderer 表面', () => {
     expect(markup).toContain('sandbox="allow-scripts allow-same-origin"');
     expect(markup).not.toContain('allow-top-navigation');
     expect(markup).not.toContain('allow-popups');
+    expect(markup).not.toContain('allow-modals');
+  });
+
+  it('仅允许 SSH 终端使用密码和主机密钥确认弹窗', () => {
+    const markup = renderToStaticMarkup(createElement(HostedAppSurface, {
+      appId: 'terminal',
+      name: 'SSH 终端',
+      entryUrl: 'workbench-app://terminal/1.0.1/renderer/index.html',
+      onError: () => undefined
+    }));
+
+    expect(markup).toContain('sandbox="allow-scripts allow-same-origin allow-modals"');
+    expect(markup).not.toContain('allow-top-navigation');
+    expect(markup).not.toContain('allow-popups');
   });
 
   it('有效 RPC 只转发当前 iframe 和当前应用的请求并回传结果', async () => {
