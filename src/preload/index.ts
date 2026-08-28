@@ -1,4 +1,4 @@
-import { contextBridge, ipcRenderer } from 'electron';
+import { contextBridge, ipcRenderer, webUtils } from 'electron';
 
 /**
  * 预加载层是渲染进程访问本地能力的唯一入口。
@@ -6,14 +6,28 @@ import { contextBridge, ipcRenderer } from 'electron';
  */
 contextBridge.exposeInMainWorld('workbench', {
   desktop: { loadLayout: () => ipcRenderer.invoke('desktop:load-layout'), saveLayout: (layout: unknown) => ipcRenderer.invoke('desktop:save-layout', layout) },
-  shell: { minimize: () => ipcRenderer.invoke('shell:minimize-window'), toggleMaximize: () => ipcRenderer.invoke('shell:toggle-maximize-window'), close: () => ipcRenderer.invoke('shell:close-window') },
+  shell: {
+    minimize: () => ipcRenderer.invoke('shell:minimize-window'),
+    toggleMaximize: () => ipcRenderer.invoke('shell:toggle-maximize-window'),
+    close: () => ipcRenderer.invoke('shell:close-window'),
+    isMaximized: () => ipcRenderer.invoke('shell:is-maximized'),
+    onMaximizedChanged: (listener: (maximized: boolean) => void) => {
+      const channel = 'workbench:shell-maximized-changed';
+      const callback = (_event: Electron.IpcRendererEvent, value: unknown) => listener(value === true);
+      ipcRenderer.on(channel, callback);
+      return () => ipcRenderer.removeListener(channel, callback);
+    }
+  },
+  appWindow: { getContext: () => ipcRenderer.invoke('app-window:get-context') },
   apps: {
     list: () => ipcRenderer.invoke('apps:list'),
     refreshCatalog: () => ipcRenderer.invoke('apps:refresh-catalog'),
     install: (appId: string, version?: string) => ipcRenderer.invoke('apps:install', { appId, version }),
     launch: (appId: string) => ipcRenderer.invoke('apps:launch', appId),
+    reload: (appId: string) => ipcRenderer.invoke('apps:reload', appId),
     getEntryUrl: (appId: string) => ipcRenderer.invoke('apps:get-entry-url', appId),
     invoke: (appId: string, method: string, payload?: unknown) => ipcRenderer.invoke('apps:invoke', { appId, method, payload }),
+    getDroppedFilePaths: (files: File[]) => files.map((file) => webUtils.getPathForFile(file)).filter(Boolean),
     getCatalogSnapshot: () => ipcRenderer.invoke('apps:get-catalog-snapshot'),
     onEvent: (listener: (event: unknown) => void) => {
       const channel = 'workbench:app-event';

@@ -51,6 +51,26 @@ describe('应用包契约校验', () => {
     expect(parseAppManifest(webManifest)).toMatchObject({ id: 'lvm-uncache-tool', runtime: { kind: 'web', rendererEntry: 'index.html' } });
   });
 
+  it('保留旧 manifest，并校验独立窗口的安全尺寸和最小尺寸关系', () => {
+    expect(parseAppManifest(manifest).window).toBeUndefined();
+    expect(parseAppManifest({
+      ...manifest,
+      window: { defaultSize: { width: 1200, height: 800 }, minSize: { width: 800, height: 560 } }
+    })).toMatchObject({ window: { defaultSize: { width: 1200, height: 800 }, minSize: { width: 800, height: 560 } } });
+    expect(() => parseAppManifest({
+      ...manifest,
+      window: { defaultSize: { width: 799, height: 560 }, minSize: { width: 800, height: 560 } }
+    })).toThrow('默认宽度不能小于最小宽度');
+    expect(() => parseAppManifest({
+      ...manifest,
+      window: { defaultSize: { width: 1200.5, height: 800 }, minSize: { width: 800, height: 560 } }
+    })).toThrow('窗口宽度');
+    expect(() => parseAppManifest({
+      ...manifest,
+      window: { defaultSize: { width: 1200, height: 800 }, minSize: { width: 800, height: 239 } }
+    })).toThrow('窗口高度');
+  });
+
   it('解析严格的应用目录并拒绝重复应用或版本', () => {
     const catalog = { schemaVersion: 1, apps: [{ id: 'analysis-center', name: '分析中心', description: '诊断包与日志报告', publisherId: 'thelinyue', releases: [release()] }] };
     expect(parseAppCatalog(catalog).apps[0]?.id).toBe('analysis-center');

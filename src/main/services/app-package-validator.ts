@@ -10,6 +10,25 @@ const identifierSchema = z.string().regex(identifierPattern, '标识符格式无
 const semverSchema = z.string().regex(semverPattern, '版本号必须符合 SemVer');
 const hostApiVersionSchema = z.string().regex(/^\d+\.\d+$/, '宿主 API 版本必须为 major.minor');
 const relativeEntrySchema = z.string().min(1, '入口路径不能为空');
+const windowWidthSchema = z.number().int('窗口宽度必须是整数').min(320, '窗口宽度不能小于 320').max(8192, '窗口宽度不能大于 8192');
+const windowHeightSchema = z.number().int('窗口高度必须是整数').min(240, '窗口高度不能小于 240').max(8192, '窗口高度不能大于 8192');
+const appWindowSizeSchema = z.object({ width: windowWidthSchema, height: windowHeightSchema }).strict();
+
+/**
+ * 独立窗口只接受宿主可安全处理的尺寸，并在 manifest 解析时就拒绝
+ * 初始尺寸小于最小尺寸的错误配置，避免窗口创建阶段产生不可恢复的状态。
+ */
+const appWindowSchema = z.object({
+  defaultSize: appWindowSizeSchema,
+  minSize: appWindowSizeSchema
+}).strict().superRefine((window, context) => {
+  if (window.defaultSize.width < window.minSize.width) {
+    context.addIssue({ code: z.ZodIssueCode.custom, path: ['defaultSize', 'width'], message: '默认宽度不能小于最小宽度' });
+  }
+  if (window.defaultSize.height < window.minSize.height) {
+    context.addIssue({ code: z.ZodIssueCode.custom, path: ['defaultSize', 'height'], message: '默认高度不能小于最小高度' });
+  }
+});
 
 const appRuntimeWebSchema = z.object({
   kind: z.literal('web'),
@@ -33,6 +52,7 @@ const appManifestSchema = z.object({
   version: semverSchema,
   hostApiVersion: hostApiVersionSchema,
   minWorkbenchVersion: semverSchema,
+  window: appWindowSchema.optional(),
   runtime: z.union([appRuntimeWebSchema, appRuntimeBackendSchema]),
   capabilities: z.array(z.string().regex(/^[a-z][a-z0-9]*(?:\.[A-Za-z0-9-]+)+$/)).max(32)
 }).strict();

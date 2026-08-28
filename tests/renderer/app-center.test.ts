@@ -31,16 +31,20 @@ describe('应用中心界面', () => {
   it('将 SSH 终端作为内置核心应用提供固定元数据和启动入口', () => {
     expect(source).toContain("'terminal': { title: 'SSH 终端'");
     expect(source).toContain("terminal: new URL('./assets/terminal-icon.svg'");
-    expect(source).toContain("item.id !== 'app-center' && item.id !== 'analysis-center'");
+    expect(source).toContain("item.id !== 'app-center' && <EmbeddedApp");
   });
 
-  it('打开 SSH 终端时启动独立运行时', () => {
-    expect(source).toContain("if ((id === 'analysis-center' || id === 'terminal') && hasWorkbenchBridge())");
-    expect(source).toContain('window.workbench.apps.launch(id)');
+  it('所有已安装应用统一通过 launch 结果选择原生或内嵌展示', () => {
+    expect(source).toContain('await launchDesktopApp(id, window.workbench.apps, () => showVirtualAppWindow(id))');
+    expect(source).not.toContain("if ((id === 'analysis-center' || id === 'terminal')");
   });
 
   it('分析任务刷新失败时仍在运行时启动后打开应用窗口', () => {
-    expect(source).toMatch(/showAppWindow\(\);\r?\n\s*if \(id === 'analysis-center'\) void Promise\.all/);
+    expect(source).toMatch(/await launchDesktopApp\(id,[\s\S]*?if \(id === 'analysis-center'\) void Promise\.all/);
+  });
+
+  it('应用中心只调用统一 openApp，不重复启动 runtime', () => {
+    expect(source).toMatch(/const launch = async \(item: AppInstallRecord\)[\s\S]*?await onOpenApp\(item\.id\);/);
   });
 
   it('应用中心卡片使用应用自己的图标，应用库只显示应用中心和已安装应用', () => {

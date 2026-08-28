@@ -3,10 +3,12 @@ import { describe, expect, it, vi } from 'vitest';
 const electronMock = vi.hoisted(() => ({
   app: {
     whenReady: vi.fn(() => new Promise<void>(() => undefined)),
-    on: vi.fn()
+    on: vi.fn(),
+    requestSingleInstanceLock: vi.fn(() => true),
+    quit: vi.fn()
   },
   protocol: { registerSchemesAsPrivileged: vi.fn() },
-  BrowserWindow: class {},
+  BrowserWindow: class { static getAllWindows(): unknown[] { return []; } },
   Menu: { setApplicationMenu: vi.fn() }
 }));
 

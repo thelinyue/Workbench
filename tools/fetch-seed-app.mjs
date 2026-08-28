@@ -8,7 +8,7 @@ const baseUrl = (process.env.HEPHAESTUS_APPS_RELEASE_BASE_URL ?? 'https://github
 const outputDirectory = join(root, 'build', 'seed-app');
 const trustedKeysPath = join(root, 'src', 'main', 'config', 'app-trusted-keys.json');
 const coreSeedApps = [
-  { id: 'analysis-center', version: process.env.HEPHAESTUS_SEED_APP_VERSION ?? '1.0.1' },
+  { id: 'analysis-center', version: process.env.HEPHAESTUS_SEED_APP_VERSION ?? '2.0.0' },
   { id: 'terminal', version: process.env.HEPHAESTUS_TERMINAL_SEED_APP_VERSION ?? '1.0.1' }
 ];
 
@@ -42,7 +42,7 @@ export async function fetchSeedApp(options = {}) {
   const releases = [];
 
   for (const seed of coreSeedApps) {
-    const releaseUrl = `${baseUrl}/${seed.id}-v${seed.version}/release.json`;
+    const releaseUrl = `${baseUrl}/workbench-apps/${seed.id}-v${seed.version}.release.json`;
     const releaseResponse = await fetchImpl(releaseUrl);
     if (!releaseResponse.ok) throw new Error(`无法下载 ${seed.id} 种子应用 release.json：HTTP ${releaseResponse.status} ${releaseResponse.statusText ?? ''}`.trim());
     const release = validateSeedRelease(await releaseResponse.json());

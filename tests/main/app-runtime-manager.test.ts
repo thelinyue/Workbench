@@ -1,5 +1,5 @@
 import { EventEmitter } from 'node:events';
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { AppRuntimeManager, type AppRuntimeWorker } from '../../src/main/services/app-runtime-manager';
 import type { AppManifestV1 } from '../../src/shared/app-contract';
 
@@ -16,6 +16,15 @@ const manifest: AppManifestV1 = {
   capabilities: ['file.open']
 };
 
+const startOptions = (appId = 'analysis-center') => ({
+  appId,
+  installPath: `D:/apps/${appId}/1.0.0`,
+  dataDirectory: `D:/data/${appId}`,
+  manifest: { ...manifest, id: appId }
+});
+
+afterEach(() => vi.useRealTimers());
+
 describe('应用运行时管理器', () => {
   it('启动纯 Web 应用时不创建 backend Worker', async () => {
     let workerCreated = false;
@@ -26,6 +35,7 @@ describe('应用运行时管理器', () => {
 
     expect(workerCreated).toBe(false);
     await expect(manager.invoke('lvm-uncache-tool', 'anything', null)).rejects.toThrow('不支持 backend');
+    await expect(manager.stop('lvm-uncache-tool')).resolves.toBeUndefined();
   });
 
   it('把应用 RPC 转发给对应 Worker 并返回结果和事件', async () => {
@@ -33,7 +43,7 @@ describe('应用运行时管理器', () => {
     const events: unknown[] = [];
     const manager = new AppRuntimeManager({ createWorker: () => worker });
     manager.onEvent((event) => events.push(event));
-    await manager.start({ appId: 'analysis-center', installPath: 'D:/apps/analysis-center/1.0.0', dataDirectory: 'D:/data/analysis-center', manifest });
+    await manager.start(startOptions());
 
     const result = manager.invoke('analysis-center', 'packages.list', { page: 1 });
     worker.respond({ type: 'event', appId: 'analysis-center', event: 'tasks.changed', payload: { count: 1 } });
@@ -43,28 +53,153 @@ describe('应用运行时管理器', () => {
     expect(events).toEqual([{ appId: 'analysis-center', event: 'tasks.changed', payload: { count: 1 } }]);
   });
 
-  it('停止应用时终止 Worker，并拒绝后续请求', async () => {
+  it('收到成功停止确认后自然结束，不调用 terminate', async () => {
     const worker = new FakeWorker();
     const manager = new AppRuntimeManager({ createWorker: () => worker });
-    await manager.start({ appId: 'analysis-center', installPath: 'D:/apps/analysis-center/1.0.0', dataDirectory: 'D:/data/analysis-center', manifest });
+    await manager.start(startOptions());
 
-    await manager.stop('analysis-center');
+    const stopping = manager.stop('analysis-center');
+    expect(worker.messages).toEqual([{ type: 'stop' }]);
+    worker.respond({ type: 'stopped', ok: true });
 
-    expect(worker.terminated).toBe(true);
+    await expect(stopping).resolves.toBeUndefined();
+    expect(worker.terminateCalls).toBe(0);
+  });
+
+  it('默认恰好等待 5000ms 后才强制终止', async () => {
+    vi.useFakeTimers();
+    const worker = new FakeWorker();
+    const manager = new AppRuntimeManager({ createWorker: () => worker, logger: { error: () => undefined } });
+    await manager.start(startOptions());
+
+    const stopping = manager.stop('analysis-center');
+    let settled = false;
+    void stopping.then(() => { settled = true; }, () => { settled = true; });
+    await vi.advanceTimersByTimeAsync(4_999);
+    expect(worker.terminateCalls).toBe(0);
+    expect(settled).toBe(false);
+    await vi.advanceTimersByTimeAsync(1);
+
+    await expect(stopping).rejects.toThrow('5000');
+    expect(worker.terminateCalls).toBe(1);
+  });
+
+  it('可注入短超时，超时强制终止并输出包含应用名的中文错误', async () => {
+    const worker = new FakeWorker();
+    const errors: string[] = [];
+    const manager = new AppRuntimeManager({ createWorker: () => worker, stopTimeoutMs: 5, logger: { error: (message) => errors.push(message) } });
+    await manager.start(startOptions());
+
+    await expect(manager.stop('analysis-center')).rejects.toThrow('等待应用 analysis-center 清理确认超时（5ms）');
+
+    expect(worker.terminateCalls).toBe(1);
+    expect(errors).toEqual(['应用 analysis-center 在 5ms 内未完成清理，正在强制终止 Worker。']);
+  });
+
+  it('负确认报告清理错误，且不会误报超时或强制终止', async () => {
+    const worker = new FakeWorker();
+    const errors: string[] = [];
+    const manager = new AppRuntimeManager({ createWorker: () => worker, stopTimeoutMs: 5, logger: { error: (message) => errors.push(message) } });
+    await manager.start(startOptions());
+
+    const stopping = manager.stop('analysis-center');
+    worker.respond({ type: 'stopped', ok: false, errorMessage: '关闭数据库失败' });
+
+    await expect(stopping).rejects.toThrow('应用 analysis-center 清理失败：关闭数据库失败');
+    expect(worker.terminateCalls).toBe(0);
+    expect(errors.join('\n')).not.toContain('超时');
+  });
+
+  it.each([
+    ['异常', (worker: FakeWorker) => worker.emit('error', new Error('端口断开')), 'Worker 异常：端口断开'],
+    ['退出', (worker: FakeWorker) => worker.emit('exit', 7), '在清理确认前退出，退出码：7']
+  ])('Worker 在确认前%s会立即结束停止等待', async (_label, finishWorker, expected) => {
+    const worker = new FakeWorker();
+    const manager = new AppRuntimeManager({ createWorker: () => worker, stopTimeoutMs: 50 });
+    await manager.start(startOptions());
+
+    const stopping = manager.stop('analysis-center');
+    finishWorker(worker);
+
+    await expect(stopping).rejects.toThrow(expected);
+    expect(worker.terminateCalls).toBe(0);
+  });
+
+  it('同一应用的并发 stop 共享一次停止消息和结果', async () => {
+    const worker = new FakeWorker();
+    const manager = new AppRuntimeManager({ createWorker: () => worker });
+    await manager.start(startOptions());
+
+    const first = manager.stop('analysis-center');
+    const second = manager.stop('analysis-center');
+    expect(worker.messages).toEqual([{ type: 'stop' }]);
+    worker.respond({ type: 'stopped', ok: true });
+
+    await expect(Promise.all([first, second])).resolves.toEqual([undefined, undefined]);
+  });
+
+  it('stopAll 会尝试停止全部应用，并在全部结算后汇总中文错误', async () => {
+    const first = new FakeWorker();
+    const second = new FakeWorker();
+    const workers = [first, second];
+    const manager = new AppRuntimeManager({ createWorker: () => workers.shift()! });
+    await manager.start(startOptions('analysis-center'));
+    await manager.start(startOptions('terminal'));
+
+    const stopping = manager.stopAll();
+    expect(first.messages).toEqual([{ type: 'stop' }]);
+    expect(second.messages).toEqual([{ type: 'stop' }]);
+    first.respond({ type: 'stopped', ok: false, errorMessage: '数据库忙' });
+    second.respond({ type: 'stopped', ok: true });
+
+    await expect(stopping).rejects.toThrow('停止应用运行时失败：analysis-center');
+    expect(second.terminateCalls).toBe(0);
+  });
+
+  it('重载应用等待旧 Worker 确认后才创建替代 Worker', async () => {
+    const first = new FakeWorker();
+    const second = new FakeWorker();
+    const workers = [first, second];
+    const created: FakeWorker[] = [];
+    const manager = new AppRuntimeManager({ createWorker: () => { const worker = workers.shift()!; created.push(worker); return worker; } });
+    await manager.start(startOptions());
+
+    const restarting = manager.restart({ ...startOptions(), installPath: 'D:/dev/analysis-center/dist' });
+    expect(created).toEqual([first]);
+    first.respond({ type: 'stopped', ok: true });
+    await restarting;
+
+    expect(created).toEqual([first, second]);
+  });
+
+  it('停止开始即拒绝已有和新 RPC，不把请求发送给正在清理的 Worker', async () => {
+    const worker = new FakeWorker();
+    const manager = new AppRuntimeManager({ createWorker: () => worker });
+    await manager.start(startOptions());
+    const pending = manager.invoke('analysis-center', 'packages.list', null);
+
+    const stopping = manager.stop('analysis-center');
+
+    await expect(pending).rejects.toThrow('应用正在停止：analysis-center');
     await expect(manager.invoke('analysis-center', 'packages.list', null)).rejects.toThrow('尚未启动');
+    expect(worker.messages.map((message) => message.type)).toEqual(['invoke', 'stop']);
+    worker.respond({ type: 'stopped', ok: true });
+    await stopping;
   });
 });
 
 class FakeWorker extends EventEmitter implements AppRuntimeWorker {
   public lastRequestId = '';
-  public terminated = false;
+  public terminateCalls = 0;
+  public readonly messages: Array<{ type: string; requestId?: string }> = [];
 
   public postMessage(message: { type: string; requestId?: string }): void {
+    this.messages.push(message);
     this.lastRequestId = message.requestId ?? '';
   }
 
   public terminate(): Promise<number> {
-    this.terminated = true;
+    this.terminateCalls += 1;
     return Promise.resolve(0);
   }
 

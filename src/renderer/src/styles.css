@@ -62,10 +62,12 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--focus); out
 .window-control-button-shell, .window-control-button-window { --window-control-size: 46px; }
 .window-control-button:hover { color: var(--window-control-hover-color); background: var(--window-control-hover-background); }
 .window-control-button:active { color: var(--window-control-hover-color); background: var(--window-control-active-background); }
-/* 分析中心的设置入口属于窗口标题栏，尺寸与系统控制按钮一致，避免误触和视觉跳动。 */
-.analysis-titlebar-settings { display: grid; width: 46px; height: 46px; margin-left: auto; padding: 0; place-items: center; border: 0; border-radius: 0; color: var(--window-control-color); background: transparent; cursor: pointer; transition: background var(--window-control-transition), color var(--window-control-transition); -webkit-app-region: no-drag; }
-.analysis-titlebar-settings:hover { color: var(--window-control-hover-color); background: var(--window-control-hover-background); }
-.analysis-titlebar-settings:active { color: var(--window-control-hover-color); background: var(--window-control-active-background); }
+/* 开发重载与系统控制按钮使用同一标题栏尺寸，避免状态切换引发布局跳动。 */
+.window-titlebar-actions { display: flex; align-self: stretch; margin-left: auto; }
+.development-titlebar-reload { display: grid; width: 46px; height: 46px; padding: 0; place-items: center; border: 0; border-radius: 0; color: var(--window-control-color); background: transparent; cursor: pointer; transition: background var(--window-control-transition), color var(--window-control-transition); -webkit-app-region: no-drag; }
+.development-titlebar-reload:hover { color: var(--window-control-hover-color); background: var(--window-control-hover-background); }
+.development-titlebar-reload:active { color: var(--window-control-hover-color); background: var(--window-control-active-background); }
+.development-titlebar-reload:disabled { cursor: wait; opacity: .65; }
 .notification-dot { position: absolute; top: 1px; right: 0; min-width: 15px; height: 15px; padding: 0 4px; border: 2px solid #0d102b; border-radius: 9px; color: #17162f; background: var(--amber); font-size: 9px; line-height: 11px; text-align: center; }
 .topbar-divider { width: 1px; height: 20px; background: var(--line); }
 .window-control { width: 25px; color: #8189a6; font-size: 18px; line-height: 1; text-align: center; }
@@ -113,6 +115,21 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--focus); out
 .app-center-empty { display: flex; min-height: 280px; flex-direction: column; align-items: center; justify-content: center; gap: 9px; color: var(--faint); font-size: 12px; }
 .app-center-empty strong { color: var(--text); font-size: 16px; }
 .embedded-app-frame { display: block; width: 100%; height: 100%; min-height: 420px; border: 0; background: transparent; }
+
+/* 原生应用窗口宿主保持固定标题栏和满尺寸内容区，加载/失败反馈不会改变窗口结构。 */
+.app-window-host { display: flex; width: 100%; height: 100%; min-width: 0; overflow: hidden; flex-direction: column; color: var(--text); background: var(--page-background); }
+.app-window-host-titlebar { display: flex; height: 46px; min-height: 46px; align-items: center; border-bottom: 1px solid var(--line); background: var(--surface-soft); user-select: none; -webkit-app-region: drag; }
+.app-window-host-title { display: flex; min-width: 0; padding-left: 12px; align-items: center; gap: 9px; pointer-events: none; }
+.app-window-host-title img { width: 23px; height: 23px; flex: 0 0 auto; border-radius: 6px; object-fit: cover; }
+.app-window-host-title strong { overflow: hidden; font-size: 13px; font-weight: 650; text-overflow: ellipsis; white-space: nowrap; }
+.app-window-host-actions { display: flex; height: 46px; margin-left: auto; align-items: stretch; -webkit-app-region: no-drag; }
+.app-window-host-actions .window-controls { height: 46px; }
+.app-window-host-content { position: relative; min-width: 0; min-height: 0; flex: 1; overflow: hidden; }
+.app-window-host .hosted-app-frame { height: 100%; min-height: 0; background: var(--surface); }
+.app-window-host-feedback { display: flex; width: 100%; height: 100%; min-height: 180px; padding: 24px; align-items: center; justify-content: center; gap: 9px; color: var(--muted); font-size: 13px; text-align: center; }
+.app-window-host-error { flex-direction: column; color: var(--danger); }
+.app-window-host-error strong { color: var(--text); font-size: 14px; }
+.app-window-host-error span { max-width: 560px; line-height: 1.6; overflow-wrap: anywhere; }
 .analysis-heading { display: flex; align-items: flex-start; justify-content: space-between; }
 .eyebrow { color: #8e8be4; font-size: 10px; font-weight: 750; letter-spacing: .17em; }
 h1, h2, h3, p { margin: 0; }

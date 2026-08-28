@@ -12,6 +12,7 @@ describe('应用中心 Electron 桥接', () => {
     expect(ipcSource).toContain("ipcMain.handle('apps:install'");
     expect(ipcSource).toContain("ipcMain.handle('apps:launch'");
     expect(ipcSource).toContain("ipcMain.handle('apps:invoke'");
+    expect(ipcSource).toContain("ipcMain.handle('apps:reload'");
   });
 
   it('逐项安装分析中心和 SSH 终端的内置种子资源', () => {
@@ -31,8 +32,23 @@ describe('应用中心 Electron 桥接', () => {
     expect(preloadSource).toContain('apps: {');
     expect(preloadSource).toContain("ipcRenderer.invoke('apps:list'");
     expect(preloadSource).toContain("ipcRenderer.invoke('apps:invoke'");
+    expect(preloadSource).toContain("ipcRenderer.invoke('apps:reload'");
+    expect(preloadSource).toContain("ipcRenderer.invoke('app-window:get-context')");
+    expect(preloadSource).toContain("ipcRenderer.invoke('shell:is-maximized')");
     expect(bridgeSource).toContain('apps: {');
     expect(bridgeSource).toContain('invoke(appId: string, method: string, payload?: unknown)');
+    expect(bridgeSource).toContain('reload(appId: string): Promise<void>');
+    expect(bridgeSource).toContain('getContext(): Promise<AppWindowContext>');
+    expect(bridgeSource).toContain('onMaximizedChanged(listener: (maximized: boolean) => void)');
+  });
+
+  it('开发覆盖只作用于已安装应用，并以 dev 资源地址加载', () => {
+    expect(ipcSource).toContain('developmentOverride?: DevelopmentAppOverride');
+    expect(ipcSource).toContain('developmentOverride: item.id === developmentOverride?.appId');
+    expect(ipcSource).toContain('workbench-app://${item.id}/dev/${manifest.runtime.rendererEntry}');
+    expect(ipcSource).toContain('当前应用未启用本地开发覆盖，无法重载');
+    expect(ipcSource).toContain('const updateDevelopmentOverrideState = () =>');
+    expect(ipcSource).toContain('updateDevelopmentOverrideState();');
   });
 
   it('只允许分析中心通过独立能力读取和更新官方规则', () => {

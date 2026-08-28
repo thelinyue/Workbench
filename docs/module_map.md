@@ -8,13 +8,14 @@ Workbench 只描述宿主模块；应用源码和应用业务模块位于 `Workb
 Electron 主进程
  ├── IPC 注册层
  │    ├── DesktopLayoutRepository ──> userData/Workbench/workbench.db
+ │    ├── AppWindowStateRepository ──> userData/Workbench/workbench.db
  │    ├── AppCatalogClient ──> Workbench-Apps/catalog.json
  │    ├── AppPackageInstaller ──> 应用 ZIP 校验与安装
  │    └── AppRuntimeManager ──> 应用 backend Worker
  ├── RulesService ──> rules.* Host API
  └── Seed App Fetcher ──> Workbench-Apps 分析中心正式 Release
 
-Preload ──> contextBridge ──> Renderer React Desktop Shell
+Preload ──> contextBridge ──> Renderer React Desktop Shell / App Window Host
 Renderer ──> window.workbench ──> IPC / App Host RPC
 electron-builder ──> Windows NSIS 安装包
 ```
@@ -23,13 +24,14 @@ electron-builder ──> Windows NSIS 安装包
 
 | 模块 | 主要路径 | 职责 |
 | --- | --- | --- |
-| Electron 主进程 | `src/main/index.ts` | 创建窗口、加载 renderer、管理应用生命周期 |
+| Electron 主进程 | `src/main/index.ts` | 创建桌面与原生应用窗口、加载 renderer、管理应用生命周期 |
 | IPC | `src/main/ipc.ts` | 校验输入，暴露桌面、应用中心、Host API 和规则接口 |
-| 桌面布局 | `src/main/data/desktop-layout-repository.ts` | 只保存宿主桌面图标布局 |
+| 宿主界面状态 | `src/main/data/desktop-layout-repository.ts`、`src/main/data/app-window-state-repository.ts` | 保存桌面图标布局及原生应用窗口边界/最大化状态 |
+| 应用窗口宿主 | `src/main/services/app-window-manager.ts`、`src/renderer/src/app-window-host.tsx` | 管理原生窗口身份、状态恢复和通用 renderer 表面 |
 | 应用中心 | `src/main/services/app-*` | 读取目录、安装应用、校验包、启动和停止 backend |
 | 规则 Host API | `src/main/services/rules-service.ts` | 管理官方规则、用户增量、激活快照和导出/提交结果 |
 | Preload | `src/preload/index.ts` | 以最小白名单 API 暴露宿主能力 |
-| React 桌面 | `src/renderer/src/App.tsx` | 桌面图标、应用窗口、任务抽屉和通用应用 RPC |
+| React renderer | `src/renderer/src/App.tsx`、`src/renderer/src/hosted-app-surface.tsx` | 桌面图标、虚拟窗口、任务抽屉和通用应用 RPC/文件路径协议 |
 | 发布 | `package.json`、`.github/workflows/release.yml` | 下载种子包、构建安装包和发布 SHA-256 资产 |
 
 ## 应用边界

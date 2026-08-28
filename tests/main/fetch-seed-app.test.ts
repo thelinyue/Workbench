@@ -26,7 +26,7 @@ describe('fetchSeedApp', () => {
     expect(JSON.parse(await readFile(join(outputDir, 'analysis-center', 'release.json'), 'utf8'))).toMatchObject({ appId: 'analysis-center', version: '1.0.0' });
     expect(await readFile(join(outputDir, 'terminal', 'terminal.zip'), 'utf8')).toBe('seed-app');
     expect(JSON.parse(await readFile(join(outputDir, 'terminal', 'release.json'), 'utf8'))).toMatchObject({ appId: 'terminal', version: '1.0.0' });
-    expect(requestedReleaseUrls).toContain('https://github.com/thelinyue/Workbench-Apps/releases/download/analysis-center-v1.0.1/release.json');
-    expect(requestedReleaseUrls).toContain('https://github.com/thelinyue/Workbench-Apps/releases/download/terminal-v1.0.1/release.json');
+    expect(requestedReleaseUrls).toContain('https://github.com/thelinyue/Workbench-Apps/releases/download/workbench-apps/analysis-center-v2.0.0.release.json');
+    expect(requestedReleaseUrls).toContain('https://github.com/thelinyue/Workbench-Apps/releases/download/workbench-apps/terminal-v1.0.1.release.json');
   });
 });

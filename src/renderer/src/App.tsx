@@ -7,24 +7,24 @@ import {
   CircleAlert,
   ClipboardList,
   CloudDownload,
-  Copy,
   Inbox,
   LayoutGrid,
   LoaderCircle,
   Menu,
   Monitor,
-  Minus,
   PackageOpen,
   Play,
   RefreshCw,
-  Settings,
-  Square,
   Trash2,
   X
 } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react';
 import { createAppWindow, getVisibleWindows, minimizeWindow, moveWindow, resizeWindow, type AppWindow } from '../window-manager';
 import { DEFAULT_ICON_LAYOUT, normalizeDesktopLayout, resolveDesktopIconPoint, type DesktopAppId } from '../desktop-layout';
+import { importAnalysisCenterFiles } from './analysis-center-file-import';
+import { launchDesktopApp } from './desktop-app-launch';
+import { HostedAppSurface } from './hosted-app-surface';
+import { WindowControls } from './window-controls';
 import type { AppInstallRecord, AppInstallState } from '../../shared/app-contract';
 import {
   formatDetectedAt,
@@ -88,8 +88,9 @@ export function App() {
   const [windows, setWindows] = useState<AppWindow[]>([]);
   const [tasks, setTasks] = useState<TaskRecord[]>([]);
   const [registeredApps, setRegisteredApps] = useState<AppInstallRecord[]>([]);
+  const [appReloadTokens, setAppReloadTokens] = useState<Record<string, number>>({});
   const [drawerOpen, setDrawerOpen] = useState(false);
-  // 主窗口由 Electron 管理，渲染层只在切换调用成功后同步控制按钮图标状态。
+  // 主窗口状态由 Electron 原生事件同步，覆盖按钮、双击标题栏和系统快捷键等全部路径。
   const [shellMaximized, setShellMaximized] = useState(false);
   const [notificationCenterOpen, setNotificationCenterOpen] = useState(false);
   const [notifications, setNotifications] = useState<WorkbenchNotification[]>([]);
@@ -107,16 +108,6 @@ export function App() {
   const notificationSnapshotRef = useRef<NotificationSnapshot | null>(null);
   const notificationRefreshQueueRef = useRef<Promise<void>>(Promise.resolve());
   const notificationSequenceRef = useRef(0);
-  const analysisFrameRef = useRef<Window | null>(null);
-
-  /** 分析中心设置属于独立应用；宿主标题栏只发出打开命令，不读取或保存其配置。 */
-  const openAnalysisSettings = () => {
-    if (!analysisFrameRef.current) {
-      showError('分析中心尚未加载完成，请稍后重试。');
-      return;
-    }
-    analysisFrameRef.current.postMessage({ type: 'workbench-app-command', appId: 'analysis-center', command: 'settings.open' }, '*');
-  };
 
   useEffect(() => { iconLayoutRef.current = iconLayout; }, [iconLayout]);
 
@@ -141,11 +132,6 @@ export function App() {
     setNotice('');
     appendSystemNotification('error', '工作台操作失败', translated);
   }, [appendSystemNotification]);
-
-  /** iframe 仅在实际卸载或加载完成时同步引用，避免壳层状态变化触发应用重新加载。 */
-  const handleAnalysisFrameWindowChange = useCallback((frameWindow: Window | null) => {
-    analysisFrameRef.current = frameWindow;
-  }, []);
 
   const showNotice = useCallback((message: string) => {
     setNotice(message);
@@ -233,6 +219,16 @@ export function App() {
   useEffect(() => hasWorkbenchBridge() ? window.workbench.onChanged(() => { void refreshAppRegistry(); void refreshNotificationSnapshot(); }) : undefined, [refreshAppRegistry, refreshNotificationSnapshot]);
 
   useEffect(() => {
+    if (!hasWorkbenchBridge()) return;
+    let active = true;
+    const unsubscribe = window.workbench.shell.onMaximizedChanged(setShellMaximized);
+    void window.workbench.shell.isMaximized()
+      .then((value) => { if (active) setShellMaximized(value); })
+      .catch((caught) => { if (active) showError(caught); });
+    return () => { active = false; unsubscribe(); };
+  }, [showError]);
+
+  useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
         setTaskClearDialogOpen(false);
@@ -256,31 +252,43 @@ export function App() {
     if (Array.isArray(result)) setTasks((result as TaskRecord[]).map((task) => ({ ...task, appId: 'analysis-center' })));
   };
 
-  const openApp = (id: string) => {
+  const showVirtualAppWindow = (id: string) => {
+    const appMeta = APP_META[id as AppId];
+    setWindows((current) => createAppWindow(current, id, appMeta?.title ?? id));
+    window.setTimeout(() => focusWindow(id), 0);
+  };
+
+  const openApp = async (id: string): Promise<void> => {
     const appMeta = APP_META[id as AppId];
     if (id !== 'app-center' && hasWorkbenchBridge() && !registeredApps.some((app) => app.id === id && app.activeVersion)) {
       setWindows((current) => createAppWindow(current, 'app-center', APP_META['app-center'].title));
       showNotice(`请先在应用中心安装${appMeta?.title ?? id}。`);
       return;
     }
-    const showAppWindow = () => {
-      setWindows((current) => createAppWindow(current, id, appMeta?.title ?? id));
-      window.setTimeout(() => focusWindow(id), 0);
-    };
-    if ((id === 'analysis-center' || id === 'terminal') && hasWorkbenchBridge()) {
-      // 带 backend 的应用必须在 iframe 发起首个 RPC 前启动 Worker，避免终端配置读取落入未启动运行时。
-      void window.workbench.apps.launch(id)
-        .then(() => {
-          showAppWindow();
-          if (id === 'analysis-center') void Promise.all([refreshNotificationSnapshot(true), loadAnalysisTasks()]).catch(showError);
-        })
-        .catch(showError);
+    if (id === 'app-center') {
+      showVirtualAppWindow(id);
       return;
     }
-    showAppWindow();
+    try {
+      if (!hasWorkbenchBridge()) throw new Error('工作台接口尚未就绪，无法启动应用。');
+      await launchDesktopApp(id, window.workbench.apps, () => showVirtualAppWindow(id));
+      if (id === 'analysis-center') void Promise.all([refreshNotificationSnapshot(true), loadAnalysisTasks()]).catch(showError);
+    } catch (caught) {
+      showError(caught);
+    }
   };
 
   const closeWindow = (id: string) => setWindows((current) => current.filter((item) => item.id !== id));
+  const reloadApp = async (id: string) => {
+    try {
+      if (!hasWorkbenchBridge()) throw new Error('工作台接口尚未就绪，无法重新加载开发应用。');
+      await window.workbench.apps.reload(id);
+      setAppReloadTokens((current) => ({ ...current, [id]: (current[id] ?? 0) + 1 }));
+      showNotice('开发应用已重新加载。');
+    } catch (caught) {
+      showError(caught);
+    }
+  };
   const toggleMinimize = (id: string) => setWindows((current) => minimizeWindow(current, id));
   const toggleMaximize = (id: string) => setWindows((current) => current.map((item) => item.id === id ? { ...item, maximized: !item.maximized, minimized: false } : item));
   const moveVirtualWindow = (id: string, x: number, y: number) => setWindows((current) => moveWindow(current, id, Math.max(12, x), Math.max(52, y)));
@@ -335,8 +343,8 @@ export function App() {
     setNotifications((current) => current.map((item) => item.id === notification.id ? { ...item, read: true } : item));
     setNotificationCenterOpen(false);
     const target = notification.target;
-    if (target?.type === 'analysis-package') openApp('analysis-center');
-    if (target?.type === 'app') openApp('app-center');
+    if (target?.type === 'analysis-package') void openApp('analysis-center');
+    if (target?.type === 'app') void openApp('app-center');
   };
 
   const unreadNotificationCount = notifications.filter((item) => !item.read).length;
@@ -355,11 +363,15 @@ export function App() {
       if (!hasWorkbenchBridge()) throw new Error('工作台接口尚未就绪，无法导入诊断包。');
       const app = registeredApps.find((item) => item.id === 'analysis-center' && item.activeVersion);
       if (!app) throw new Error('请先在应用中心安装分析中心。');
-      await window.workbench.apps.launch('analysis-center');
+      let embeddedPresentation = false;
+      await launchDesktopApp('analysis-center', window.workbench.apps, () => { embeddedPresentation = true; });
       await Promise.all([refreshNotificationSnapshot(true), loadAnalysisTasks()]);
-      const paths = await window.workbench.apps.invoke('analysis-center', 'host.chooseFiles') as string[];
-      for (const path of paths) await window.workbench.apps.invoke('analysis-center', 'packages.import', { sourcePath: path });
-      if (paths.length) { showNotice(`已导入 ${paths.length} 个诊断包。`); openApp('analysis-center'); }
+      const result = await importAnalysisCenterFiles([...files], window.workbench.apps, false);
+      if (result.failures.length) showError(result.failures.join('\n'));
+      if (result.importedCount) {
+        if (embeddedPresentation) showVirtualAppWindow('analysis-center');
+        showNotice(`已导入 ${result.importedCount} 个诊断包。`);
+      }
     } catch (caught) { showError(caught); }
   };
 
@@ -401,7 +413,7 @@ export function App() {
           <button className="shell-launcher-button" type="button" aria-label="返回桌面" onClick={() => { setWindows((current) => current.map((item) => ({ ...item, minimized: true }))); setDrawerOpen(false); }}><Monitor size={17} /></button>
           <button className="shell-launcher-button" type="button" aria-label="打开应用库" aria-expanded={appLibraryOpen} onClick={() => setAppLibraryOpen((value) => !value)}><LayoutGrid size={17} /></button>
           {windows.length > 0 && <><span className="topbar-divider shell-left-divider" aria-hidden="true" /><div className="open-app-switcher" aria-label="已打开应用">{windows.map((item) => <button key={item.id} type="button" className={`open-app-icon ${item.minimized ? 'open-app-icon-minimized' : ''}`} aria-label={`切换到${item.title}`} title={item.title} onClick={() => focusWindow(item.id)}><img className="shell-brand-icon" src={resolveAppIconUrl(item.id)} alt="" aria-hidden="true" /></button>)}</div></>}
-          {appLibraryOpen && <div className="app-library" role="menu" aria-label="应用库">{appLibraryIds.map((id) => { const app = APP_META[id]; return <button key={id} type="button" role="menuitem" onClick={() => { openApp(id); setAppLibraryOpen(false); }}><img className="app-library-icon" src={APP_ICON_URLS[id]} alt="" aria-hidden="true" /><span>{app.title}</span></button>; })}</div>}
+          {appLibraryOpen && <div className="app-library" role="menu" aria-label="应用库">{appLibraryIds.map((id) => { const app = APP_META[id]; return <button key={id} type="button" role="menuitem" onClick={() => { void openApp(id); setAppLibraryOpen(false); }}><img className="app-library-icon" src={APP_ICON_URLS[id]} alt="" aria-hidden="true" /><span>{app.title}</span></button>; })}</div>}
         </div>
         <div className="topbar-actions">
           <button className="topbar-icon-button" type="button" aria-label={`打开任务中心${runningCount ? `，${runningCount} 项进行中` : ''}`} aria-expanded={drawerOpen} onClick={() => { setNotificationCenterOpen(false); setDrawerOpen((value) => !value); }}>
@@ -414,9 +426,8 @@ export function App() {
             title="工作台"
             variant="shell"
             maximized={shellMaximized}
-            maximizeAriaLabel="最大化或还原工作台"
             onMinimize={() => void window.workbench.shell.minimize()}
-            onMaximize={async () => { await window.workbench.shell.toggleMaximize(); setShellMaximized((value) => !value); }}
+            onMaximize={() => void window.workbench.shell.toggleMaximize()}
             onClose={() => void window.workbench.shell.close()}
           />
         </div>
@@ -430,7 +441,7 @@ export function App() {
           const description = meta?.description ?? registered?.description ?? '工作台应用';
           const point = iconLayout[id];
           // 桌面图标位置由 PointerEvent 控制，禁止图片触发 Chromium 原生拖动，避免误进入文件导入 drop。
-          return <button key={id} className="desktop-icon" style={{ left: point.x, top: point.y }} type="button" onPointerDown={(event) => beginIconDrag(event, id)} onPointerMove={moveIcon} onPointerUp={finishIconDrag} onPointerCancel={finishIconDrag} onDragStart={(event) => event.preventDefault()} onDoubleClick={() => openApp(id)} onClick={() => { if (!suppressOpenRef.current) openApp(id); }} aria-label={`打开${title}`}>
+          return <button key={id} className="desktop-icon" style={{ left: point.x, top: point.y }} type="button" onPointerDown={(event) => beginIconDrag(event, id)} onPointerMove={moveIcon} onPointerUp={finishIconDrag} onPointerCancel={finishIconDrag} onDragStart={(event) => event.preventDefault()} onDoubleClick={() => void openApp(id)} onClick={() => { if (!suppressOpenRef.current) void openApp(id); }} aria-label={`打开${title}`}>
             <span className={`desktop-icon-image desktop-icon-${id}`}><img draggable={false} className="desktop-brand-icon" src={resolveAppIconUrl(id)} alt="" aria-hidden="true" /></span>
             <span className="desktop-icon-label">{title}</span>
             <span className="desktop-icon-caption">{description}</span>
@@ -441,10 +452,9 @@ export function App() {
       <div className="desktop-hint"><Menu size={14} /> 拖动图标整理桌面，自动吸附网格，单击打开应用</div>
 
       <section className="virtual-window-layer" aria-label="应用窗口">
-        {getVisibleWindows(windows).map((item) => <VirtualWindow key={item.id} item={item} onClose={closeWindow} onFocus={focusWindow} onMinimize={toggleMinimize} onMaximize={toggleMaximize} onMove={moveVirtualWindow} onResize={(id, width, height) => setWindows((current) => resizeWindow(current, id, width, height))} onOpenSettings={item.id === 'analysis-center' ? openAnalysisSettings : undefined}>
+        {getVisibleWindows(windows).map((item) => <VirtualWindow key={item.id} item={item} onClose={closeWindow} onFocus={focusWindow} onMinimize={toggleMinimize} onMaximize={toggleMaximize} onMove={moveVirtualWindow} onResize={(id, width, height) => setWindows((current) => resizeWindow(current, id, width, height))} onReload={registeredApps.find((app) => app.id === item.id)?.developmentOverride ? () => void reloadApp(item.id) : undefined}>
           {item.id === 'app-center' && <AppCenter onOpenApp={openApp} showError={showError} showNotice={showNotice} />}
-          {item.id === 'analysis-center' && <EmbeddedApp appId="analysis-center" showError={showError} onFrameWindowChange={handleAnalysisFrameWindowChange} />}
-          {item.id !== 'app-center' && item.id !== 'analysis-center' && <EmbeddedApp appId={item.id} showError={showError} />}
+          {item.id !== 'app-center' && <EmbeddedApp key={`${item.id}:${appReloadTokens[item.id] ?? 0}`} appId={item.id} name={item.title} showError={showError} />}
         </VirtualWindow>)}
       </section>
 
@@ -474,12 +484,12 @@ interface VirtualWindowProps {
   onMaximize: (id: string) => void;
   onMove: (id: string, x: number, y: number) => void;
   onResize: (id: string, width: number, height: number) => void;
-  onOpenSettings?: () => void;
+  onReload?: () => void;
   children: ReactNode;
 }
 
 /** 应用内虚拟窗口，只更新 React 状态，不创建额外 Electron BrowserWindow。 */
-function VirtualWindow({ item, onClose, onFocus, onMinimize, onMaximize, onMove, onResize, onOpenSettings, children }: VirtualWindowProps) {
+function VirtualWindow({ item, onClose, onFocus, onMinimize, onMaximize, onMove, onResize, onReload, children }: VirtualWindowProps) {
   const dragState = useRef<{ offsetX: number; offsetY: number } | null>(null);
   const resizeState = useRef<{ startX: number; startY: number; width: number; height: number } | null>(null);
   const style: CSSProperties = item.maximized ? { zIndex: item.zIndex } : { left: item.x, top: item.y, width: item.width, height: item.height, zIndex: item.zIndex };
@@ -508,7 +518,9 @@ function VirtualWindow({ item, onClose, onFocus, onMinimize, onMaximize, onMove,
   return <article className={`app-window ${item.maximized ? 'app-window-maximized' : ''}`} style={style} onMouseDown={() => onFocus(item.id)}>
     <div className="window-titlebar" onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={stopDrag} onPointerCancel={stopDrag}>
       <div className="window-title"><span className="window-title-icon"><img className="window-brand-icon" src={resolveAppIconUrl(item.id)} alt="" aria-hidden="true" /></span><strong>{item.title}</strong></div>
-      {item.id === 'analysis-center' && onOpenSettings && <button className="analysis-titlebar-settings" type="button" aria-label="打开分析中心设置" title="打开分析中心设置" onClick={onOpenSettings}><Settings size={15} strokeWidth={1.5} /></button>}
+      {onReload && <div className="window-titlebar-actions">
+        {onReload && <button className="development-titlebar-reload" type="button" aria-label="重新加载开发应用" title="重新加载开发应用" onClick={onReload}><RefreshCw size={15} strokeWidth={1.5} /></button>}
+      </div>}
       <WindowControls
         title={item.title}
         variant="window"
@@ -522,33 +534,9 @@ function VirtualWindow({ item, onClose, onFocus, onMinimize, onMaximize, onMove,
     {!item.maximized && !item.minimized && <div className="app-window-resizer" aria-label="调整窗口大小" onPointerDown={onResizeStart} onPointerMove={onResizeMove} onPointerUp={() => { resizeState.current = null; }} onPointerCancel={() => { resizeState.current = null; }} />}
   </article>;
 }
-interface WindowControlsProps {
-  title: string;
-  variant: 'shell' | 'window';
-  maximized?: boolean;
-  maximizeAriaLabel?: string;
-  onMinimize: () => void;
-  onMaximize: () => void;
-  onClose: () => void;
-}
-
-/**
- * 统一渲染工作台与应用窗口的系统控制按钮。
- * 两种容器只在点击区域尺寸上有差异，图标、语义标签和交互状态保持一致，避免窗口之间出现两套视觉语言。
- */
-function WindowControls({ title, variant, maximized = false, maximizeAriaLabel, onMinimize, onMaximize, onClose }: WindowControlsProps) {
-  const buttonClassName = `window-control-button window-control-button-${variant}`;
-  const resolvedMaximizeAriaLabel = maximizeAriaLabel ?? `${maximized ? '还原' : '最大化'}${title}`;
-
-  return <div className={`window-controls ${variant === 'shell' ? 'shell-window-controls' : ''}`} aria-label={`窗口控制：${title}`}>
-    <button className={buttonClassName} type="button" aria-label={`最小化${title}`} onClick={onMinimize}><Minus size={14} strokeWidth={1.5} /></button>
-    <button className={buttonClassName} type="button" aria-label={resolvedMaximizeAriaLabel} onClick={onMaximize}>{maximized ? <Copy size={14} strokeWidth={1.5} /> : <Square size={14} strokeWidth={1.5} />}</button>
-    <button className={buttonClassName} type="button" aria-label={`关闭${title}`} onClick={onClose}><X size={14} strokeWidth={1.5} /></button>
-  </div>;
-}
 
 interface AppCenterProps {
-  onOpenApp: (id: string) => void;
+  onOpenApp: (id: string) => Promise<void>;
   showError: (error: unknown) => void;
   showNotice: (message: string) => void;
 }
@@ -626,8 +614,7 @@ function AppCenter({ onOpenApp, showError, showNotice }: AppCenterProps) {
     if (!hasWorkbenchBridge()) { showError('工作台接口尚未就绪，无法启动应用。'); return; }
     setBusyAppId(item.id);
     try {
-      await window.workbench.apps.launch(item.id);
-      onOpenApp(item.id);
+      await onOpenApp(item.id);
     } catch (caught) {
       showError(caught);
     } finally {
@@ -652,12 +639,11 @@ function AppCenter({ onOpenApp, showError, showNotice }: AppCenterProps) {
   </div>;
 }
 
-interface EmbeddedAppProps { appId: string; showError: (error: unknown) => void; onFrameWindowChange?: (frameWindow: Window | null) => void; }
+interface EmbeddedAppProps { appId: string; name: string; showError: (error: unknown) => void; }
 
 /** 未内置到壳层的应用通过 workbench-app 协议加载自己的 renderer 资源。 */
-function EmbeddedApp({ appId, showError, onFrameWindowChange }: EmbeddedAppProps) {
+function EmbeddedApp({ appId, name, showError }: EmbeddedAppProps) {
   const [entryUrl, setEntryUrl] = useState('');
-  const frameRef = useRef<HTMLIFrameElement>(null);
   useEffect(() => {
     let active = true;
     void (async () => {
@@ -667,28 +653,9 @@ function EmbeddedApp({ appId, showError, onFrameWindowChange }: EmbeddedAppProps
         if (active) setEntryUrl(url);
       } catch (caught) { if (active) showError(caught); }
     })();
-    return () => { active = false; onFrameWindowChange?.(null); };
-  }, [appId, showError, onFrameWindowChange]);
-  useEffect(() => {
-    if (!entryUrl || !hasWorkbenchBridge()) return;
-    const frame = frameRef.current;
-    if (!frame) return;
-    const onMessage = async (event: MessageEvent<{ type?: string; appId?: string; requestId?: string; method?: string; payload?: unknown }>) => {
-      if (event.source !== frame.contentWindow || event.data?.type !== 'workbench-app-rpc' || event.data.appId !== appId || !event.data.requestId || !event.data.method) return;
-      try {
-        const result = await window.workbench.apps.invoke(appId, event.data.method, event.data.payload);
-        frame.contentWindow?.postMessage({ type: 'workbench-app-rpc-response', appId, requestId: event.data.requestId, ok: true, result }, '*');
-      } catch (caught) {
-        frame.contentWindow?.postMessage({ type: 'workbench-app-rpc-response', appId, requestId: event.data.requestId, ok: false, errorMessage: toChineseError(caught) }, '*');
-      }
-    };
-    window.addEventListener('message', onMessage);
-    const unsubscribe = window.workbench.apps.onEvent((event) => {
-      if (event.appId === appId) frame.contentWindow?.postMessage({ type: 'workbench-app-event', event }, '*');
-    });
-    return () => { window.removeEventListener('message', onMessage); unsubscribe(); };
-  }, [appId, entryUrl]);
-  return entryUrl ? <iframe ref={frameRef} className="embedded-app-frame" title={appId} src={entryUrl} onLoad={() => onFrameWindowChange?.(frameRef.current?.contentWindow ?? null)} /> : <div className="app-center-empty"><LoaderCircle className="spin" size={22} /><span>正在加载应用…</span></div>;
+    return () => { active = false; };
+  }, [appId, showError]);
+  return entryUrl ? <HostedAppSurface appId={appId} name={name} entryUrl={entryUrl} onError={showError} /> : <div className="app-center-empty"><LoaderCircle className="spin" size={22} /><span>正在加载应用…</span></div>;
 }
 
 /** 任务中心批量清理确认框，只删除历史任务记录，不触碰诊断包和报告文件。 */
