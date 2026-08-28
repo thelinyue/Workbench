@@ -14,6 +14,7 @@ import type { AppWindowOpenOptions } from './services/app-window-manager';
 import { compareAppVersions, parseAppCatalog, parseAppManifest } from './services/app-package-validator';
 import { reloadDevelopmentAppOverride, type DevelopmentAppOverride } from './services/app-development-override';
 import { createAppWindowContextHandler } from './services/app-window-context-ipc';
+import { chooseAppFiles, chooseAppSavePath } from './services/app-file-dialog';
 import { loadTrustedAppKeys } from './services/app-trust-store';
 import { registerWindowShellIpc } from './services/window-shell-ipc';
 import { WorkbenchIpcBoundary, createWorkbenchIpcCleanup } from './services/workbench-ipc-shutdown';
@@ -64,11 +65,11 @@ export function registerWorkbenchIpc(userDataPath: string, options: RegisterWork
   const appInstaller = new AppPackageInstaller({
     appsRoot: join(dataDirectory, 'apps'),
     workbenchVersion: app.getVersion(),
-    hostApiVersion: '1.0',
+    hostApiVersion: '1.1',
     trustedKeys,
     repository: appRegistry
   });
-  const appCenter = new AppCenterService({ repository: appRegistry, catalog: appCatalog, installer: appInstaller, workbenchVersion: app.getVersion(), hostApiVersion: '1.0' });
+  const appCenter = new AppCenterService({ repository: appRegistry, catalog: appCatalog, installer: appInstaller, workbenchVersion: app.getVersion(), hostApiVersion: '1.1' });
   const appRuntime = new AppRuntimeManager();
   const rulesService = new RulesService({
     rootDirectory: join(dataDirectory, 'Rules'),
@@ -114,6 +115,7 @@ export function registerWorkbenchIpc(userDataPath: string, options: RegisterWork
     return ({
     'host.chooseFiles': 'file.open',
     'host.chooseDirectory': 'file.open',
+    'host.chooseSavePath': 'file.save',
     'host.saveFile': 'file.save',
     'host.openPath': 'shell.openPath',
     'host.showItemInFolder': 'shell.showItemInFolder',
@@ -150,13 +152,15 @@ export function registerWorkbenchIpc(userDataPath: string, options: RegisterWork
       throw new Error(`不支持的 SSH 凭据请求：${method}`);
     }
     if (method === 'host.chooseFiles') {
-      const result = await dialog.showOpenDialog({ properties: ['openFile', 'multiSelections'], filters: [{ name: '诊断包', extensions: ['tgz', 'temp', 'zip'] }] });
-      return result.canceled ? [] : result.filePaths;
+      return chooseAppFiles({ showOpenDialog: (dialogOptions) => dialog.showOpenDialog(dialogOptions as Electron.OpenDialogOptions) }, payload);
     }
     if (method === 'host.chooseDirectory') {
       // 分析中心可累计监控多个目录，取消选择统一返回空数组，避免 renderer 处理 null 分支。
       const result = await dialog.showOpenDialog({ properties: ['openDirectory', 'createDirectory', 'multiSelections'] });
       return result.canceled ? [] : result.filePaths;
+    }
+    if (method === 'host.chooseSavePath') {
+      return chooseAppSavePath({ showSaveDialog: (dialogOptions) => dialog.showSaveDialog(dialogOptions) }, payload);
     }
     if (method === 'host.saveFile') {
       const value = z.object({
