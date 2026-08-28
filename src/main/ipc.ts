@@ -1,6 +1,6 @@
 import { access, readFile, writeFile } from 'node:fs/promises';
 import { basename, join } from 'node:path';
-import { app, BrowserWindow, dialog, ipcMain, Notification, shell } from 'electron';
+import { app, BrowserWindow, clipboard, dialog, ipcMain, Notification, shell } from 'electron';
 import * as keytar from 'keytar';
 import { z } from 'zod';
 import { DesktopLayoutRepository } from './data/desktop-layout-repository';
@@ -27,6 +27,7 @@ const appIdSchema = z.string().regex(/^[a-z0-9]+(?:[.-][a-z0-9]+)*$/);
 const layoutSchema = z.array(z.object({ appId: appIdSchema, x: z.number().int().min(0).max(5000), y: z.number().int().min(0).max(5000) }));
 const appInstallSchema = z.object({ appId: appIdSchema, version: z.string().optional() });
 const appInvokeSchema = z.object({ appId: appIdSchema, method: z.string().min(1).max(200), payload: z.unknown().optional() });
+const MAX_CLIPBOARD_TEXT_BYTES = 1024 * 1024;
 
 /**
  * 核心功能应用随 Workbench 安装包提供签名种子包，首次启动无需联网即可安装。
@@ -120,6 +121,8 @@ export function registerWorkbenchIpc(userDataPath: string, options: RegisterWork
     'host.chooseDirectory': 'file.open',
     'host.chooseSavePath': 'file.save',
     'host.saveFile': 'file.save',
+    'host.clipboard.readText': 'clipboard.read',
+    'host.clipboard.writeText': 'clipboard.write',
     'host.openPath': 'shell.openPath',
     'host.showItemInFolder': 'shell.showItemInFolder',
     'ssh.credentials': 'ssh.credentials'
@@ -153,6 +156,18 @@ export function registerWorkbenchIpc(userDataPath: string, options: RegisterWork
         return undefined;
       }
       throw new Error(`不支持的 SSH 凭据请求：${method}`);
+    }
+    if (method === 'host.clipboard.readText') {
+      z.undefined().parse(payload);
+      const text = clipboard.readText();
+      if (Buffer.byteLength(text, 'utf8') > MAX_CLIPBOARD_TEXT_BYTES) throw new Error('剪贴板文本超过 1 MiB，无法粘贴到终端。');
+      return text;
+    }
+    if (method === 'host.clipboard.writeText') {
+      const value = z.object({ text: z.string() }).parse(payload);
+      if (Buffer.byteLength(value.text, 'utf8') > MAX_CLIPBOARD_TEXT_BYTES) throw new Error('选中的终端文本超过 1 MiB，无法复制到剪贴板。');
+      clipboard.writeText(value.text);
+      return undefined;
     }
     if (method === 'host.chooseFiles') {
       return chooseAppFiles({ showOpenDialog: (dialogOptions) => dialog.showOpenDialog(dialogOptions as Electron.OpenDialogOptions) }, payload);

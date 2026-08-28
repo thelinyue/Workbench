@@ -20,6 +20,10 @@ const electronMock = vi.hoisted(() => {
       showOpenDialog: vi.fn(),
       showSaveDialog: vi.fn()
     },
+    clipboard: {
+      readText: vi.fn(),
+      writeText: vi.fn()
+    },
     ipcMain: {
       handle: vi.fn((channel: string, handler: (...args: any[]) => unknown) => handlers.set(channel, handler)),
       removeHandler: vi.fn((channel: string) => handlers.delete(channel))
@@ -45,6 +49,8 @@ beforeEach(() => {
   electronMock.handlers.clear();
   electronMock.dialog.showOpenDialog.mockReset();
   electronMock.dialog.showSaveDialog.mockReset();
+  electronMock.clipboard.readText.mockReset();
+  electronMock.clipboard.writeText.mockReset();
 });
 
 afterEach(async () => {
@@ -52,7 +58,7 @@ afterEach(async () => {
   await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true })));
 });
 
-describe('应用 Host 文件能力 IPC', () => {
+describe('应用 Host 本地能力 IPC', () => {
   it('把旧版和带参数的文件选择请求交给通用选择器', async () => {
     const runtime = await createInstalledTerminal(['file.open']);
     electronMock.dialog.showOpenDialog
@@ -96,6 +102,45 @@ describe('应用 Host 文件能力 IPC', () => {
       appId: 'terminal', method: 'host.chooseSavePath', payload: { suggestedName: 'blocked.log' }
     })).rejects.toThrow('应用未获授权使用宿主能力：file.save');
     expect(electronMock.dialog.showSaveDialog).toHaveBeenCalledTimes(1);
+  });
+
+  it('通过独立权限读写系统纯文本剪贴板', async () => {
+    const runtime = await createInstalledTerminal(['clipboard.read', 'clipboard.write']);
+    electronMock.clipboard.readText.mockReturnValue('来自系统剪贴板');
+    const cleanup = registerWorkbenchIpc(runtime.userDataPath);
+    cleanups.push(cleanup);
+    const invoke = electronMock.handlers.get('apps:invoke')!;
+
+    await expect(invoke({}, {
+      appId: 'terminal', method: 'host.clipboard.readText'
+    })).resolves.toBe('来自系统剪贴板');
+    await expect(invoke({}, {
+      appId: 'terminal', method: 'host.clipboard.writeText', payload: { text: '选中的终端文本' }
+    })).resolves.toBeUndefined();
+
+    expect(electronMock.clipboard.writeText).toHaveBeenCalledWith('选中的终端文本');
+  });
+
+  it('在访问剪贴板前校验授权和 1 MiB 文本上限', async () => {
+    const runtime = await createInstalledTerminal(['clipboard.read']);
+    const cleanup = registerWorkbenchIpc(runtime.userDataPath);
+    cleanups.push(cleanup);
+    const invoke = electronMock.handlers.get('apps:invoke')!;
+
+    await expect(invoke({}, {
+      appId: 'terminal', method: 'host.clipboard.writeText', payload: { text: '未授权写入' }
+    })).rejects.toThrow('应用未获授权使用宿主能力：clipboard.write');
+
+    electronMock.clipboard.readText.mockReturnValue('x'.repeat(1024 * 1024 + 1));
+    await expect(invoke({}, {
+      appId: 'terminal', method: 'host.clipboard.readText'
+    })).rejects.toThrow('剪贴板文本超过 1 MiB，无法粘贴到终端。');
+
+    await writeManifest(runtime.installPath, ['clipboard.read', 'clipboard.write']);
+    await expect(invoke({}, {
+      appId: 'terminal', method: 'host.clipboard.writeText', payload: { text: '中'.repeat(349_526) }
+    })).rejects.toThrow('选中的终端文本超过 1 MiB，无法复制到剪贴板。');
+    expect(electronMock.clipboard.writeText).not.toHaveBeenCalled();
   });
 });
 
