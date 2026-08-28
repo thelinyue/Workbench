@@ -44,6 +44,7 @@ describe('应用窗口 renderer 表面', () => {
     expect(markup).toContain('sandbox="allow-scripts allow-same-origin"');
     expect(markup).not.toContain('allow-top-navigation');
     expect(markup).not.toContain('allow-popups');
+    expect(markup).not.toContain('allow-forms');
     expect(markup).not.toContain('allow-modals');
   });
 
@@ -55,7 +56,7 @@ describe('应用窗口 renderer 表面', () => {
       onError: () => undefined
     }));
 
-    expect(markup).toContain('sandbox="allow-scripts allow-same-origin allow-modals"');
+    expect(markup).toContain('sandbox="allow-scripts allow-same-origin allow-forms allow-modals"');
     expect(markup).not.toContain('allow-top-navigation');
     expect(markup).not.toContain('allow-popups');
   });
@@ -90,6 +91,49 @@ describe('应用窗口 renderer 表面', () => {
     expect(postMessage).toHaveBeenCalledWith({
       type: 'workbench-app-rpc-response', appId: 'terminal', requestId: 'rpc-1', ok: true, result: { sessions: 2 }
     }, terminalOrigin);
+  });
+
+  it('只接受当前 iframe 为 Tab 键申请临时捕获', async () => {
+    const frameWindow = {} as Window;
+    const foreignWindow = {} as Window;
+    const onKeyboardCapture = vi.fn();
+    const route = routeHostedAppMessage as unknown as (options: Parameters<typeof routeHostedAppMessage>[0] & {
+      onKeyboardCapture(key: 'Tab', enabled: boolean): void;
+    }) => Promise<boolean>;
+    const base = {
+      appId: 'terminal', frameWindow, allowedOrigin: terminalOrigin,
+      bridge: { invoke: vi.fn(), getDroppedFilePaths: vi.fn(() => []) }, postMessage: vi.fn(), onKeyboardCapture
+    };
+
+    await route({ ...base, event: { source: foreignWindow, origin: terminalOrigin, data: { type: 'workbench-app-keyboard-capture', appId: 'terminal', key: 'Tab', enabled: true } } });
+    expect(onKeyboardCapture).not.toHaveBeenCalled();
+
+    await route({ ...base, event: { source: frameWindow, origin: terminalOrigin, data: { type: 'workbench-app-keyboard-capture', appId: 'terminal', key: 'Tab', enabled: true } } });
+    expect(onKeyboardCapture).toHaveBeenCalledWith('Tab', true);
+  });
+
+  it('仅在 iframe 刚失焦且已申请捕获时阻止宿主 Tab 导航并送回按键', () => {
+    const forwardCapturedHostedAppKey = (hostedAppSurfaceModule as unknown as {
+      forwardCapturedHostedAppKey?: (options: {
+        key: string; captureTab: boolean; frameWasFocused: boolean; preventDefault(): void;
+        focusFrame(): void; postMessage(message: unknown, targetOrigin: string): void; allowedOrigin: string;
+      }) => boolean;
+    }).forwardCapturedHostedAppKey;
+    const preventDefault = vi.fn();
+    const focusFrame = vi.fn();
+    const postMessage = vi.fn();
+
+    expect(forwardCapturedHostedAppKey).toBeTypeOf('function');
+    expect(forwardCapturedHostedAppKey?.({
+      key: 'Tab', captureTab: true, frameWasFocused: true, preventDefault, focusFrame, postMessage, allowedOrigin: terminalOrigin
+    })).toBe(true);
+    expect(preventDefault).toHaveBeenCalledOnce();
+    expect(focusFrame).toHaveBeenCalledOnce();
+    expect(postMessage).toHaveBeenCalledWith({ type: 'workbench-app-keyboard-input', key: 'Tab' }, terminalOrigin);
+
+    expect(forwardCapturedHostedAppKey?.({
+      key: 'Tab', captureTab: false, frameWasFocused: true, preventDefault, focusFrame, postMessage, allowedOrigin: terminalOrigin
+    })).toBe(false);
   });
 
   it('同一 iframe 导航到其他 origin 后不能发起宿主 RPC', async () => {
