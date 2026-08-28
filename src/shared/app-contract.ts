@@ -107,6 +107,27 @@ export interface AppHostEvent {
   payload: unknown;
 }
 
+/** backend 请求宿主展示的系统通知；应用身份始终由 Worker 运行时补充。 */
+export interface AppNotificationRequest {
+  title: string;
+  body: string;
+  windowKey?: string;
+  activationPayload?: unknown;
+}
+
+/**
+ * 应用 backend 的稳定启动上下文。
+ *
+ * 通知接口不接收 appId，避免应用包伪造其他应用身份；宿主根据实际 Worker 记录执行能力校验。
+ */
+export interface AppBackendContext {
+  appId: string;
+  dataDirectory: string;
+  manifest: unknown;
+  emit(event: string, payload: unknown): void;
+  showNotification(notification: AppNotificationRequest): void;
+}
+
 /** 启动后 renderer 应采用的宿主展示形态。 */
 export interface AppLaunchResult {
   presentation: 'app-window' | 'embedded';

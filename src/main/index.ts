@@ -104,7 +104,9 @@ if (ownsSingleInstance) void app.whenReady().then(async () => {
     developmentOverride,
     onDevelopmentOverrideStateChange: (enabled) => { developmentOverrideEnabled = enabled; },
     openAppWindow: async (options) => { await appWindowManager.open(options); },
-    resolveAppWindow: (webContentsId) => appWindowManager.resolveWebContents(webContentsId)
+    resolveAppWindow: (webContentsId) => appWindowManager.resolveWebContents(webContentsId),
+    markAppWindowEventSurfaceReady: (webContentsId) => appWindowManager.markEventSurfaceReady(webContentsId),
+    deliverAppWindowEvent: (appId, windowKey, event) => appWindowManager.deliverEvent(appId, windowKey, event)
   });
   lifecycle?.openMainWindow();
 });

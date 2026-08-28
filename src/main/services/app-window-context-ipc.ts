@@ -36,3 +36,10 @@ export function createAppWindowContextHandler(options: AppWindowContextHandlerOp
     };
   };
 }
+
+/** 就绪确认和上下文查询使用相同的 sender-bound 身份边界，不读取 renderer 提交的数据。 */
+export function createAppWindowEventReadyHandler(markReady: (webContentsId: number) => void) {
+  return (event: AppWindowIpcEvent, ..._ignoredRendererInputs: unknown[]): void => {
+    markReady(event.sender.id);
+  };
+}

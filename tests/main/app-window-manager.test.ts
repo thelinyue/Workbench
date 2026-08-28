@@ -43,6 +43,37 @@ describe('应用窗口管理器', () => {
     expect(window.actions.slice(-3)).toEqual(['restore', 'show', 'focus']);
   });
 
+  it('通知激活事件在应用表面就绪前排队，就绪后只投递到同一 appId/windowKey', async () => {
+    const fixture = createFixture();
+    const main = await fixture.manager.open({ appId: 'analysis-center', name: '分析中心', window: windowManifest }) as FakeWindow;
+    const evidence = await fixture.manager.open({ appId: 'analysis-center', windowKey: 'evidence', name: '分析中心', window: windowManifest }) as FakeWindow;
+    const event = { appId: 'analysis-center', event: 'host.notification.activated', payload: { packageId: 'package-1' } };
+
+    fixture.manager.deliverEvent('analysis-center', 'main', event);
+    expect(main.sent).toEqual([]);
+    expect(evidence.sent).toEqual([]);
+
+    fixture.manager.markEventSurfaceReady(main.webContents.id);
+
+    expect(main.sent).toEqual([{ channel: 'workbench:app-event', value: event }]);
+    expect(evidence.sent).toEqual([]);
+  });
+
+  it('应用表面已就绪时立即投递激活事件，关闭窗口后丢弃未交付事件', async () => {
+    const fixture = createFixture();
+    const window = await fixture.manager.open({ appId: 'analysis-center', name: '分析中心', window: windowManifest }) as FakeWindow;
+    fixture.manager.markEventSurfaceReady(window.webContents.id);
+    const event = { appId: 'analysis-center', event: 'host.notification.activated', payload: { packageId: 'package-2' } };
+
+    fixture.manager.deliverEvent('analysis-center', 'main', event);
+    window.close();
+    await fixture.manager.open({ appId: 'analysis-center', name: '分析中心', window: windowManifest });
+    fixture.manager.markEventSurfaceReady(fixture.windows[1]!.webContents.id);
+
+    expect(window.sent).toEqual([{ channel: 'workbench:app-event', value: event }]);
+    expect(fixture.windows[1]!.sent).toEqual([]);
+  });
+
   it('关闭时保存普通边界和最大化状态，closed 后清理两个身份映射', async () => {
     const fixture = createFixture();
     const window = await fixture.manager.open({ appId: 'analysis-center', name: '分析中心', window: windowManifest }) as FakeWindow;
@@ -392,6 +423,7 @@ function createFixture(
 class FakeWindow extends EventEmitter implements AppWindowHost {
   private readonly webContentsValue: {
     id: number;
+    send(channel: string, value: unknown): void;
     setWindowOpenHandler(handler: (details: { url: string }) => { action: 'deny' }): void;
     on(event: 'will-frame-navigate', listener: (event: { url: string; isMainFrame: boolean; preventDefault(): void }) => void): void;
   };
@@ -409,6 +441,7 @@ class FakeWindow extends EventEmitter implements AppWindowHost {
   public closeCalls = 0;
   public destroyCalls = 0;
   public actions: string[] = [];
+  public sent: Array<{ channel: string; value: unknown }> = [];
   public loadedUrl?: string;
   public loadedFile?: { path: string; options?: { query?: Record<string, string> } };
   public normalBounds: { x: number; y: number; width: number; height: number };
@@ -422,6 +455,7 @@ class FakeWindow extends EventEmitter implements AppWindowHost {
     this.webContentsId = id;
     this.webContentsValue = {
       id,
+      send: (channel, value) => { this.sent.push({ channel, value }); },
       setWindowOpenHandler: (handler) => { this.windowOpenHandler = handler; },
       on: (_event, listener) => { this.frameNavigationHandler = listener; }
     };

@@ -32,6 +32,16 @@ interface AppWorkerStopped {
   errorMessage?: string;
 }
 
+interface AppWorkerNotification {
+  type: 'notification';
+  payload: unknown;
+}
+
+export interface AppRuntimeNotification {
+  appId: string;
+  payload: unknown;
+}
+
 export interface AppRuntimeWorker {
   postMessage(message: unknown): void;
   terminate(): Promise<number>;
@@ -68,6 +78,7 @@ export class AppRuntimeManager {
   private readonly runtimes = new Map<string, RuntimeRecord>();
   private readonly stopOperations = new Map<string, Promise<void>>();
   private readonly events = new EventEmitter();
+  private readonly notifications = new EventEmitter();
 
   public constructor(private readonly options: AppRuntimeManagerOptions = {}) {}
 
@@ -137,15 +148,29 @@ export class AppRuntimeManager {
     return () => this.events.off('event', listener);
   }
 
+  /** 只转发已获 manifest 授权的通知，并以运行时记录绑定应用身份。 */
+  public onNotification(listener: (notification: AppRuntimeNotification) => void): () => void {
+    this.notifications.on('notification', listener);
+    return () => this.notifications.off('notification', listener);
+  }
+
   private handleMessage(appId: string, message: unknown): void {
     const runtime = this.runtimes.get(appId);
     if (!runtime || !message || typeof message !== 'object') return;
-    const value = message as Partial<AppWorkerResponse> & Partial<AppWorkerEvent>;
+    const value = message as Partial<AppWorkerResponse> & Partial<AppWorkerEvent> & Partial<AppWorkerNotification>;
     if (value.type === 'response' && value.requestId) {
       const pending = runtime.pending.get(value.requestId);
       if (!pending) return;
       runtime.pending.delete(value.requestId);
       value.ok ? pending.resolve(value.result) : pending.reject(new Error(value.errorMessage ?? '应用请求失败'));
+      return;
+    }
+    if (value.type === 'notification') {
+      if (!runtime.options.manifest.capabilities.includes('notification.show')) {
+        (this.options.logger ?? console).error(`应用 ${appId} 未声明 notification.show，已拒绝 backend 通知请求。`);
+        return;
+      }
+      this.notifications.emit('notification', { appId, payload: value.payload } satisfies AppRuntimeNotification);
       return;
     }
     if (value.type === 'event' && value.event) this.events.emit('event', { appId, event: value.event, payload: value.payload } satisfies AppHostEvent);

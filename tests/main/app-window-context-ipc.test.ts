@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { createAppWindowContextHandler } from '../../src/main/services/app-window-context-ipc';
+import { createAppWindowContextHandler, createAppWindowEventReadyHandler } from '../../src/main/services/app-window-context-ipc';
 import type { AppManifestV1 } from '../../src/shared/app-contract';
 
 const manifest: AppManifestV1 = {
@@ -54,5 +54,14 @@ describe('应用窗口上下文 IPC', () => {
     });
 
     await expect(handler({ sender: { id: 1 } })).rejects.toThrow('当前页面不是受信任的应用窗口');
+  });
+
+  it('事件表面就绪只使用 IPC 发送方 webContents，不接受 renderer 传入身份', () => {
+    const readyIds: number[] = [];
+    const handler = createAppWindowEventReadyHandler((webContentsId) => readyIds.push(webContentsId));
+
+    handler({ sender: { id: 73 } }, { appId: 'terminal', windowKey: 'other' });
+
+    expect(readyIds).toEqual([73]);
   });
 });

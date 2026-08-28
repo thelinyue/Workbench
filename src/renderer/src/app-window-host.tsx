@@ -57,7 +57,7 @@ export function AppWindowHostView({
       {error
         ? <div className="app-window-host-feedback app-window-host-error" role="alert"><strong>应用窗口加载失败</strong><span>{error}</span></div>
         : context
-          ? <HostedAppSurface key={`${context.appId}:${reloadToken}`} appId={context.appId} name={context.name} entryUrl={context.entryUrl} onError={onSurfaceError} />
+          ? <HostedAppSurface key={`${context.appId}:${reloadToken}`} appId={context.appId} name={context.name} entryUrl={context.entryUrl} onError={onSurfaceError} onReady={() => void window.workbench.appWindow.markEventSurfaceReady()} />
           : <div className="app-window-host-feedback" role="status"><LoaderCircle className="spin" size={22} aria-hidden="true" /><span>正在加载应用窗口…</span></div>}
     </section>
   </main>;

@@ -1,6 +1,6 @@
 import { access, readFile, writeFile } from 'node:fs/promises';
 import { basename, join } from 'node:path';
-import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron';
+import { app, BrowserWindow, dialog, ipcMain, Notification, shell } from 'electron';
 import * as keytar from 'keytar';
 import { z } from 'zod';
 import { DesktopLayoutRepository } from './data/desktop-layout-repository';
@@ -13,14 +13,15 @@ import { launchAppFromIpc } from './services/app-launch-coordinator';
 import type { AppWindowOpenOptions } from './services/app-window-manager';
 import { compareAppVersions, parseAppCatalog, parseAppManifest } from './services/app-package-validator';
 import { reloadDevelopmentAppOverride, type DevelopmentAppOverride } from './services/app-development-override';
-import { createAppWindowContextHandler } from './services/app-window-context-ipc';
+import { createAppWindowContextHandler, createAppWindowEventReadyHandler } from './services/app-window-context-ipc';
+import { AppNotificationManager } from './services/app-notification-manager';
 import { chooseAppFiles, chooseAppSavePath } from './services/app-file-dialog';
 import { loadTrustedAppKeys } from './services/app-trust-store';
 import { registerWindowShellIpc } from './services/window-shell-ipc';
 import { WorkbenchIpcBoundary, createWorkbenchIpcCleanup } from './services/workbench-ipc-shutdown';
 import { RulesService, type AnalyzerRuleCatalog } from './services/rules-service';
 import officialRules from './config/official-rules.json';
-import type { AppCatalogItem, AppCatalogRelease } from '../shared/app-contract';
+import type { AppCatalogItem, AppCatalogRelease, AppHostEvent } from '../shared/app-contract';
 
 const appIdSchema = z.string().regex(/^[a-z0-9]+(?:[.-][a-z0-9]+)*$/);
 const layoutSchema = z.array(z.object({ appId: appIdSchema, x: z.number().int().min(0).max(5000), y: z.number().int().min(0).max(5000) }));
@@ -48,6 +49,8 @@ export interface RegisterWorkbenchIpcOptions {
   onDevelopmentOverrideStateChange?: (enabled: boolean) => void;
   openAppWindow?: (options: AppWindowOpenOptions) => void | Promise<void>;
   resolveAppWindow?: (webContentsId: number) => Readonly<{ appId: string; windowKey: string }> | undefined;
+  markAppWindowEventSurfaceReady?: (webContentsId: number) => void;
+  deliverAppWindowEvent?: (appId: string, windowKey: string, event: AppHostEvent) => void;
 }
 
 export function registerWorkbenchIpc(userDataPath: string, options: RegisterWorkbenchIpcOptions = {}): () => Promise<void> {
@@ -166,9 +169,10 @@ export function registerWorkbenchIpc(userDataPath: string, options: RegisterWork
       const value = z.object({
         fileName: z.string().min(1).max(255).refine((item) => basename(item) === item && !/[\\/:*?"<>|\0]/.test(item), '输出文件名包含不安全字符'),
         content: z.string().max(20 * 1024 * 1024, '输出内容过大'),
+        kind: z.enum(['lvm-vg', 'html']).default('lvm-vg'),
         overwriteRequested: z.boolean().default(false)
       }).parse(payload);
-      const result = await dialog.showSaveDialog({ defaultPath: value.fileName, filters: [{ name: 'LVM VG 文件', extensions: ['vg', 'txt'] }] });
+      const result = await dialog.showSaveDialog({ defaultPath: value.fileName, filters: [value.kind === 'html' ? { name: 'HTML 文件', extensions: ['html', 'htm'] } : { name: 'LVM VG 文件', extensions: ['vg', 'txt'] }] });
       if (result.canceled || !result.filePath) return null;
       if (!value.overwriteRequested) {
         try { await access(result.filePath); throw new Error('目标文件已存在，请勾选允许覆盖后重试。'); } catch (error) {
@@ -188,20 +192,7 @@ export function registerWorkbenchIpc(userDataPath: string, options: RegisterWork
     return undefined;
   };
 
-  ipcMain.handle('desktop:load-layout', ipcBoundary.handler('desktop:load-layout', () => repository.list()));
-  ipcMain.handle('desktop:save-layout', ipcBoundary.handler('desktop:save-layout', (_event, input) => repository.save(layoutSchema.parse(input))));
-  ipcMain.handle('app-window:get-context', ipcBoundary.handler('app-window:get-context', createAppWindowContextHandler({
-    resolveWebContents: (webContentsId) => options.resolveAppWindow?.(webContentsId),
-    loadManifest: async (appId) => {
-      const { manifest, isDevelopmentOverride } = await loadAppManifest(appId);
-      return { manifest, developmentOverride: isDevelopmentOverride };
-    }
-  })));
-  ipcMain.handle('apps:list', ipcBoundary.handler('apps:list', async () => { await seedReady; return appCenter.list().map(withDevelopmentOverride); }));
-  ipcMain.handle('apps:refresh-catalog', ipcBoundary.handler('apps:refresh-catalog', async () => { await seedReady; const result = await appCenter.refresh(); notifyRenderer(); return result.map(withDevelopmentOverride); }));
-  ipcMain.handle('apps:get-catalog-snapshot', ipcBoundary.handler('apps:get-catalog-snapshot', () => appRegistry.loadCatalogSnapshot() ?? null));
-  ipcMain.handle('apps:install', ipcBoundary.handler('apps:install', async (_event, input) => { await seedReady; const value = appInstallSchema.parse(input); const result = await appCenter.install(value.appId, value.version); updateDevelopmentOverrideState(); notifyRenderer(); return result; }));
-  ipcMain.handle('apps:launch', ipcBoundary.handler('apps:launch', async (_event, input) => {
+  const launchInstalledApp = async (input: unknown) => {
     const { item, installPath, manifest } = await loadAppManifest(input);
     const result = await launchAppFromIpc({
       appId: item.id,
@@ -218,7 +209,35 @@ export function registerWorkbenchIpc(userDataPath: string, options: RegisterWork
     });
     notifyRenderer();
     return result;
-  }));
+  };
+  const notificationManager = new AppNotificationManager({
+    isSupported: () => Notification.isSupported(),
+    createNotification: (notificationOptions) => new Notification(notificationOptions),
+    activate: async ({ appId, windowKey, event }) => {
+      const result = await launchInstalledApp(appId);
+      if (result.presentation !== 'app-window' || !options.deliverAppWindowEvent) throw new Error('应用没有可接收通知激活事件的原生窗口');
+      options.deliverAppWindowEvent(appId, windowKey, event);
+    }
+  });
+
+  ipcMain.handle('desktop:load-layout', ipcBoundary.handler('desktop:load-layout', () => repository.list()));
+  ipcMain.handle('desktop:save-layout', ipcBoundary.handler('desktop:save-layout', (_event, input) => repository.save(layoutSchema.parse(input))));
+  ipcMain.handle('app-window:get-context', ipcBoundary.handler('app-window:get-context', createAppWindowContextHandler({
+    resolveWebContents: (webContentsId) => options.resolveAppWindow?.(webContentsId),
+    loadManifest: async (appId) => {
+      const { manifest, isDevelopmentOverride } = await loadAppManifest(appId);
+      return { manifest, developmentOverride: isDevelopmentOverride };
+    }
+  })));
+  ipcMain.handle('app-window:event-surface-ready', ipcBoundary.handler('app-window:event-surface-ready', createAppWindowEventReadyHandler((webContentsId) => {
+    if (!options.markAppWindowEventSurfaceReady) throw new Error('主进程未配置应用窗口事件表面。');
+    options.markAppWindowEventSurfaceReady(webContentsId);
+  })));
+  ipcMain.handle('apps:list', ipcBoundary.handler('apps:list', async () => { await seedReady; return appCenter.list().map(withDevelopmentOverride); }));
+  ipcMain.handle('apps:refresh-catalog', ipcBoundary.handler('apps:refresh-catalog', async () => { await seedReady; const result = await appCenter.refresh(); notifyRenderer(); return result.map(withDevelopmentOverride); }));
+  ipcMain.handle('apps:get-catalog-snapshot', ipcBoundary.handler('apps:get-catalog-snapshot', () => appRegistry.loadCatalogSnapshot() ?? null));
+  ipcMain.handle('apps:install', ipcBoundary.handler('apps:install', async (_event, input) => { await seedReady; const value = appInstallSchema.parse(input); const result = await appCenter.install(value.appId, value.version); updateDevelopmentOverrideState(); notifyRenderer(); return result; }));
+  ipcMain.handle('apps:launch', ipcBoundary.handler('apps:launch', async (_event, input) => launchInstalledApp(input)));
   ipcMain.handle('apps:get-entry-url', ipcBoundary.handler('apps:get-entry-url', async (_event, input) => {
     const { item, manifest, isDevelopmentOverride } = await loadAppManifest(input);
     return isDevelopmentOverride
@@ -242,10 +261,11 @@ export function registerWorkbenchIpc(userDataPath: string, options: RegisterWork
     }
     BrowserWindow.getAllWindows().forEach((window) => window.webContents.send('workbench:app-event', event));
   });
+  const unregisterRuntimeNotifications = appRuntime.onNotification(({ appId, payload }) => notificationManager.show(appId, payload));
   return createWorkbenchIpcCleanup({
     ipcBoundary,
     unregisterWindowShellIpc,
-    unregisterRuntimeEvents,
+    unregisterRuntimeEvents: () => { unregisterRuntimeEvents(); unregisterRuntimeNotifications(); },
     waitForInitialization: () => seedReady,
     stopAllRuntimes: () => appRuntime.stopAll(),
     closeAppRegistry: () => appRegistry.close(),

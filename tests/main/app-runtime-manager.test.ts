@@ -53,6 +53,44 @@ describe('应用运行时管理器', () => {
     expect(events).toEqual([{ appId: 'analysis-center', event: 'tasks.changed', payload: { count: 1 } }]);
   });
 
+  it('只允许声明 notification.show 的 backend 以运行时身份发送通知', async () => {
+    const worker = new FakeWorker();
+    const notifications: unknown[] = [];
+    const errors: string[] = [];
+    const manager = new AppRuntimeManager({ createWorker: () => worker, logger: { error: (message) => errors.push(message) } });
+    manager.onNotification((notification) => notifications.push(notification));
+    await manager.start({
+      ...startOptions(),
+      manifest: { ...manifest, capabilities: [...manifest.capabilities, 'notification.show'] }
+    });
+
+    worker.respond({
+      type: 'notification',
+      appId: 'spoofed-app',
+      payload: { title: '分析完成', body: 'diagnostic.tgz', windowKey: 'main', activationPayload: { packageId: 'package-1' } }
+    });
+
+    expect(notifications).toEqual([{
+      appId: 'analysis-center',
+      payload: { title: '分析完成', body: 'diagnostic.tgz', windowKey: 'main', activationPayload: { packageId: 'package-1' } }
+    }]);
+    expect(errors).toEqual([]);
+  });
+
+  it('拒绝未声明 notification.show 的 backend 通知请求并输出中文日志', async () => {
+    const worker = new FakeWorker();
+    const notifications: unknown[] = [];
+    const errors: string[] = [];
+    const manager = new AppRuntimeManager({ createWorker: () => worker, logger: { error: (message) => errors.push(message) } });
+    manager.onNotification((notification) => notifications.push(notification));
+    await manager.start(startOptions());
+
+    worker.respond({ type: 'notification', payload: { title: '不应显示', body: '未授权通知' } });
+
+    expect(notifications).toEqual([]);
+    expect(errors).toEqual(['应用 analysis-center 未声明 notification.show，已拒绝 backend 通知请求。']);
+  });
+
   it('收到成功停止确认后自然结束，不调用 terminate', async () => {
     const worker = new FakeWorker();
     const manager = new AppRuntimeManager({ createWorker: () => worker });

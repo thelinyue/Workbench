@@ -11,6 +11,7 @@ export interface WorkbenchBridge {
   };
   appWindow: {
     getContext(): Promise<AppWindowContext>;
+    markEventSurfaceReady(): Promise<void>;
   };
   desktop: {
     loadLayout(): Promise<DesktopIconLayout[]>;

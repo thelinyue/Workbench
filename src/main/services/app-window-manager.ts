@@ -1,4 +1,4 @@
-import type { AppWindowManifest } from '../../shared/app-contract';
+import type { AppHostEvent, AppWindowManifest } from '../../shared/app-contract';
 import type { AppWindowState } from '../data/app-window-state-repository';
 import { installHostNavigationGuard, resolveWorkbenchRendererUrl, type HostNavigationWebContents } from './host-navigation-guard';
 
@@ -8,7 +8,7 @@ export interface AppWindowStateStore {
 }
 
 export interface AppWindowHost {
-  readonly webContents: HostNavigationWebContents & { id: number };
+  readonly webContents: HostNavigationWebContents & { id: number; send(channel: string, value: unknown): void };
   isMinimized(): boolean;
   restore(): void;
   show(): void;
@@ -89,6 +89,8 @@ export class AppWindowManager {
   private readonly identities = new Map<number, Readonly<AppWindowIdentity>>();
   private readonly openings = new Map<string, Promise<AppWindowHost>>();
   private readonly exitManagedWindows = new WeakSet<AppWindowHost>();
+  private readonly eventReadyKeys = new Set<string>();
+  private readonly pendingEvents = new Map<string, AppHostEvent[]>();
   private closing = false;
   private closeOperation: Promise<void> | undefined;
 
@@ -182,6 +184,35 @@ export class AppWindowManager {
   }
 
   /**
+   * 冷启动时 Workbench renderer 可能尚未建立 iframe 事件订阅，因此按 appId/windowKey 排队。
+   * ready 信号同样由 sender-bound webContents 解析，renderer 不能替其他应用领取事件。
+   */
+  public deliverEvent(appId: string, windowKey: string, event: AppHostEvent): void {
+    if (event.appId !== appId) throw new Error('应用窗口事件身份与目标应用不一致');
+    const mapKey = identityKey({ appId, windowKey });
+    const window = this.windows.get(mapKey);
+    if (window && this.eventReadyKeys.has(mapKey)) {
+      window.webContents.send('workbench:app-event', event);
+      return;
+    }
+    const pending = this.pendingEvents.get(mapKey) ?? [];
+    pending.push(event);
+    this.pendingEvents.set(mapKey, pending);
+  }
+
+  public markEventSurfaceReady(webContentsId: number): void {
+    const identity = this.identities.get(webContentsId);
+    if (!identity) throw new Error('找不到应用窗口身份，无法确认事件表面已就绪');
+    const mapKey = identityKey(identity);
+    const window = this.windows.get(mapKey);
+    if (!window || window.webContents.id !== webContentsId) throw new Error('应用窗口已关闭，无法确认事件表面已就绪');
+    this.eventReadyKeys.add(mapKey);
+    const pending = this.pendingEvents.get(mapKey) ?? [];
+    this.pendingEvents.delete(mapKey);
+    for (const event of pending) window.webContents.send('workbench:app-event', event);
+  }
+
+  /**
    * 最终退出时在状态仓储仍开放期间显式保存窗口状态，再用 destroy 强制销毁 Presentation Host。
    * 退出不能依赖可被 close/beforeunload 取消的常规关闭事件；窗口一旦进入此路径，其普通 close
    * listener 将永久停止持久化，即使保存或 destroy 失败，仓储关闭后也不会由幸存窗口再次写入。
@@ -236,6 +267,8 @@ export class AppWindowManager {
     if (this.windows.get(mapKey) === window) {
       this.windows.delete(mapKey);
       this.webContentsIds.delete(mapKey);
+      this.eventReadyKeys.delete(mapKey);
+      this.pendingEvents.delete(mapKey);
     }
     if (webContentsId !== undefined) this.identities.delete(webContentsId);
   }

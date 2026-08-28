@@ -18,7 +18,10 @@ contextBridge.exposeInMainWorld('workbench', {
       return () => ipcRenderer.removeListener(channel, callback);
     }
   },
-  appWindow: { getContext: () => ipcRenderer.invoke('app-window:get-context') },
+  appWindow: {
+    getContext: () => ipcRenderer.invoke('app-window:get-context'),
+    markEventSurfaceReady: () => ipcRenderer.invoke('app-window:event-surface-ready')
+  },
   apps: {
     list: () => ipcRenderer.invoke('apps:list'),
     refreshCatalog: () => ipcRenderer.invoke('apps:refresh-catalog'),

@@ -124,13 +124,14 @@ interface HostedAppSurfaceProps {
   name: string;
   entryUrl: string;
   onError: (error: unknown) => void;
+  onReady?: () => void;
 }
 
 /**
  * 通用应用 iframe 表面，只实现 App Host 公共协议，不包含任何应用业务方法。
  * 每次 entryUrl 或组件 key 改变时由 React 重建 iframe，订阅也随该实例完整清理。
  */
-export function HostedAppSurface({ appId, name, entryUrl, onError }: HostedAppSurfaceProps) {
+export function HostedAppSurface({ appId, name, entryUrl, onError, onReady = () => undefined }: HostedAppSurfaceProps) {
   const frameRef = useRef<HTMLIFrameElement>(null);
 
   useEffect(() => {
@@ -163,6 +164,7 @@ export function HostedAppSurface({ appId, name, entryUrl, onError }: HostedAppSu
     title={name}
     src={entryUrl}
     sandbox="allow-scripts allow-same-origin"
+    onLoad={onReady}
     onError={() => onError(`应用界面加载失败：${name}`)}
   />;
 }
