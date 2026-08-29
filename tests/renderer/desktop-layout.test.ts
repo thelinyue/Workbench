@@ -5,21 +5,10 @@ import {
   getDefaultIconLayout,
   normalizeDesktopLayout,
   resolveDesktopIconDropLayout,
-  reorderDesktopIconLayout,
-  resolveDesktopIconPoint,
-  snapDesktopIconPoint
+  reorderDesktopIconLayout
 } from '../../src/renderer/desktop-layout';
 
 describe('桌面应用图标网格布局', () => {
-  it('将拖动中的图标吸附到最近网格点', () => {
-    expect(snapDesktopIconPoint({ x: 44 + 96 * 0.49, y: 96 + 118 * 0.51 })).toEqual({ x: 44, y: 214 });
-    expect(snapDesktopIconPoint({ x: 44 + 96 * 1.51, y: 96 + 118 * 1.49 })).toEqual({ x: 236, y: 214 });
-  });
-
-  it('不会把图标吸附到桌面网格起点之前', () => {
-    expect(snapDesktopIconPoint({ x: 0, y: 0 })).toEqual(DEFAULT_ICON_LAYOUT['analysis-center']);
-  });
-
   it('为内置 SSH 终端保留分析中心下方的固定默认槽位', () => {
     expect(DEFAULT_ICON_LAYOUT.terminal).toEqual({ x: 44, y: 332 });
     expect(normalizeDesktopLayout([], ['analysis-center', 'app-center', 'terminal'])).toEqual([
@@ -36,17 +25,6 @@ describe('桌面应用图标网格布局', () => {
       terminal: { x: 44, y: 332 },
       'lvm-uncache-tool': { x: 44, y: 450 }
     });
-  });
-
-  it('目标槽位被占用时吸附到最近的空槽位', () => {
-    expect(resolveDesktopIconPoint(DEFAULT_ICON_LAYOUT['analysis-center'], [DEFAULT_ICON_LAYOUT['analysis-center']])).toEqual({ x: 140, y: 96 });
-  });
-
-  it('最近空槽位距离相同时按从上到下、从左到右稳定选择', () => {
-    const target = { x: 44 + DESKTOP_GRID.cellWidth, y: 96 + DESKTOP_GRID.cellHeight };
-    const occupied = [target, { x: 44 + DESKTOP_GRID.cellWidth, y: 96 }];
-
-    expect(resolveDesktopIconPoint(target, occupied)).toEqual({ x: 44, y: 214 });
   });
 
   it('将 B 插入 A 前时使用已有槽位顺延 A 和后续图标', () => {
@@ -92,17 +70,21 @@ describe('桌面应用图标网格布局', () => {
     ]);
   });
 
-  it('释放在空白区域时不返回排序布局，保留自由移动后的坐标', () => {
+  it('释放在空白区域时不返回排序布局，保持当前竖向位置', () => {
     expect(resolveDesktopIconDropLayout([
       { appId: 'analysis-center', x: 44, y: 96 },
       { appId: 'app-center', x: 44, y: 214 }
     ], 'app-center', { x: 260, y: 400 })).toBeUndefined();
   });
 
-  it('启动归一化历史布局并补充两个内置核心应用入口', () => {
-    expect(normalizeDesktopLayout([{ appId: 'analysis-center', x: 198, y: 390 }])).toEqual([
-      { appId: 'analysis-center', x: 236, y: 332 },
-      { appId: 'app-center', x: 44, y: 214 },
+  it('启动归一化历史多列布局并按视觉顺序压缩为首列', () => {
+    expect(normalizeDesktopLayout([
+      { appId: 'analysis-center', x: 140, y: 214 },
+      { appId: 'app-center', x: 236, y: 96 },
+      { appId: 'terminal', x: 44, y: 332 }
+    ])).toEqual([
+      { appId: 'app-center', x: 44, y: 96 },
+      { appId: 'analysis-center', x: 44, y: 214 },
       { appId: 'terminal', x: 44, y: 332 }
     ]);
   });
@@ -112,8 +94,8 @@ describe('桌面应用图标网格布局', () => {
       { appId: 'analysis-center', x: 44, y: 214 },
       { appId: 'settings', x: 44, y: 214 }
     ])).toEqual([
-      { appId: 'analysis-center', x: 44, y: 214 },
-      { appId: 'app-center', x: 44, y: 96 },
+      { appId: 'analysis-center', x: 44, y: 96 },
+      { appId: 'app-center', x: 44, y: 214 },
       { appId: 'terminal', x: 44, y: 332 }
     ]);
   });
@@ -123,8 +105,8 @@ describe('桌面应用图标网格布局', () => {
       { appId: 'analysis-center', x: 44, y: 214 },
       { appId: 'analysis-center', x: 44, y: 214 }
     ])).toEqual([
-      { appId: 'analysis-center', x: 44, y: 214 },
-      { appId: 'app-center', x: 44, y: 96 },
+      { appId: 'analysis-center', x: 44, y: 96 },
+      { appId: 'app-center', x: 44, y: 214 },
       { appId: 'terminal', x: 44, y: 332 }
     ]);
   });

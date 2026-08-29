@@ -20,7 +20,7 @@ import {
 } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react';
 import { createAppWindow, getVisibleWindows, minimizeWindow, moveWindow, resizeWindow, type AppWindow } from '../window-manager';
-import { DEFAULT_ICON_LAYOUT, getDefaultIconLayout, normalizeDesktopLayout, resolveDesktopIconDropLayout, resolveDesktopIconPoint, type DesktopAppId } from '../desktop-layout';
+import { DEFAULT_ICON_LAYOUT, getDefaultIconLayout, normalizeDesktopLayout, resolveDesktopIconDropLayout, type DesktopAppId } from '../desktop-layout';
 import { importAnalysisCenterFiles } from './analysis-center-file-import';
 import { launchDesktopApp } from './desktop-app-launch';
 import { HostedAppSurface } from './hosted-app-surface';
@@ -106,7 +106,7 @@ export function App() {
   const iconLayoutRef = useRef(iconLayout);
   const desktopShellRef = useRef<HTMLElement>(null);
   const desktopIconsRef = useRef<HTMLElement>(null);
-  const iconDragRef = useRef<{ id: DesktopAppId; offsetX: number; offsetY: number; moved: boolean; initialLayout: typeof iconLayout } | null>(null);
+  const iconDragRef = useRef<{ id: DesktopAppId; moved: boolean; initialLayout: typeof iconLayout } | null>(null);
   const suppressOpenRef = useRef(false);
   const notificationSnapshotRef = useRef<NotificationSnapshot | null>(null);
   const notificationRefreshQueueRef = useRef<Promise<void>>(Promise.resolve());
@@ -328,23 +328,13 @@ export function App() {
   }, [desktopLayoutReady, registeredApps, showError]);
 
   const beginIconDrag = (event: ReactPointerEvent<HTMLButtonElement>, id: DesktopAppId) => {
-    const point = iconLayoutRef.current[id];
-    iconDragRef.current = { id, offsetX: event.clientX - point.x, offsetY: event.clientY - point.y, moved: false, initialLayout: iconLayoutRef.current };
+    iconDragRef.current = { id, moved: false, initialLayout: iconLayoutRef.current };
     event.currentTarget.setPointerCapture(event.pointerId);
   };
-  const moveIcon = (event: ReactPointerEvent<HTMLButtonElement>) => {
+  const markIconDrag = () => {
     const drag = iconDragRef.current;
     if (!drag) return;
     drag.moved = true;
-    const occupiedPoints = Object.entries(iconLayoutRef.current)
-      .filter(([appId]) => appId !== drag.id)
-      .map(([, point]) => point);
-    const next = {
-      ...iconLayoutRef.current,
-      [drag.id]: resolveDesktopIconPoint({ x: event.clientX - drag.offsetX, y: event.clientY - drag.offsetY }, occupiedPoints)
-    };
-    iconLayoutRef.current = next;
-    setIconLayout(next);
   };
 
   const handleNotificationClick = (notification: WorkbenchNotification) => {
@@ -368,9 +358,11 @@ export function App() {
       drag.id,
       pointer
     );
-    const nextLayout = reorderedLayout
-      ? reorderedLayout.reduce<typeof iconLayout>((next, item) => ({ ...next, [item.appId]: { x: item.x, y: item.y } }), {})
-      : iconLayoutRef.current;
+    if (!reorderedLayout) {
+      window.setTimeout(() => { suppressOpenRef.current = false; }, 0);
+      return;
+    }
+    const nextLayout = reorderedLayout.reduce<typeof iconLayout>((next, item) => ({ ...next, [item.appId]: { x: item.x, y: item.y } }), {});
     iconLayoutRef.current = nextLayout;
     setIconLayout(nextLayout);
     void saveIconLayout(nextLayout);
@@ -378,11 +370,7 @@ export function App() {
   };
 
   const cancelIconDrag = () => {
-    const drag = iconDragRef.current;
     iconDragRef.current = null;
-    if (!drag?.moved) return;
-    iconLayoutRef.current = drag.initialLayout;
-    setIconLayout(drag.initialLayout);
   };
 
   const importDroppedFiles = async (files: FileList) => {
@@ -469,7 +457,7 @@ export function App() {
           const description = meta?.description ?? registered?.description ?? '工作台应用';
           const point = iconLayout[id];
           // 桌面图标位置由 PointerEvent 控制，禁止图片触发 Chromium 原生拖动，避免误进入文件导入 drop。
-          return <button key={id} className="desktop-icon" style={{ left: point.x, top: point.y }} type="button" onPointerDown={(event) => beginIconDrag(event, id)} onPointerMove={moveIcon} onPointerUp={finishIconDrag} onPointerCancel={cancelIconDrag} onDragStart={(event) => event.preventDefault()} onDoubleClick={() => void openApp(id)} onClick={() => { if (!suppressOpenRef.current) void openApp(id); }} aria-label={`打开${title}`}>
+          return <button key={id} className="desktop-icon" style={{ left: point.x, top: point.y }} type="button" onPointerDown={(event) => beginIconDrag(event, id)} onPointerMove={markIconDrag} onPointerUp={finishIconDrag} onPointerCancel={cancelIconDrag} onDragStart={(event) => event.preventDefault()} onDoubleClick={() => void openApp(id)} onClick={() => { if (!suppressOpenRef.current) void openApp(id); }} aria-label={`打开${title}`}>
             <span className={`desktop-icon-image desktop-icon-${id}`}><img draggable={false} className="desktop-brand-icon" src={resolveAppIconUrl(id)} alt="" aria-hidden="true" /></span>
             <span className="desktop-icon-label">{title}</span>
             <span className="desktop-icon-caption">{description}</span>
@@ -477,7 +465,7 @@ export function App() {
         })}
       </section>
 
-      <div className="desktop-hint"><Menu size={14} /> 拖动图标整理桌面，自动吸附网格，单击打开应用</div>
+      <div className="desktop-hint"><Menu size={14} /> 拖动图标调整顺序，单击打开应用</div>
 
       <section className="virtual-window-layer" aria-label="应用窗口">
         {getVisibleWindows(windows).map((item) => <VirtualWindow key={item.id} item={item} onClose={closeWindow} onFocus={focusWindow} onMinimize={toggleMinimize} onMaximize={toggleMaximize} onMove={moveVirtualWindow} onResize={(id, width, height) => setWindows((current) => resizeWindow(current, id, width, height))} onReload={registeredApps.find((app) => app.id === item.id)?.developmentOverride ? () => void reloadApp(item.id) : undefined}>

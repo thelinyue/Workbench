@@ -74,7 +74,8 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--focus); out
 .window-control-close { font-size: 23px; }
 
 .desktop-icons { position: absolute; inset: 58px 0 0; z-index: 2; }
-.desktop-icon { position: absolute; display: flex; width: 92px; min-height: 112px; padding: 6px 4px; flex-direction: column; align-items: center; gap: 7px; border: 1px solid transparent; border-radius: 14px; background: transparent; cursor: pointer; text-align: center; transition: background .16s ease, border-color .16s ease, transform .16s ease; }
+.desktop-icon { position: absolute; display: flex; width: 92px; min-height: 112px; padding: 6px 4px; flex-direction: column; align-items: center; gap: 7px; border: 1px solid transparent; border-radius: 14px; background: transparent; cursor: grab; text-align: center; transition: background .16s ease, border-color .16s ease, transform .16s ease; }
+.desktop-icon:active { cursor: grabbing; }
 .desktop-icon:hover, .desktop-icon:focus-visible { border-color: rgba(153, 162, 255, .28); background: rgba(126, 135, 255, .1); transform: translateY(-2px); }
 .desktop-icon-image { display: grid; width: 58px; height: 58px; place-items: center; border: 1px solid rgba(255,255,255,.16); border-radius: 17px; box-shadow: 0 16px 26px rgba(0,0,0,.28); }
 .desktop-icon-analysis-center { color: #bfc2ff; background: linear-gradient(145deg, #5a4bb0, #302b70); }

@@ -9,6 +9,7 @@ export interface DesktopIconLayout {
 }
 
 const VERTICAL_DEFAULT_LAYOUT_MIGRATION = 'vertical-default-layout-v1';
+const VERTICAL_AUTO_ALIGNMENT_MIGRATION = 'vertical-auto-alignment-v2';
 
 /**
  * 该仓储只持有桌面图标布局；原生窗口状态由 AppWindowStateRepository 独立管理，
@@ -50,16 +51,21 @@ export class DesktopLayoutRepository {
   }
 
   /**
-   * 首次使用竖向默认布局的版本会覆盖旧坐标；完成后只返回用户已保存的位置。
-   * 标记和坐标更新必须原子提交，避免应用在首次启动中断后错过重排机会。
+   * 首次初始化只在空布局时写入默认入口；v2 迁移再按旧布局视觉顺序压缩为首列。
+   * 两个迁移标记和坐标更新必须原子提交，避免启动中断后丢失重排或覆盖后续排序。
    */
   public initializeDefaultLayout(defaultLayout: DesktopIconLayout[]): DesktopIconLayout[] {
     this.database.exec('BEGIN;');
     try {
       const migrated = this.database.prepare('SELECT 1 FROM desktop_layout_migration WHERE migration_id = ?').get(VERTICAL_DEFAULT_LAYOUT_MIGRATION);
       if (!migrated) {
-        this.replaceLayout(defaultLayout);
+        if (this.list().length === 0) this.replaceLayout(defaultLayout);
         this.database.prepare('INSERT INTO desktop_layout_migration (migration_id) VALUES (?)').run(VERTICAL_DEFAULT_LAYOUT_MIGRATION);
+      }
+      const autoAligned = this.database.prepare('SELECT 1 FROM desktop_layout_migration WHERE migration_id = ?').get(VERTICAL_AUTO_ALIGNMENT_MIGRATION);
+      if (!autoAligned) {
+        this.replaceLayout(reflowToVerticalLayout(this.list(), defaultLayout));
+        this.database.prepare('INSERT INTO desktop_layout_migration (migration_id) VALUES (?)').run(VERTICAL_AUTO_ALIGNMENT_MIGRATION);
       }
       const layout = this.list();
       this.database.exec('COMMIT;');
@@ -75,4 +81,21 @@ export class DesktopLayoutRepository {
     const insert = this.database.prepare('INSERT INTO desktop_layout (app_id, x, y) VALUES (?, ?, ?)');
     for (const item of layout) insert.run(item.appId, item.x, item.y);
   }
+}
+
+/** 使用默认槽位承载旧布局的视觉顺序，防止自由坐标在迁移后继续扩散。 */
+function reflowToVerticalLayout(layout: readonly DesktopIconLayout[], defaultLayout: readonly DesktopIconLayout[]): DesktopIconLayout[] {
+  const slots = [...defaultLayout].sort(compareDesktopIconLayout);
+  const availableAppIds = new Set(slots.map((item) => item.appId));
+  const seen = new Set<string>();
+  const saved = [...layout]
+    .filter((item) => availableAppIds.has(item.appId))
+    .sort(compareDesktopIconLayout)
+    .filter((item) => !seen.has(item.appId) && Boolean(seen.add(item.appId)));
+  const ordered = [...saved, ...slots.filter((item) => !seen.has(item.appId))];
+  return ordered.map((item, index) => ({ appId: item.appId, x: slots[index]!.x, y: slots[index]!.y }));
+}
+
+function compareDesktopIconLayout(left: DesktopIconLayout, right: DesktopIconLayout): number {
+  return left.y - right.y || left.x - right.x || left.appId.localeCompare(right.appId);
 }

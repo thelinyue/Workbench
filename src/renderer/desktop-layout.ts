@@ -32,76 +32,14 @@ export function getDesktopAppIds(installedAppIds: readonly DesktopAppId[]): Desk
   return [...appIds].sort((left, right) => desktopAppOrder(left) - desktopAppOrder(right) || left.localeCompare(right));
 }
 
-/** 根据当前已安装应用生成默认槽位；新应用始终追加到首列下方的首个空槽位。 */
+/** 根据当前已安装应用生成默认槽位；所有应用始终从首列顶部连续向下排列。 */
 export function getDefaultIconLayout(installedAppIds: readonly DesktopAppId[]): Record<DesktopAppId, DesktopIconPoint> {
-  const layout: Record<DesktopAppId, DesktopIconPoint> = {};
-  const occupiedPoints: DesktopIconPoint[] = [];
-
-  for (const appId of getDesktopAppIds(installedAppIds)) {
-    const preferredPoint = DEFAULT_ICON_LAYOUT[appId] ?? {
-      x: DESKTOP_GRID.originX,
-      y: DESKTOP_GRID.originY + occupiedPoints.length * DESKTOP_GRID.cellHeight
-    };
-    const point = resolveDesktopIconPoint(preferredPoint, occupiedPoints);
-    layout[appId] = point;
-    occupiedPoints.push(point);
-  }
-
-  return layout;
-}
-
-/** 将任意拖动坐标吸附到最近的桌面图标槽位，并限制在网格起点之后。 */
-export function snapDesktopIconPoint(point: DesktopIconPoint): DesktopIconPoint {
-  return {
-    x: DESKTOP_GRID.originX + Math.max(0, Math.round((point.x - DESKTOP_GRID.originX) / DESKTOP_GRID.cellWidth)) * DESKTOP_GRID.cellWidth,
-    y: DESKTOP_GRID.originY + Math.max(0, Math.round((point.y - DESKTOP_GRID.originY) / DESKTOP_GRID.cellHeight)) * DESKTOP_GRID.cellHeight
-  };
-}
-
-function desktopIconSlotKey(point: DesktopIconPoint): string {
-  return `${point.x}:${point.y}`;
-}
-
-/**
- * 将图标放入最近的空网格槽位。
- *
- * 先按统一网格吸附目标坐标；如果目标槽位已被占用，则按曼哈顿距离逐圈搜索，
- * 并在同一距离内按照从上到下、从左到右的顺序选择，保证多个图标不会重叠且结果稳定。
- */
-export function resolveDesktopIconPoint(point: DesktopIconPoint, occupiedPoints: readonly DesktopIconPoint[]): DesktopIconPoint {
-  const snapped = snapDesktopIconPoint(point);
-  const occupied = new Set(occupiedPoints.map((item) => desktopIconSlotKey(snapDesktopIconPoint(item))));
-  if (!occupied.has(desktopIconSlotKey(snapped))) return snapped;
-
-  const centerColumn = Math.round((snapped.x - DESKTOP_GRID.originX) / DESKTOP_GRID.cellWidth);
-  const centerRow = Math.round((snapped.y - DESKTOP_GRID.originY) / DESKTOP_GRID.cellHeight);
-
-  for (let radius = 1; ; radius += 1) {
-    const candidates: DesktopIconPoint[] = [];
-    const minColumn = Math.max(0, centerColumn - radius);
-    const minRow = Math.max(0, centerRow - radius);
-    const maxColumn = centerColumn + radius;
-    const maxRow = centerRow + radius;
-
-    for (let row = minRow; row <= maxRow; row += 1) {
-      for (let column = minColumn; column <= maxColumn; column += 1) {
-        if (Math.abs(column - centerColumn) + Math.abs(row - centerRow) !== radius) continue;
-        candidates.push({
-          x: DESKTOP_GRID.originX + column * DESKTOP_GRID.cellWidth,
-          y: DESKTOP_GRID.originY + row * DESKTOP_GRID.cellHeight
-        });
-      }
-    }
-
-    candidates.sort((left, right) => left.y - right.y || left.x - right.x);
-    const available = candidates.find((candidate) => !occupied.has(desktopIconSlotKey(candidate)));
-    if (available) return available;
-  }
+  return Object.fromEntries(getDesktopAppIds(installedAppIds).map((appId, index) => [appId, verticalSlot(index)])) as Record<DesktopAppId, DesktopIconPoint>;
 }
 
 /**
  * 在已占用的图标槽位中插入拖动目标，而非为它另找空位。
- * 排序先固定当前所有视觉槽位，再仅重映射图标标识，因此用户手动摆放到其他列的坐标不会被压缩或丢失。
+ * 排序完成后重新映射到连续竖向槽位，确保桌面不再保留自由坐标。
  */
 export function reorderDesktopIconLayout(
   layout: readonly DesktopIconLayout[],
@@ -118,12 +56,12 @@ export function reorderDesktopIconLayout(
   if (targetIndex < 0) return [...layout];
   const insertionIndex = targetIndex + (placement === 'after' ? 1 : 0);
   const ordered = [...remaining.slice(0, insertionIndex), moving, ...remaining.slice(insertionIndex)];
-  return ordered.map((item, index) => ({ appId: item.appId, x: slots[index]!.x, y: slots[index]!.y }));
+  return ordered.map((item, index) => ({ appId: item.appId, ...verticalSlot(index) }));
 }
 
 /**
  * 根据释放指针命中目标图标的上半区或下半区决定插入位置。
- * 未命中图标时返回 undefined，由调用方保留自由拖动后的吸附坐标。
+ * 未命中图标时返回 undefined，由调用方保持当前顺序和竖向位置。
  */
 export function resolveDesktopIconDropLayout(
   layout: readonly DesktopIconLayout[],
@@ -137,20 +75,28 @@ export function resolveDesktopIconDropLayout(
   return reorderDesktopIconLayout(layout, movingAppId, target.appId, pointer.y < target.y + DESKTOP_ICON.height / 2 ? 'before' : 'after');
 }
 
-/** 过滤已移除的历史图标、归一化旧版本坐标，并为当前图标分配唯一网格槽位。 */
+/**
+ * 过滤已移除应用并把任意历史坐标压缩为首列竖向顺序。
+ * 已保存应用按当前视觉顺序排列，缺失的新应用继续按默认顺序追加到底部。
+ */
 export function normalizeDesktopLayout(
   layout: readonly DesktopIconLayout[],
   installedAppIds: readonly DesktopAppId[] = Object.keys(DEFAULT_ICON_LAYOUT)
 ): DesktopIconLayout[] {
-  const occupiedPoints: DesktopIconPoint[] = [];
-  const defaults = getDefaultIconLayout(installedAppIds);
+  const appIds = getDesktopAppIds(installedAppIds);
+  const availableAppIds = new Set(appIds);
+  const seen = new Set<string>();
+  const savedOrder = [...layout]
+    .filter((item) => availableAppIds.has(item.appId))
+    .sort(compareDesktopLayout)
+    .filter((item) => !seen.has(item.appId) && Boolean(seen.add(item.appId)))
+    .map((item) => item.appId);
+  const orderedAppIds = [...savedOrder, ...appIds.filter((appId) => !seen.has(appId))];
+  return orderedAppIds.map((appId, index) => ({ appId, ...verticalSlot(index) }));
+}
 
-  return getDesktopAppIds(installedAppIds).map((appId) => {
-    const savedPoint = layout.find((item) => item.appId === appId);
-    const point = resolveDesktopIconPoint(savedPoint ?? defaults[appId], occupiedPoints);
-    occupiedPoints.push(point);
-    return { appId, ...point };
-  });
+function verticalSlot(index: number): DesktopIconPoint {
+  return { x: DESKTOP_GRID.originX, y: DESKTOP_GRID.originY + index * DESKTOP_GRID.cellHeight };
 }
 
 function desktopAppOrder(appId: DesktopAppId): number {
