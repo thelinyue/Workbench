@@ -9,10 +9,12 @@ export interface AppHttpResponse {
   arrayBuffer(): Promise<ArrayBuffer>;
 }
 
+export type AppHttpRequest = (url: string, init?: RequestInit) => Promise<AppHttpResponse>;
+
 export interface AppCatalogClientOptions {
   catalogUrl: string;
   repository: AppRegistryRepository;
-  request?: (url: string, init?: RequestInit) => Promise<AppHttpResponse>;
+  request: AppHttpRequest;
 }
 
 /**
@@ -20,13 +22,13 @@ export interface AppCatalogClientOptions {
  * 在线失败时保留最近一次有效目录，使离线用户仍可启动已安装应用。
  */
 export class AppCatalogClient {
-  private readonly request: (url: string, init?: RequestInit) => Promise<AppHttpResponse>;
+  private readonly request: AppHttpRequest;
 
   public constructor(private readonly options: AppCatalogClientOptions) {
     let url: URL;
     try { url = new URL(options.catalogUrl); } catch (error) { throw new Error(`应用目录地址无效：${error instanceof Error ? error.message : String(error)}`); }
     if (url.protocol !== 'https:') throw new Error('应用目录地址必须使用 HTTPS');
-    this.request = options.request ?? defaultRequest;
+    this.request = options.request;
   }
 
   public async refresh(): Promise<AppCatalogSnapshot> {
@@ -64,16 +66,8 @@ export function selectLatestCompatibleAppRelease(app: AppCatalogItem, workbenchV
     .sort((left, right) => compareAppVersions(right.version, left.version))[0];
 }
 
-async function defaultRequest(url: string, init?: RequestInit): Promise<AppHttpResponse> {
-  const response = await fetch(url, init);
-  return {
-    ok: response.ok,
-    status: response.status,
-    text: () => response.text(),
-    arrayBuffer: () => response.arrayBuffer()
-  };
-}
-
 function describeError(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
+  const message = error instanceof Error ? error.message : String(error);
+  if (message === 'fetch failed' || message === 'Failed to fetch') return '网络请求失败，请检查网络、代理或防火墙后重试。';
+  return message;
 }

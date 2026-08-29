@@ -115,6 +115,23 @@ describe('应用目录客户端', () => {
     }
   });
 
+  it('网络异常没有诊断信息时给出中文重试建议', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'workbench-app-catalog-'));
+    directories.push(root);
+    const repository = new AppRegistryRepository(join(root, 'apps.db'));
+    const client = new AppCatalogClient({
+      catalogUrl: 'https://example.test/catalog.json',
+      repository,
+      request: async () => { throw new Error('fetch failed'); }
+    });
+
+    try {
+      await expect(client.download(catalog.apps[0]!.releases[0]!)).rejects.toThrow('下载应用包失败：网络请求失败，请检查网络、代理或防火墙后重试。');
+    } finally {
+      repository.close();
+    }
+  });
+
   it('选择满足宿主版本的最高稳定应用版本', () => {
     const app = catalog.apps[0] as AppCatalogItem;
     expect(selectLatestCompatibleAppRelease(app, '0.1.0', '1.0')?.version).toBe('1.2.0');

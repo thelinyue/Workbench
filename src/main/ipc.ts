@@ -6,6 +6,7 @@ import { z } from 'zod';
 import { DesktopLayoutRepository } from './data/desktop-layout-repository';
 import { AppRegistryRepository } from './data/app-registry-repository';
 import { AppCatalogClient } from './services/app-catalog-client';
+import { requestAppResource } from './services/app-network-request';
 import { AppCenterService } from './services/app-center-service';
 import { AppPackageInstaller } from './services/app-package-installer';
 import { AppRuntimeManager } from './services/app-runtime-manager';
@@ -63,7 +64,8 @@ export function registerWorkbenchIpc(userDataPath: string, options: RegisterWork
   const appRegistry = new AppRegistryRepository(join(dataDirectory, 'apps.db'));
   const appCatalog = new AppCatalogClient({
     catalogUrl: process.env.HEPHAESTUS_APP_CATALOG_URL ?? 'https://raw.githubusercontent.com/thelinyue/Workbench-Apps/main/catalog.json',
-    repository: appRegistry
+    repository: appRegistry,
+    request: requestAppResource
   });
   const trustedKeys = loadTrustedAppKeys();
   const appInstaller = new AppPackageInstaller({

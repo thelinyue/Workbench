@@ -15,6 +15,11 @@ describe('应用中心 Electron 桥接', () => {
     expect(ipcSource).toContain("ipcMain.handle('apps:reload'");
   });
 
+  it('应用中心使用 Electron 网络栈下载目录和应用包', () => {
+    expect(ipcSource).toContain("import { requestAppResource } from './services/app-network-request';");
+    expect(ipcSource).toContain('request: requestAppResource');
+  });
+
   it('逐项安装分析中心和 SSH 终端的内置种子资源', () => {
     expect(ipcSource).toContain("id: 'analysis-center'");
     expect(ipcSource).toContain("id: 'terminal'");

@@ -8,7 +8,7 @@ const baseUrl = (process.env.HEPHAESTUS_APPS_RELEASE_BASE_URL ?? 'https://github
 const outputDirectory = join(root, 'build', 'seed-app');
 const trustedKeysPath = join(root, 'src', 'main', 'config', 'app-trusted-keys.json');
 const coreSeedApps = [
-  { id: 'analysis-center', version: process.env.HEPHAESTUS_SEED_APP_VERSION ?? '2.0.1' },
+  { id: 'analysis-center', version: process.env.HEPHAESTUS_SEED_APP_VERSION ?? '2.0.2' },
   { id: 'terminal', version: process.env.HEPHAESTUS_TERMINAL_SEED_APP_VERSION ?? '2.0.0' }
 ];
 
