@@ -7,6 +7,7 @@ import { AppWindowManager } from './services/app-window-manager';
 import { installHostNavigationGuard, resolveWorkbenchRendererUrl } from './services/host-navigation-guard';
 import { registerAppProtocolScheme, registerAppResourceProtocol } from './services/app-resource-protocol';
 import { WorkbenchLifecycleController, acquireSingleInstance, createOrderedCleanup } from './services/workbench-lifecycle';
+import { createMainWindowOptions } from './main-window-options';
 
 // 自定义协议必须在 app.whenReady() 之前声明，否则 iframe 中的 CSS 和 ES module 资源无法按标准方式加载。
 registerAppProtocolScheme();
@@ -29,15 +30,9 @@ function createWindow(): BrowserWindow {
     rendererFile
   });
   const window = new BrowserWindow({
-    width: 1440,
-    height: 900,
-    minWidth: 1024,
-    minHeight: 680,
-    center: true,
-    show: false,
+    ...createMainWindowOptions(),
     title: '工作台',
     backgroundColor: '#EAFBF5',
-    frame: false,
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
       contextIsolation: true,

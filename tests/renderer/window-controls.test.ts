@@ -14,10 +14,11 @@ describe('窗口控制按钮', () => {
   });
 
   it('主工作台从原生状态查询和订阅同步最大化状态', () => {
-    expect(appSource).toContain('const [shellMaximized, setShellMaximized] = useState(false);');
+    expect(appSource).toContain('const [shellMaximized, setShellMaximized] = useState<boolean | undefined>(undefined);');
     expect(appSource).toContain('maximized={shellMaximized}');
     expect(appSource).toContain('window.workbench.shell.isMaximized()');
     expect(appSource).toContain('window.workbench.shell.onMaximizedChanged(setShellMaximized)');
+    expect(appSource).toContain("useWindowMaximizeAnimation(desktopShellRef, shellMaximized, 'native');");
     expect(appSource).not.toContain('setShellMaximized((value) => !value)');
   });
 

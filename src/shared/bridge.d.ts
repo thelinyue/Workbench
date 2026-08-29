@@ -14,7 +14,7 @@ export interface WorkbenchBridge {
     markEventSurfaceReady(): Promise<void>;
   };
   desktop: {
-    loadLayout(): Promise<DesktopIconLayout[]>;
+    initializeLayout(defaultLayout: DesktopIconLayout[]): Promise<DesktopIconLayout[]>;
     saveLayout(layout: DesktopIconLayout[]): Promise<void>;
   };
   apps: {

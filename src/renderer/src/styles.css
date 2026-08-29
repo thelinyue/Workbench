@@ -87,7 +87,7 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--focus); out
 .app-window:hover { box-shadow: 0 30px 78px rgba(0,0,0,.52), 0 4px 24px rgba(91, 96, 185, .18); }
 .app-window-resizer { position: absolute; right: 0; bottom: 0; z-index: 4; width: 18px; height: 18px; cursor: nwse-resize; }
 .app-window-resizer::after { content: ''; position: absolute; right: 5px; bottom: 5px; width: 6px; height: 6px; border-right: 1px solid rgba(179, 196, 238, .65); border-bottom: 1px solid rgba(179, 196, 238, .65); }
-.app-window-maximized { inset: 10px 16px 16px; width: auto !important; height: auto !important; }
+.app-window-maximized { inset: 10px 16px 16px; width: auto !important; height: auto !important; border-radius: 0; }
 .window-titlebar { display: flex; min-height: 46px; align-items: center; justify-content: space-between; padding: 0 10px 0 15px; border-bottom: 1px solid var(--line); background: rgba(19, 23, 54, .88); cursor: move; user-select: none; }
 .window-title { gap: 9px; color: #d9dcff; font-size: 13px; }
 .window-title-icon { display: grid; width: 23px; height: 23px; place-items: center; border-radius: 7px; color: #aaa5ff; background: rgba(133, 119, 255, .14); }

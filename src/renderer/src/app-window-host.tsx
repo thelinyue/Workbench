@@ -1,9 +1,10 @@
 import { LoaderCircle, RefreshCw } from 'lucide-react';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState, type RefObject } from 'react';
 import type { AppWindowContext } from '../../shared/app-contract';
 import { HostedAppSurface } from './hosted-app-surface';
 import { toChineseError } from './ui-model';
 import { WindowControls } from './window-controls';
+import { useWindowMaximizeAnimation } from './window-maximize-animation';
 
 const WORKBENCH_ICON_URL = new URL('./assets/workbench-icon.png', import.meta.url).href;
 
@@ -18,6 +19,7 @@ interface AppWindowHostViewProps {
   onMinimize?: () => void;
   onMaximize?: () => void;
   onClose?: () => void;
+  surfaceRef?: RefObject<HTMLElement | null>;
 }
 
 /** 将原生任务栏标题与可信应用上下文同步；加载态保持通用 Workbench 标题。 */
@@ -40,12 +42,13 @@ export function AppWindowHostView({
   onSurfaceError = () => undefined,
   onMinimize = () => undefined,
   onMaximize = () => undefined,
-  onClose = () => undefined
+  onClose = () => undefined,
+  surfaceRef
 }: AppWindowHostViewProps) {
   const title = context?.name ?? 'Workbench';
   const iconUrl = context?.iconUrl ?? WORKBENCH_ICON_URL;
 
-  return <main className="app-window-host">
+  return <main ref={surfaceRef} className="app-window-host">
     <header className="app-window-host-titlebar">
       <div className="app-window-host-title"><img src={iconUrl} alt="" aria-hidden="true" /><strong>{title}</strong></div>
       <div className="app-window-host-actions">
@@ -71,9 +74,10 @@ export function AppWindowHostView({
 export function AppWindowHost() {
   const [context, setContext] = useState<AppWindowContext | null>(null);
   const [error, setError] = useState('');
-  const [maximized, setMaximized] = useState(false);
+  const [maximized, setMaximized] = useState<boolean | undefined>(undefined);
   const [reloadToken, setReloadToken] = useState(0);
   const [reloading, setReloading] = useState(false);
+  const surfaceRef = useRef<HTMLElement>(null);
 
   const loadContext = useCallback(async () => {
     if (typeof window === 'undefined' || !window.workbench) throw new Error('工作台接口尚未就绪，无法读取应用窗口上下文。');
@@ -100,6 +104,8 @@ export function AppWindowHost() {
     return () => { active = false; unsubscribe(); };
   }, []);
 
+  useWindowMaximizeAnimation(surfaceRef, maximized, 'native');
+
   const reload = async () => {
     if (!context || !context.developmentOverride || reloading) return;
     setReloading(true);
@@ -118,7 +124,7 @@ export function AppWindowHost() {
   return <AppWindowHostView
     context={context}
     error={error}
-    maximized={maximized}
+    maximized={maximized ?? false}
     reloadToken={reloadToken}
     reloading={reloading}
     onReload={() => void reload()}
@@ -126,5 +132,6 @@ export function AppWindowHost() {
     onMinimize={() => void window.workbench.shell.minimize()}
     onMaximize={() => void window.workbench.shell.toggleMaximize()}
     onClose={() => void window.workbench.shell.close()}
+    surfaceRef={surfaceRef}
   />;
 }

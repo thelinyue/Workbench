@@ -20,11 +20,12 @@ import {
 } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react';
 import { createAppWindow, getVisibleWindows, minimizeWindow, moveWindow, resizeWindow, type AppWindow } from '../window-manager';
-import { DEFAULT_ICON_LAYOUT, normalizeDesktopLayout, resolveDesktopIconPoint, type DesktopAppId } from '../desktop-layout';
+import { DEFAULT_ICON_LAYOUT, getDefaultIconLayout, normalizeDesktopLayout, resolveDesktopIconDropLayout, resolveDesktopIconPoint, type DesktopAppId } from '../desktop-layout';
 import { importAnalysisCenterFiles } from './analysis-center-file-import';
 import { launchDesktopApp } from './desktop-app-launch';
 import { HostedAppSurface } from './hosted-app-surface';
 import { WindowControls } from './window-controls';
+import { useWindowMaximizeAnimation } from './window-maximize-animation';
 import type { AppInstallRecord, AppInstallState } from '../../shared/app-contract';
 import {
   formatDetectedAt,
@@ -91,7 +92,7 @@ export function App() {
   const [appReloadTokens, setAppReloadTokens] = useState<Record<string, number>>({});
   const [drawerOpen, setDrawerOpen] = useState(false);
   // 主窗口状态由 Electron 原生事件同步，覆盖按钮、双击标题栏和系统快捷键等全部路径。
-  const [shellMaximized, setShellMaximized] = useState(false);
+  const [shellMaximized, setShellMaximized] = useState<boolean | undefined>(undefined);
   const [notificationCenterOpen, setNotificationCenterOpen] = useState(false);
   const [notifications, setNotifications] = useState<WorkbenchNotification[]>([]);
   const [appLibraryOpen, setAppLibraryOpen] = useState(false);
@@ -103,7 +104,9 @@ export function App() {
   const [iconLayout, setIconLayout] = useState<Record<DesktopAppId, { x: number; y: number }>>(DEFAULT_ICON_LAYOUT);
   const [desktopLayoutReady, setDesktopLayoutReady] = useState(false);
   const iconLayoutRef = useRef(iconLayout);
-  const iconDragRef = useRef<{ id: DesktopAppId; offsetX: number; offsetY: number; moved: boolean } | null>(null);
+  const desktopShellRef = useRef<HTMLElement>(null);
+  const desktopIconsRef = useRef<HTMLElement>(null);
+  const iconDragRef = useRef<{ id: DesktopAppId; offsetX: number; offsetY: number; moved: boolean; initialLayout: typeof iconLayout } | null>(null);
   const suppressOpenRef = useRef(false);
   const notificationSnapshotRef = useRef<NotificationSnapshot | null>(null);
   const notificationRefreshQueueRef = useRef<Promise<void>>(Promise.resolve());
@@ -184,10 +187,13 @@ export function App() {
     void (async () => {
       try {
         if (!hasWorkbenchBridge()) throw new Error('工作台接口尚未就绪，请启动 Electron 主进程后重试。');
-        const [savedLayout, apps] = await Promise.all([window.workbench.desktop.loadLayout(), window.workbench.apps.list()]);
+        const apps = await window.workbench.apps.list();
         if (!active) return;
         setRegisteredApps(apps);
         const installedAppIds = apps.filter((item) => item.activeVersion).map((item) => item.id);
+        const defaults = Object.entries(getDefaultIconLayout(installedAppIds)).map(([appId, point]) => ({ appId, ...point }));
+        const savedLayout = await window.workbench.desktop.initializeLayout(defaults);
+        if (!active) return;
         const normalizedLayout = normalizeDesktopLayout(savedLayout, installedAppIds);
         const nextLayout = normalizedLayout.reduce<Record<DesktopAppId, { x: number; y: number }>>((next, item) => ({ ...next, [item.appId]: { x: item.x, y: item.y } }), {});
         setIconLayout(nextLayout);
@@ -227,6 +233,8 @@ export function App() {
       .catch((caught) => { if (active) showError(caught); });
     return () => { active = false; unsubscribe(); };
   }, [showError]);
+
+  useWindowMaximizeAnimation(desktopShellRef, shellMaximized, 'native');
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -321,7 +329,7 @@ export function App() {
 
   const beginIconDrag = (event: ReactPointerEvent<HTMLButtonElement>, id: DesktopAppId) => {
     const point = iconLayoutRef.current[id];
-    iconDragRef.current = { id, offsetX: event.clientX - point.x, offsetY: event.clientY - point.y, moved: false };
+    iconDragRef.current = { id, offsetX: event.clientX - point.x, offsetY: event.clientY - point.y, moved: false, initialLayout: iconLayoutRef.current };
     event.currentTarget.setPointerCapture(event.pointerId);
   };
   const moveIcon = (event: ReactPointerEvent<HTMLButtonElement>) => {
@@ -348,13 +356,33 @@ export function App() {
   };
 
   const unreadNotificationCount = notifications.filter((item) => !item.read).length;
-  const finishIconDrag = () => {
+  const finishIconDrag = (event: ReactPointerEvent<HTMLButtonElement>) => {
     const drag = iconDragRef.current;
     iconDragRef.current = null;
     if (!drag?.moved) return;
     suppressOpenRef.current = true;
-    void saveIconLayout(iconLayoutRef.current);
+    const bounds = desktopIconsRef.current?.getBoundingClientRect();
+    const pointer = bounds ? { x: event.clientX - bounds.left, y: event.clientY - bounds.top } : undefined;
+    const reorderedLayout = pointer && resolveDesktopIconDropLayout(
+      Object.entries(drag.initialLayout).map(([appId, point]) => ({ appId, ...point })),
+      drag.id,
+      pointer
+    );
+    const nextLayout = reorderedLayout
+      ? reorderedLayout.reduce<typeof iconLayout>((next, item) => ({ ...next, [item.appId]: { x: item.x, y: item.y } }), {})
+      : iconLayoutRef.current;
+    iconLayoutRef.current = nextLayout;
+    setIconLayout(nextLayout);
+    void saveIconLayout(nextLayout);
     window.setTimeout(() => { suppressOpenRef.current = false; }, 0);
+  };
+
+  const cancelIconDrag = () => {
+    const drag = iconDragRef.current;
+    iconDragRef.current = null;
+    if (!drag?.moved) return;
+    iconLayoutRef.current = drag.initialLayout;
+    setIconLayout(drag.initialLayout);
   };
 
   const importDroppedFiles = async (files: FileList) => {
@@ -405,7 +433,7 @@ export function App() {
   const appLibraryIds = (Object.keys(APP_META) as AppId[]).filter((id) => id === 'app-center' || registeredApps.some((item) => item.id === id && item.activeVersion));
 
   return (
-    <main className="desktop-shell" style={{ '--workbench-wallpaper': `url("${WORKBENCH_WALLPAPER_URL}")` } as CSSProperties} onDragOver={(event) => event.preventDefault()} onDrop={(event) => { event.preventDefault(); void importDroppedFiles(event.dataTransfer.files); }}>
+    <main ref={desktopShellRef} className="desktop-shell" style={{ '--workbench-wallpaper': `url("${WORKBENCH_WALLPAPER_URL}")` } as CSSProperties} onDragOver={(event) => event.preventDefault()} onDrop={(event) => { event.preventDefault(); void importDroppedFiles(event.dataTransfer.files); }}>
       <div className="ambient-shape ambient-shape-one" aria-hidden="true" />
       <div className="ambient-shape ambient-shape-two" aria-hidden="true" />
       <header className="topbar">
@@ -433,7 +461,7 @@ export function App() {
         </div>
       </header>
 
-      <section className="desktop-icons" aria-label="应用入口">
+      <section ref={desktopIconsRef} className="desktop-icons" aria-label="应用入口">
         {(Object.keys(iconLayout) as DesktopAppId[]).map((id) => {
           const registered = registeredApps.find((item) => item.id === id);
           const meta = APP_META[id as AppId];
@@ -441,7 +469,7 @@ export function App() {
           const description = meta?.description ?? registered?.description ?? '工作台应用';
           const point = iconLayout[id];
           // 桌面图标位置由 PointerEvent 控制，禁止图片触发 Chromium 原生拖动，避免误进入文件导入 drop。
-          return <button key={id} className="desktop-icon" style={{ left: point.x, top: point.y }} type="button" onPointerDown={(event) => beginIconDrag(event, id)} onPointerMove={moveIcon} onPointerUp={finishIconDrag} onPointerCancel={finishIconDrag} onDragStart={(event) => event.preventDefault()} onDoubleClick={() => void openApp(id)} onClick={() => { if (!suppressOpenRef.current) void openApp(id); }} aria-label={`打开${title}`}>
+          return <button key={id} className="desktop-icon" style={{ left: point.x, top: point.y }} type="button" onPointerDown={(event) => beginIconDrag(event, id)} onPointerMove={moveIcon} onPointerUp={finishIconDrag} onPointerCancel={cancelIconDrag} onDragStart={(event) => event.preventDefault()} onDoubleClick={() => void openApp(id)} onClick={() => { if (!suppressOpenRef.current) void openApp(id); }} aria-label={`打开${title}`}>
             <span className={`desktop-icon-image desktop-icon-${id}`}><img draggable={false} className="desktop-brand-icon" src={resolveAppIconUrl(id)} alt="" aria-hidden="true" /></span>
             <span className="desktop-icon-label">{title}</span>
             <span className="desktop-icon-caption">{description}</span>
@@ -490,9 +518,11 @@ interface VirtualWindowProps {
 
 /** 应用内虚拟窗口，只更新 React 状态，不创建额外 Electron BrowserWindow。 */
 function VirtualWindow({ item, onClose, onFocus, onMinimize, onMaximize, onMove, onResize, onReload, children }: VirtualWindowProps) {
+  const windowRef = useRef<HTMLElement>(null);
   const dragState = useRef<{ offsetX: number; offsetY: number } | null>(null);
   const resizeState = useRef<{ startX: number; startY: number; width: number; height: number } | null>(null);
   const style: CSSProperties = item.maximized ? { zIndex: item.zIndex } : { left: item.x, top: item.y, width: item.width, height: item.height, zIndex: item.zIndex };
+  useWindowMaximizeAnimation(windowRef, item.maximized, 'virtual', `${item.x}:${item.y}:${item.width}:${item.height}`);
 
   const onPointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
     // 控制按钮属于标题栏，但不能被拖动捕获；否则 click 会被 Pointer Capture 吞掉。
@@ -515,7 +545,7 @@ function VirtualWindow({ item, onClose, onFocus, onMinimize, onMaximize, onMove,
     if (state) onResize(item.id, state.width + event.clientX - state.startX, state.height + event.clientY - state.startY);
   };
 
-  return <article className={`app-window ${item.maximized ? 'app-window-maximized' : ''}`} style={style} onMouseDown={() => onFocus(item.id)}>
+  return <article ref={windowRef} className={`app-window ${item.maximized ? 'app-window-maximized' : ''}`} style={style} onMouseDown={() => onFocus(item.id)}>
     <div className="window-titlebar" onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={stopDrag} onPointerCancel={stopDrag}>
       <div className="window-title"><span className="window-title-icon"><img className="window-brand-icon" src={resolveAppIconUrl(item.id)} alt="" aria-hidden="true" /></span><strong>{item.title}</strong></div>
       {onReload && <div className="window-titlebar-actions">

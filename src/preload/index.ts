@@ -5,7 +5,10 @@ import { contextBridge, ipcRenderer, webUtils } from 'electron';
  * 所有文件系统、数据库、任务和浏览器操作都必须由主进程二次校验，页面脚本不能直接使用 Node API。
  */
 contextBridge.exposeInMainWorld('workbench', {
-  desktop: { loadLayout: () => ipcRenderer.invoke('desktop:load-layout'), saveLayout: (layout: unknown) => ipcRenderer.invoke('desktop:save-layout', layout) },
+  desktop: {
+    initializeLayout: (defaultLayout: unknown) => ipcRenderer.invoke('desktop:initialize-layout', defaultLayout),
+    saveLayout: (layout: unknown) => ipcRenderer.invoke('desktop:save-layout', layout)
+  },
   shell: {
     minimize: () => ipcRenderer.invoke('shell:minimize-window'),
     toggleMaximize: () => ipcRenderer.invoke('shell:toggle-maximize-window'),

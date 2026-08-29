@@ -235,7 +235,7 @@ export function registerWorkbenchIpc(userDataPath: string, options: RegisterWork
     }
   });
 
-  ipcMain.handle('desktop:load-layout', ipcBoundary.handler('desktop:load-layout', () => repository.list()));
+  ipcMain.handle('desktop:initialize-layout', ipcBoundary.handler('desktop:initialize-layout', (_event, input) => repository.initializeDefaultLayout(layoutSchema.parse(input))));
   ipcMain.handle('desktop:save-layout', ipcBoundary.handler('desktop:save-layout', (_event, input) => repository.save(layoutSchema.parse(input))));
   ipcMain.handle('app-window:get-context', ipcBoundary.handler('app-window:get-context', createAppWindowContextHandler({
     resolveWebContents: (webContentsId) => options.resolveAppWindow?.(webContentsId),
