@@ -159,6 +159,7 @@ async function createInstalledTerminal(capabilities: string[]) {
     installedVersion: '2.0.0',
     activeVersion: '2.0.0',
     installPath,
+    enabled: true,
     state: 'installed'
   });
   repository.close();

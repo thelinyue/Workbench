@@ -13,6 +13,8 @@ describe('应用中心 Electron 桥接', () => {
     expect(ipcSource).toContain("ipcMain.handle('apps:launch'");
     expect(ipcSource).toContain("ipcMain.handle('apps:invoke'");
     expect(ipcSource).toContain("ipcMain.handle('apps:reload'");
+    expect(ipcSource).toContain("ipcMain.handle('apps:set-enabled'");
+    expect(ipcSource).toContain("ipcMain.handle('apps:uninstall'");
   });
 
   it('应用中心使用 Electron 网络栈下载目录和应用包', () => {
@@ -38,13 +40,26 @@ describe('应用中心 Electron 桥接', () => {
     expect(preloadSource).toContain("ipcRenderer.invoke('apps:list'");
     expect(preloadSource).toContain("ipcRenderer.invoke('apps:invoke'");
     expect(preloadSource).toContain("ipcRenderer.invoke('apps:reload'");
+    expect(preloadSource).toContain("ipcRenderer.invoke('apps:set-enabled'");
+    expect(preloadSource).toContain("ipcRenderer.invoke('apps:uninstall'");
     expect(preloadSource).toContain("ipcRenderer.invoke('app-window:get-context')");
     expect(preloadSource).toContain("ipcRenderer.invoke('shell:is-maximized')");
     expect(bridgeSource).toContain('apps: {');
+    expect(bridgeSource).toContain('setEnabled(appId: string, enabled: boolean): Promise<AppCenterItem>');
+    expect(bridgeSource).toContain('uninstall(appId: string, deleteData: boolean): Promise<void>');
     expect(bridgeSource).toContain('invoke(appId: string, method: string, payload?: unknown)');
     expect(bridgeSource).toContain('reload(appId: string): Promise<void>');
     expect(bridgeSource).toContain('getContext(): Promise<AppWindowContext>');
     expect(bridgeSource).toContain('onMaximizedChanged(listener: (maximized: boolean) => void)');
+  });
+
+  it('IPC 通过生命周期协调器串行运行应用入口，并在监听注册后启动 enabled 应用', () => {
+    expect(ipcSource).toContain("import { AppLifecycleCoordinator } from './services/app-lifecycle-coordinator';");
+    expect(ipcSource).toContain('const lifecycleCoordinator = new AppLifecycleCoordinator');
+    expect(ipcSource).toContain('lifecycleCoordinator.runEnabled');
+    expect(ipcSource).toContain('lifecycleCoordinator.afterInstall');
+    expect(ipcSource.indexOf('appRuntime.onEvent')).toBeLessThan(ipcSource.indexOf('startEnabledApps'));
+    expect(ipcSource).toContain('waitForInitialization: () => initialization');
   });
 
   it('开发覆盖只作用于已安装应用，并以 dev 资源地址加载', () => {

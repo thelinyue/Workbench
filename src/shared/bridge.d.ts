@@ -1,5 +1,10 @@
 import type { DesktopIconLayout } from '../main/data/desktop-layout-repository';
-import type { AppCatalogSnapshot, AppHostEvent, AppInstallRecord, AppLaunchResult, AppWindowContext } from './app-contract';
+import type { AppCatalogSnapshot, AppHostEvent, AppInstallRecord, AppLaunchResult, AppRuntimeState, AppWindowContext } from './app-contract';
+
+export interface AppCenterItem extends AppInstallRecord {
+  builtIn: boolean;
+  runtimeState: AppRuntimeState;
+}
 
 export interface WorkbenchBridge {
   shell: {
@@ -18,9 +23,11 @@ export interface WorkbenchBridge {
     saveLayout(layout: DesktopIconLayout[]): Promise<void>;
   };
   apps: {
-    list(): Promise<AppInstallRecord[]>;
-    refreshCatalog(): Promise<AppInstallRecord[]>;
-    install(appId: string, version?: string): Promise<AppInstallRecord>;
+    list(): Promise<AppCenterItem[]>;
+    refreshCatalog(): Promise<AppCenterItem[]>;
+    install(appId: string, version?: string): Promise<AppCenterItem>;
+    setEnabled(appId: string, enabled: boolean): Promise<AppCenterItem>;
+    uninstall(appId: string, deleteData: boolean): Promise<void>;
     launch(appId: string): Promise<AppLaunchResult>;
     reload(appId: string): Promise<void>;
     getEntryUrl(appId: string): Promise<string>;

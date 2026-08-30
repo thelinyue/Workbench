@@ -22,7 +22,7 @@ describe('应用包安装器', () => {
     const app: AppCatalogItem = { id: 'lvm-uncache-tool', name: 'LVM 缓存清理工具', description: '清理 LVM 缓存配置', publisherId: 'thelinyue', releases: [release] };
 
     try {
-      await expect(installer.installRelease(app, release, bytes)).resolves.toMatchObject({ id: 'lvm-uncache-tool', state: 'installed' });
+    await expect(installer.installRelease(app, release, bytes)).resolves.toMatchObject({ id: 'lvm-uncache-tool', enabled: true, state: 'installed' });
     } finally {
       repository.close();
     }
@@ -44,7 +44,7 @@ describe('应用包安装器', () => {
 
     const installed = await installer.installRelease(app, release, bytes);
 
-    expect(installed).toMatchObject({ id: 'analysis-center', installedVersion: '1.0.0', activeVersion: '1.0.0', state: 'installed' });
+    expect(installed).toMatchObject({ id: 'analysis-center', installedVersion: '1.0.0', activeVersion: '1.0.0', enabled: true, state: 'installed' });
     await expect(access(join(root, 'apps', 'analysis-center', '1.0.0', 'manifest.json'))).resolves.toBeUndefined();
     await expect(readFile(join(root, 'apps', 'analysis-center', '1.0.0', 'renderer', 'index.html'), 'utf8')).resolves.toBe('<main>分析中心</main>');
     repository.close();
@@ -81,6 +81,25 @@ describe('应用包安装器', () => {
     expect(repository.get('analysis-center')).toMatchObject({ installedVersion: '1.0.1', activeVersion: '1.0.1', state: 'installed' });
     await expect(access(join(root, 'apps', 'analysis-center', '1.0.0', 'manifest.json'))).resolves.toBeUndefined();
     await expect(access(join(root, 'apps', 'analysis-center', '1.0.1', 'manifest.json'))).resolves.toBeUndefined();
+    repository.close();
+  });
+
+  it('更新已安装应用时保留原有 enabled 状态', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'workbench-app-installer-'));
+    directories.push(root);
+    const keyPair = generateKeyPairSync('ed25519');
+    const first = await createPackage('analysis-center', '1.0.0', [], false, keyPair);
+    const second = await createPackage('analysis-center', '1.0.1', [], false, keyPair);
+    const repository = new AppRegistryRepository(join(root, 'apps.db'));
+    const installer = new AppPackageInstaller({ appsRoot: join(root, 'apps'), workbenchVersion: '0.1.1', hostApiVersion: '1.0', trustedKeys: { 'test-key': keyPair.publicKey }, repository });
+    const app: AppCatalogItem = { id: 'analysis-center', name: '分析中心', description: '诊断包与日志报告', publisherId: 'thelinyue', releases: [first.release, second.release] };
+
+    await installer.installRelease(app, first.release, first.bytes);
+    repository.setEnabled('analysis-center', false);
+    const installed = await installer.installRelease(app, second.release, second.bytes);
+
+    expect(installed.enabled).toBe(false);
+    expect(repository.get('analysis-center')?.enabled).toBe(false);
     repository.close();
   });
 });

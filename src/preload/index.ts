@@ -33,6 +33,8 @@ contextBridge.exposeInMainWorld('workbench', {
     reload: (appId: string) => ipcRenderer.invoke('apps:reload', appId),
     getEntryUrl: (appId: string) => ipcRenderer.invoke('apps:get-entry-url', appId),
     invoke: (appId: string, method: string, payload?: unknown) => ipcRenderer.invoke('apps:invoke', { appId, method, payload }),
+    setEnabled: (appId: string, enabled: boolean) => ipcRenderer.invoke('apps:set-enabled', { appId, enabled }),
+    uninstall: (appId: string, deleteData: boolean) => ipcRenderer.invoke('apps:uninstall', { appId, deleteData }),
     getDroppedFilePaths: (files: File[]) => files.map((file) => webUtils.getPathForFile(file)).filter(Boolean),
     getCatalogSnapshot: () => ipcRenderer.invoke('apps:get-catalog-snapshot'),
     onEvent: (listener: (event: unknown) => void) => {

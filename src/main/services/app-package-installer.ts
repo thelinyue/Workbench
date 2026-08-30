@@ -45,6 +45,7 @@ export class AppPackageInstaller {
     if (app.releases.every((item) => item.version !== release.version)) throw new Error(`应用目录中不存在指定版本：${app.id}@${release.version}`);
     if (!isCompatibleAppRelease(release, this.options.workbenchVersion, this.options.hostApiVersion)) throw new Error(`应用版本与当前工作台不兼容：${app.id}@${release.version}`);
     verifyAppReleasePayload(payload, release, this.options.trustedKeys);
+    const current = this.options.repository.get(app.id);
 
     await mkdir(this.options.appsRoot, { recursive: true });
     const stagingRoot = await mkdtemp(join(this.options.appsRoot, `.staging-${app.id}-`));
@@ -90,6 +91,8 @@ export class AppPackageInstaller {
           installedVersion: release.version,
           activeVersion: release.version,
           installPath: versionDirectory,
+          // 新安装默认启用；更新沿用用户当前选择，避免升级过程意外改变生命周期策略。
+          enabled: current?.enabled ?? true,
           state: 'installed'
         };
         this.options.repository.upsert(record);
