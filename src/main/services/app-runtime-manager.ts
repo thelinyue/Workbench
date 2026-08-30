@@ -61,6 +61,7 @@ interface RuntimeRecord {
   options: AppRuntimeStartOptions;
   worker?: AppRuntimeWorker;
   pending: Map<string, { resolve: (value: unknown) => void; reject: (error: Error) => void }>;
+  cancelStart?: (error: Error) => void;
 }
 
 export interface AppRuntimeManagerOptions {
@@ -150,6 +151,7 @@ export class AppRuntimeManager {
         }
         reject(failure);
       };
+      runtime.cancelStart = (failure) => failStartup(failure);
       const onMessage = (message: unknown) => {
         if (this.runtimes.get(startOptions.appId) !== runtime) return;
         if (isReadyMessage(message)) {
@@ -176,7 +178,7 @@ export class AppRuntimeManager {
       const onExit = (code: number) => {
         if (!startupSettled) {
           failStartup(new Error(`应用 ${startOptions.appId} 启动前退出，退出码：${code}`));
-        } else if (code !== 0) {
+        } else {
           this.failRuntime(startOptions.appId, new Error(`应用 Worker 异常退出，退出码：${code}`), runtime);
         }
       };
@@ -210,6 +212,7 @@ export class AppRuntimeManager {
     if (!runtime) return Promise.resolve();
     this.runtimes.delete(appId);
     this.states.set(appId, 'stopping');
+    runtime.cancelStart?.(new Error(`应用 ${appId} 在启动完成前被停止`));
     this.rejectPending(runtime, new Error(`应用正在停止：${appId}`));
     const operation = runtime.worker ? this.stopWorker(appId, runtime.worker) : Promise.resolve();
     const tracked = operation.then(

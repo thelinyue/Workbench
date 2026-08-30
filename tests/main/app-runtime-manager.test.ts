@@ -67,6 +67,47 @@ describe('应用运行时管理器', () => {
     expect(manager.getState('analysis-center')).toBe('running');
   });
 
+  it('运行中的 Worker 未经过 stop 握手即使以 0 退出也进入 failed', async () => {
+    const worker = new FakeWorker();
+    const manager = new AppRuntimeManager({ createWorker: () => worker });
+    await manager.start(startOptions());
+
+    worker.emit('exit', 0);
+
+    expect(manager.getState('analysis-center')).toBe('failed');
+    await expect(manager.invoke('analysis-center', 'packages.list', null)).rejects.toThrow('尚未运行');
+  });
+
+  it('failed 且没有 RuntimeRecord 时 stop 直接结束并保留 failed', async () => {
+    const worker = new FakeWorker();
+    const manager = new AppRuntimeManager({ createWorker: () => worker });
+    await manager.start(startOptions());
+    worker.emit('error', new Error('backend 崩溃'));
+    expect(manager.getState('analysis-center')).toBe('failed');
+
+    await expect(manager.stop('analysis-center')).resolves.toBeUndefined();
+    expect(manager.getState('analysis-center')).toBe('failed');
+  });
+
+  it('starting 期间 stop 会立即拒绝 start，完成停止握手后进入 stopped', async () => {
+    vi.useFakeTimers();
+    const worker = new FakeWorker(false);
+    const manager = new AppRuntimeManager({ createWorker: () => worker, startTimeoutMs: 100, stopTimeoutMs: 100 });
+    const starting = manager.start(startOptions());
+    const stopping = manager.stop('analysis-center');
+    worker.respond({ type: 'stopped', ok: true });
+
+    await expect(stopping).resolves.toBeUndefined();
+    const startResult = Promise.race([
+      starting.then(() => 'settled', () => 'settled'),
+      new Promise<string>((resolve) => setTimeout(() => resolve('pending'), 50))
+    ]);
+    await vi.advanceTimersByTimeAsync(50);
+    expect(await startResult).toBe('settled');
+    await expect(starting).rejects.toThrow('启动完成前被停止');
+    expect(manager.getState('analysis-center')).toBe('stopped');
+  });
+
   it('Worker 启动异常、提前退出和超时都会进入 failed', async () => {
     const errorWorker = new FakeWorker(false);
     const errorManager = new AppRuntimeManager({ createWorker: () => errorWorker, startTimeoutMs: 50 });
