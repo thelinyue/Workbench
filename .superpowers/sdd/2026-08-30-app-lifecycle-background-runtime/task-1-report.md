@@ -47,3 +47,31 @@ npm test -- tests/main/app-registry-repository.test.ts tests/main/app-runtime-ma
 - 自审确认仅修改 brief 指定的 6 个实现/测试文件；`git diff --check` 通过。
 - Worker 事件处理带 RuntimeRecord 身份校验，避免超时 terminate 后旧 Worker 事件误伤同 appId 的重试实例。
 - 后续 Task 3 需要在新安装、目录合并及既有测试构造的 `AppInstallRecord` 中补充 `enabled`，完成全局 typecheck；该改动不属于 Task 1 范围。
+
+## 修复轮 1
+
+### RED
+
+新增回归用例后运行：
+
+```text
+npm test -- tests/main/app-runtime-manager.test.ts
+```
+
+结果：`20 tests` 中 `3 failed / 17 passed`。失败分别证明运行中 Worker 以退出码 0 意外退出仍被错误保留为 running、failed 且无 RuntimeRecord 的 stop 行为错误、starting 期间 stop 未及时结算 start。
+
+### GREEN 与复核
+
+- 最小修复后 `npm test -- tests/main/app-runtime-manager.test.ts`：`20/20 passed`。
+- 两个 Task 1 目标测试：`2 files / 23 tests passed`。
+- 全量 `npm test`：`46 files / 243 tests passed`。
+- `git diff --check`：通过。
+- `npm run typecheck`：仍有既知 6 个 Task 3 消费者缺少必填 `enabled` 的错误，Task 1 自身无错误。
+
+### 修复提交
+
+修复提交 SHA：`ba9bcd9`
+
+提交信息：`fix(runtime): settle interrupted starts`
+
+本轮 Runtime Manager 约定：failed 且没有 RuntimeRecord 时，直接 `stop()` 幂等返回并保留 failed；只有实际进行中的停止握手成功才转为 stopped。starting 期间 stop 会先拒绝在途 start，再执行原有停止握手，避免等待启动超时。
