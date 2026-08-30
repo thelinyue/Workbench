@@ -27,6 +27,7 @@ import { HostedAppSurface } from './hosted-app-surface';
 import { WindowControls } from './window-controls';
 import { useWindowMaximizeAnimation } from './window-maximize-animation';
 import { beginAppOperation, completeAppOperation, isAppOperationBusy } from '../app-operation-state';
+import { shouldFocusUninstallCancel } from '../uninstall-dialog-state';
 import type { AppCenterItem } from '../../shared/bridge';
 import type { AppInstallRecord, AppInstallState } from '../../shared/app-contract';
 import {
@@ -765,10 +766,15 @@ function UninstallDialog({ item, deleteData, busy, onDeleteDataChange, onCancel,
   onConfirm: () => void;
 }) {
   const cancelButtonRef = useRef<HTMLButtonElement>(null);
+  const didFocusCancelRef = useRef(false);
 
   useEffect(() => {
+    if (!shouldFocusUninstallCancel(didFocusCancelRef.current)) return;
     cancelButtonRef.current?.focus();
+    didFocusCancelRef.current = true;
+  }, []);
 
+  useEffect(() => {
     // 忙碌时必须保持卸载确认框，Escape 监听只在组件存在期间生效并在卸载时清理。
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape' && !busy) onCancel();
