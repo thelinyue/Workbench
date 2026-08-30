@@ -121,32 +121,46 @@ export class AppLifecycleCoordinator {
     });
   }
 
+  /**
+   * 将安装本体和安装后的 runtime 重启纳入同一 appId 队列。
+   * operation 在队列内执行，因此读取旧 enabled、下载安装包和更新后收口不会与停用/卸载交错。
+   */
+  public async install<T>(appId: string, operation: () => Promise<{ result: T; wasUpdate: boolean }>): Promise<T> {
+    return this.enqueue(appId, async () => {
+      const { result, wasUpdate } = await operation();
+      await this.afterInstallLocked(appId, wasUpdate);
+      return result;
+    });
+  }
+
   /** 安装完成后复用同一应用队列；更新时先关闭窗口、停止旧 runtime，再解析并启动新目录。 */
   public async afterInstall(appId: string, wasUpdate: boolean): Promise<void> {
-    await this.enqueue(appId, async () => {
-      const record = this.requireRecord(appId);
-      if (!record.enabled) return;
-      try {
-        if (wasUpdate) {
-          const failures: string[] = [];
-          try {
-            await this.options.windowManager.closeApp(appId);
-          } catch (error) {
-            failures.push(`关闭应用窗口失败：${errorMessage(error)}`);
-          }
-          try {
-            await this.options.runtimeManager.stop(appId);
-          } catch (error) {
-            failures.push(`停止应用运行时失败：${errorMessage(error)}`);
-          }
-          if (failures.length > 0) throw new Error(failures.join('；'));
+    await this.enqueue(appId, () => this.afterInstallLocked(appId, wasUpdate));
+  }
+
+  private async afterInstallLocked(appId: string, wasUpdate: boolean): Promise<void> {
+    const record = this.requireRecord(appId);
+    if (!record.enabled) return;
+    try {
+      if (wasUpdate) {
+        const failures: string[] = [];
+        try {
+          await this.options.windowManager.closeApp(appId);
+        } catch (error) {
+          failures.push(`关闭应用窗口失败：${errorMessage(error)}`);
         }
-        await this.startResolved(appId);
-      } catch (error) {
-        this.recordFailure(appId, record, '安装后启动应用失败', error, true);
-        throw new Error(`安装后启动应用失败（${appId}）：${errorMessage(error)}`, { cause: error });
+        try {
+          await this.options.runtimeManager.stop(appId);
+        } catch (error) {
+          failures.push(`停止应用运行时失败：${errorMessage(error)}`);
+        }
+        if (failures.length > 0) throw new Error(failures.join('；'));
       }
-    });
+      await this.startResolved(appId);
+    } catch (error) {
+      this.recordFailure(appId, record, '安装后启动应用失败', error, true);
+      throw new Error(`安装后启动应用失败（${appId}）：${errorMessage(error)}`, { cause: error });
+    }
   }
 
   /**

@@ -108,6 +108,29 @@ describe('应用生命周期协调器', () => {
     expect(fixture.events.indexOf('enabled:demo-app:false')).toBeGreaterThan(fixture.events.indexOf('operation:demo-app'));
   });
 
+  it('安装本体与同一应用的停用共享队列，停用不会插入下载/落库临界区', async () => {
+    const installGate = deferred<void>();
+    const fixture = createFixture(record('demo-app', true));
+    const coordinator = fixture.coordinator as unknown as {
+      install<T>(appId: string, operation: () => Promise<{ result: T; wasUpdate: boolean }>): Promise<T>;
+    };
+
+    const installing = coordinator.install('demo-app', async () => {
+      fixture.events.push('install-start');
+      await installGate.promise;
+      fixture.events.push('install-committed');
+      return { result: 'installed', wasUpdate: true };
+    });
+    const disabling = fixture.coordinator.setEnabled('demo-app', false);
+    await vi.waitFor(() => expect(fixture.events).toEqual(['install-start']));
+    expect(fixture.events).not.toContain('enabled:demo-app:false');
+
+    installGate.resolve();
+    await expect(installing).resolves.toBe('installed');
+    await disabling;
+    expect(fixture.events.indexOf('enabled:demo-app:false')).toBeGreaterThan(fixture.events.indexOf('install-committed'));
+  });
+
   it('更新已启用应用时在同一队列中停止旧 runtime 后启动新应用', async () => {
     const fixture = createFixture(record('demo-app', true));
 

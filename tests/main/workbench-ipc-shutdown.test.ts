@@ -59,6 +59,31 @@ describe('Workbench IPC 退出边界', () => {
       'runtime-stop', 'runtime-stopped', 'registry-closed', 'layout-closed'
     ]);
   });
+
+  it('cleanup 等待同一个 initialization Promise 后才停止 runtime', async () => {
+    const ipc = new FakeIpcHost();
+    const boundary = new WorkbenchIpcBoundary(ipc);
+    const initializationGate = deferred<void>();
+    const events: string[] = [];
+    let runtimeStopped = false;
+    const cleanup = createWorkbenchIpcCleanup({
+      ipcBoundary: boundary,
+      unregisterWindowShellIpc: () => undefined,
+      unregisterRuntimeEvents: () => undefined,
+      waitForInitialization: async () => { events.push('initialization-waited'); await initializationGate.promise; events.push('initialized'); },
+      stopAllRuntimes: async () => { runtimeStopped = true; events.push('runtime-stopped'); },
+      closeAppRegistry: () => undefined,
+      closeDesktopRepository: () => undefined
+    });
+
+    const pending = cleanup();
+    await vi.waitFor(() => expect(events).toEqual(['initialization-waited']));
+    expect(runtimeStopped).toBe(false);
+
+    initializationGate.resolve();
+    await pending;
+    expect(events).toEqual(['initialization-waited', 'initialized', 'runtime-stopped']);
+  });
 });
 
 class FakeIpcHost implements IpcHandlerHost {

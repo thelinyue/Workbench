@@ -30,6 +30,18 @@ npm test -- tests/main/app-center-bridge.test.ts tests/main/app-center-service.t
 
 结果：`4 files passed`，`21 tests passed`。
 
+### 修复轮 RED/GREEN
+
+因安装流程改为通过 `lifecycleCoordinator.install` 统一串行化，旧的静态断言仍检查 `afterInstall`，先运行：
+
+```text
+npm test -- tests/main/app-center-bridge.test.ts
+```
+
+结果：`1 failed / 8 passed`，失败原因为断言仍期待旧入口名称。
+
+更新断言后重新运行同一目标测试，结果为 `1 file passed`、`9 tests passed`；随后全量回归为 `48 files passed`、`271 tests passed`。
+
 最终全量测试：
 
 ```text
@@ -62,3 +74,4 @@ npm test
 
 - `RegisterWorkbenchIpcOptions.closeAppWindow` 已接入协调器但保持可选，以兼容当前 Task 3 测试和装配；Task 5 需要从 `AppWindowManager.closeApp` 注入真实实现，否则当前装配下停用/卸载没有原生窗口可收口。
 - 运行时/目录资源缺失时现有测试会输出中文 stderr，但不影响测试结果。
+- 安装本体与安装后的 enabled 判断、runtime 重启现在由 `lifecycleCoordinator.install` 放入同一 `appId` 队列，避免安装与停用/卸载交错；对应 IPC 静态契约已同步更新。

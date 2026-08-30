@@ -316,9 +316,11 @@ export function registerWorkbenchIpc(userDataPath: string, options: RegisterWork
   ipcMain.handle('apps:install', ipcBoundary.handler('apps:install', async (_event, input) => {
     await initialization;
     const value = appInstallSchema.parse(input);
-    const wasUpdate = Boolean(appRegistry.get(value.appId)?.activeVersion);
-    const result = await appCenter.install(value.appId, value.version);
-    await lifecycleCoordinator.afterInstall(value.appId, wasUpdate);
+    const result = await lifecycleCoordinator.install(value.appId, async () => {
+      const wasUpdate = Boolean(appRegistry.get(value.appId)?.activeVersion);
+      const installed = await appCenter.install(value.appId, value.version);
+      return { result: installed, wasUpdate };
+    });
     updateDevelopmentOverrideState();
     notifyRenderer();
     return appCenter.getItem(value.appId) ?? result;

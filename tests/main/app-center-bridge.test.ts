@@ -57,7 +57,7 @@ describe('应用中心 Electron 桥接', () => {
     expect(ipcSource).toContain("import { AppLifecycleCoordinator } from './services/app-lifecycle-coordinator';");
     expect(ipcSource).toContain('const lifecycleCoordinator = new AppLifecycleCoordinator');
     expect(ipcSource).toContain('lifecycleCoordinator.runEnabled');
-    expect(ipcSource).toContain('lifecycleCoordinator.afterInstall');
+    expect(ipcSource).toContain('lifecycleCoordinator.install');
     expect(ipcSource.indexOf('appRuntime.onEvent')).toBeLessThan(ipcSource.indexOf('startEnabledApps'));
     expect(ipcSource).toContain('waitForInitialization: () => initialization');
   });
