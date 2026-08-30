@@ -222,36 +222,52 @@ export class AppWindowManager {
     if (this.closeOperation) return this.closeOperation;
     this.closing = true;
     this.closeOperation = Promise.resolve().then(() => {
-      const targets = [...this.windows.entries()];
-      const failures: string[] = [];
-
-      // 必须先抑制全部普通 close listener，避免销毁某个窗口时连带触发其他窗口重复保存。
-      for (const [, window] of targets) this.exitManagedWindows.add(window);
-
-      for (const [mapKey, window] of targets) {
-        const webContentsId = this.webContentsIds.get(mapKey);
-        const identity = webContentsId === undefined ? undefined : this.identities.get(webContentsId);
-        const label = identity ? `${identity.appId}/${identity.windowKey}` : `webContents#${String(webContentsId)}`;
-        try {
-          if (!identity) throw new Error('缺少应用窗口身份');
-          const normal = window.getNormalBounds();
-          this.options.stateStore.upsert({ ...identity, ...normal, maximized: window.isMaximized() });
-        } catch (error) {
-          failures.push(`保存应用窗口状态失败（${label}）：${errorMessage(error)}`);
-        }
-
-        try {
-          window.destroy();
-        } catch (error) {
-          failures.push(`强制销毁应用窗口失败（${label}）：${errorMessage(error)}`);
-        } finally {
-          this.removeWindowMappings(mapKey, window, webContentsId);
-        }
-      }
-
-      if (failures.length > 0) throw new Error(`关闭应用窗口失败：${failures.join('；')}`);
+      return this.closeWindows(() => true);
     });
     return this.closeOperation;
+  }
+
+  /**
+   * 收口单个应用的所有窗口。窗口创建和 renderer 加载是异步的，必须先等待该应用当前
+   * 已登记的 opening 结算，再读取窗口映射；否则卸载/停用可能遗漏刚刚创建的窗口。
+   */
+  public async closeApp(appId: string): Promise<void> {
+    const openings = [...this.openings.entries()]
+      .filter(([mapKey]) => mapKeyAppId(mapKey) === appId)
+      .map(([, opening]) => opening);
+    await Promise.allSettled(openings);
+    await this.closeWindows((mapKey) => mapKeyAppId(mapKey) === appId);
+  }
+
+  private closeWindows(shouldClose: (mapKey: string) => boolean): void {
+    const targets = [...this.windows.entries()].filter(([mapKey]) => shouldClose(mapKey));
+    const failures: string[] = [];
+
+    // 必须先抑制全部普通 close listener，避免销毁某个窗口时连带触发其他窗口重复保存。
+    for (const [, window] of targets) this.exitManagedWindows.add(window);
+
+    for (const [mapKey, window] of targets) {
+      const webContentsId = this.webContentsIds.get(mapKey);
+      const identity = webContentsId === undefined ? undefined : this.identities.get(webContentsId);
+      const label = identity ? `${identity.appId}/${identity.windowKey}` : `webContents#${String(webContentsId)}`;
+      try {
+        if (!identity) throw new Error('缺少应用窗口身份');
+        const normal = window.getNormalBounds();
+        this.options.stateStore.upsert({ ...identity, ...normal, maximized: window.isMaximized() });
+      } catch (error) {
+        failures.push(`保存应用窗口状态失败（${label}）：${errorMessage(error)}`);
+      }
+
+      try {
+        window.destroy();
+      } catch (error) {
+        failures.push(`强制销毁应用窗口失败（${label}）：${errorMessage(error)}`);
+      } finally {
+        this.removeWindowMappings(mapKey, window, webContentsId);
+      }
+    }
+
+    if (failures.length > 0) throw new Error(`关闭应用窗口失败：${failures.join('；')}`);
   }
 
   private loadRenderer(window: AppWindowHost, trustedRendererUrl: string): Promise<void> {
@@ -276,6 +292,15 @@ export class AppWindowManager {
 
 function identityKey(identity: AppWindowIdentity): string {
   return JSON.stringify([identity.appId, identity.windowKey]);
+}
+
+function mapKeyAppId(mapKey: string): string | undefined {
+  try {
+    const identity = JSON.parse(mapKey) as unknown;
+    return Array.isArray(identity) && typeof identity[0] === 'string' ? identity[0] : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 /**

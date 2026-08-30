@@ -345,6 +345,33 @@ describe('应用窗口管理器', () => {
     expect(window.destroyCalls).toBe(1);
   });
 
+  it('closeApp 等待目标窗口创建结算后保存并销毁，且不影响其他应用', async () => {
+    const loading = deferred<void>();
+    const fixture = createFixture(undefined, {
+      rendererUrl: 'http://localhost:5173',
+      loadBehaviors: [() => loading.promise, () => Promise.resolve()]
+    });
+    const opening = fixture.manager.open({ appId: 'target-app', name: '目标应用', window: windowManifest });
+    const other = await fixture.manager.open({ appId: 'other-app', name: '其他应用', window: windowManifest }) as FakeWindow;
+    const closing = fixture.manager.closeApp('target-app');
+
+    await Promise.resolve();
+    expect(fixture.windows[0]?.destroyCalls).toBe(0);
+    expect(other.destroyed).toBe(false);
+
+    loading.resolve();
+    await opening;
+    await closing;
+
+    expect(fixture.windows[0]?.destroyCalls).toBe(1);
+    expect(fixture.savedStates).toEqual([{
+      appId: 'target-app', windowKey: 'main', x: 360, y: 140, width: 1200, height: 800, maximized: false
+    }]);
+    expect(fixture.manager.resolveWebContents(fixture.windows[0]!.webContentsId)).toBeUndefined();
+    expect(other.destroyed).toBe(false);
+    expect(fixture.manager.resolveWebContents(other.webContents.id)).toEqual({ appId: 'other-app', windowKey: 'main' });
+  });
+
   it('退出时先关闭 App Window 并保存状态，再关闭仓储，最终 quit 不会关库后写入', async () => {
     const events: string[] = [];
     let repositoryClosed = false;
