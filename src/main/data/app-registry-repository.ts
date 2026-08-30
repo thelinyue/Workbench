@@ -24,9 +24,9 @@ export class AppRegistryRepository {
     const rows = this.database.prepare(`
       SELECT id, name, description, publisher_id AS publisherId, installed_version AS installedVersion,
         available_version AS availableVersion, active_version AS activeVersion, install_path AS installPath,
-        state, error_message AS errorMessage
+        enabled, state, error_message AS errorMessage
       FROM installed_apps ORDER BY id
-    `).all() as unknown as Array<Record<string, string | null>>;
+    `).all() as unknown as Array<Record<string, string | number | null>>;
     return rows.map(toRecord);
   }
 
@@ -38,13 +38,13 @@ export class AppRegistryRepository {
     this.database.prepare(`
       INSERT INTO installed_apps (
         id, name, description, publisher_id, installed_version, available_version,
-        active_version, install_path, state, error_message
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        active_version, install_path, enabled, state, error_message
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(id) DO UPDATE SET
         name = excluded.name, description = excluded.description, publisher_id = excluded.publisher_id,
         installed_version = excluded.installed_version, available_version = excluded.available_version,
         active_version = excluded.active_version, install_path = excluded.install_path,
-        state = excluded.state, error_message = excluded.error_message
+        enabled = excluded.enabled, state = excluded.state, error_message = excluded.error_message
     `).run(
       record.id,
       record.name,
@@ -54,9 +54,20 @@ export class AppRegistryRepository {
       record.availableVersion ?? null,
       record.activeVersion ?? null,
       record.installPath ?? null,
+      record.enabled === false ? 0 : 1,
       record.state,
       record.errorMessage ?? null
     );
+  }
+
+  /** 更新应用启用状态，SQLite 中只允许写入严格的 0/1 整数。 */
+  public setEnabled(id: string, enabled: boolean): void {
+    this.database.prepare('UPDATE installed_apps SET enabled = ? WHERE id = ?').run(enabled ? 1 : 0, id);
+  }
+
+  /** 删除应用注册记录；应用文件由上层卸载流程按策略清理。 */
+  public remove(id: string): void {
+    this.database.prepare('DELETE FROM installed_apps WHERE id = ?').run(id);
   }
 
   public saveCatalogSnapshot(snapshot: AppCatalogSnapshot): void {
@@ -85,6 +96,7 @@ export class AppRegistryRepository {
         available_version TEXT,
         active_version TEXT,
         install_path TEXT,
+        enabled INTEGER NOT NULL DEFAULT 1,
         state TEXT NOT NULL,
         error_message TEXT
       );
@@ -96,20 +108,25 @@ export class AppRegistryRepository {
         warning TEXT
       );
     `);
+    const columns = this.database.prepare('PRAGMA table_info(installed_apps)').all() as Array<{ name?: unknown }>;
+    if (!columns.some((column) => column.name === 'enabled')) {
+      this.database.exec('ALTER TABLE installed_apps ADD COLUMN enabled INTEGER NOT NULL DEFAULT 1');
+    }
   }
 }
 
-function toRecord(row: Record<string, string | null>): AppInstallRecord {
+function toRecord(row: Record<string, string | number | null>): AppInstallRecord {
   return {
     id: String(row.id),
     name: String(row.name),
     description: String(row.description),
     publisherId: String(row.publisherId),
-    installedVersion: row.installedVersion ?? undefined,
-    availableVersion: row.availableVersion ?? undefined,
-    activeVersion: row.activeVersion ?? undefined,
-    installPath: row.installPath ?? undefined,
+    installedVersion: row.installedVersion == null ? undefined : String(row.installedVersion),
+    availableVersion: row.availableVersion == null ? undefined : String(row.availableVersion),
+    activeVersion: row.activeVersion == null ? undefined : String(row.activeVersion),
+    installPath: row.installPath == null ? undefined : String(row.installPath),
+    enabled: row.enabled === 1,
     state: String(row.state) as AppInstallState,
-    errorMessage: row.errorMessage ?? undefined
+    errorMessage: row.errorMessage == null ? undefined : String(row.errorMessage)
   };
 }

@@ -64,6 +64,7 @@ export interface AppCatalogDocumentV1 {
 }
 
 export type AppInstallState = 'not-installed' | 'installed' | 'update-available' | 'incompatible' | 'broken' | 'installing';
+export type AppRuntimeState = 'stopped' | 'starting' | 'running' | 'stopping' | 'failed';
 
 export interface AppInstallRecord {
   id: string;
@@ -74,6 +75,8 @@ export interface AppInstallRecord {
   availableVersion?: string;
   activeVersion?: string;
   installPath?: string;
+  /** 应用是否允许被生命周期协调器自动启动和调用。 */
+  enabled: boolean;
   /** 仅由未打包开发版运行时附加，不写入本地应用注册表。 */
   developmentOverride?: boolean;
   state: AppInstallState;

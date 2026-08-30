@@ -34,8 +34,62 @@ describe('应用运行时管理器', () => {
     await manager.start({ appId: 'lvm-uncache-tool', installPath: 'D:/apps/lvm-uncache-tool/1.0.0', dataDirectory: 'D:/data/lvm-uncache-tool', manifest: webManifest });
 
     expect(workerCreated).toBe(false);
+    expect(manager.getState('lvm-uncache-tool')).toBe('running');
     await expect(manager.invoke('lvm-uncache-tool', 'anything', null)).rejects.toThrow('不支持 backend');
     await expect(manager.stop('lvm-uncache-tool')).resolves.toBeUndefined();
+    expect(manager.getState('lvm-uncache-tool')).toBe('stopped');
+  });
+
+  it('backend ready 前处于 starting 且拒绝 invoke，ready 后才进入 running', async () => {
+    const worker = new FakeWorker(false);
+    const manager = new AppRuntimeManager({ createWorker: () => worker });
+    const starting = manager.start(startOptions());
+
+    expect(manager.getState('analysis-center')).toBe('starting');
+    await expect(manager.invoke('analysis-center', 'packages.list', null)).rejects.toThrow('尚未运行');
+    worker.respond({ type: 'ready' });
+    await starting;
+    expect(manager.getState('analysis-center')).toBe('running');
+  });
+
+  it('同一应用并发 start 共享同一个 Promise 和 Worker', async () => {
+    const worker = new FakeWorker(false);
+    let createCalls = 0;
+    const manager = new AppRuntimeManager({ createWorker: () => { createCalls += 1; return worker; } });
+    const first = manager.start(startOptions());
+    const second = manager.start(startOptions());
+
+    expect(first).toBe(second);
+    expect(createCalls).toBe(1);
+    expect(manager.getState('analysis-center')).toBe('starting');
+    worker.respond({ type: 'ready' });
+    await Promise.all([first, second]);
+    expect(manager.getState('analysis-center')).toBe('running');
+  });
+
+  it('Worker 启动异常、提前退出和超时都会进入 failed', async () => {
+    const errorWorker = new FakeWorker(false);
+    const errorManager = new AppRuntimeManager({ createWorker: () => errorWorker, startTimeoutMs: 50 });
+    const errored = errorManager.start(startOptions());
+    errorWorker.emit('error', new Error('端口断开'));
+    await expect(errored).rejects.toThrow('Worker 异常：端口断开');
+    expect(errorManager.getState('analysis-center')).toBe('failed');
+
+    const exitedWorker = new FakeWorker(false);
+    const exitManager = new AppRuntimeManager({ createWorker: () => exitedWorker, startTimeoutMs: 50 });
+    const exited = exitManager.start(startOptions());
+    exitedWorker.emit('exit', 0);
+    await expect(exited).rejects.toThrow('启动前退出，退出码：0');
+    expect(exitManager.getState('analysis-center')).toBe('failed');
+
+    vi.useFakeTimers();
+    const timeoutWorker = new FakeWorker(false);
+    const timeoutManager = new AppRuntimeManager({ createWorker: () => timeoutWorker, startTimeoutMs: 10, logger: { error: () => undefined } });
+    const timedOut = timeoutManager.start(startOptions());
+    await vi.advanceTimersByTimeAsync(10);
+    await expect(timedOut).rejects.toThrow('启动超时（10ms）');
+    expect(timeoutWorker.terminateCalls).toBe(1);
+    expect(timeoutManager.getState('analysis-center')).toBe('failed');
   });
 
   it('把应用 RPC 转发给对应 Worker 并返回结果和事件', async () => {
@@ -102,6 +156,7 @@ describe('应用运行时管理器', () => {
 
     await expect(stopping).resolves.toBeUndefined();
     expect(worker.terminateCalls).toBe(0);
+    expect(manager.getState('analysis-center')).toBe('stopped');
   });
 
   it('默认恰好等待 5000ms 后才强制终止', async () => {
@@ -111,6 +166,7 @@ describe('应用运行时管理器', () => {
     await manager.start(startOptions());
 
     const stopping = manager.stop('analysis-center');
+    expect(manager.getState('analysis-center')).toBe('stopping');
     let settled = false;
     void stopping.then(() => { settled = true; }, () => { settled = true; });
     await vi.advanceTimersByTimeAsync(4_999);
@@ -230,6 +286,18 @@ class FakeWorker extends EventEmitter implements AppRuntimeWorker {
   public lastRequestId = '';
   public terminateCalls = 0;
   public readonly messages: Array<{ type: string; requestId?: string }> = [];
+  private readyScheduled = false;
+
+  public constructor(private readonly autoReady = true) { super(); }
+
+  public override on(event: string | symbol, listener: (...args: any[]) => void): this {
+    super.on(event, listener);
+    if (event === 'message' && this.autoReady && !this.readyScheduled) {
+      this.readyScheduled = true;
+      queueMicrotask(() => this.respond({ type: 'ready' }));
+    }
+    return this;
+  }
 
   public postMessage(message: { type: string; requestId?: string }): void {
     this.messages.push(message);

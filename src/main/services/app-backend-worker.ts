@@ -24,4 +24,6 @@ async function startBackend(): Promise<void> {
     showNotification: (payload) => parentPort?.postMessage({ type: 'notification', payload })
   });
   createBackendWorkerSession(parentPort, backend);
+  // session 已注册消息监听后再通知宿主，避免 ready 到达时 backend 还不能接收 RPC。
+  parentPort.postMessage({ type: 'ready' });
 }

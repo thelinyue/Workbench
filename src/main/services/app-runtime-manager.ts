@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { Worker } from 'node:worker_threads';
 import { join } from 'node:path';
 import { EventEmitter } from 'node:events';
-import type { AppHostEvent, AppManifestV1 } from '../../shared/app-contract';
+import type { AppHostEvent, AppManifestV1, AppRuntimeState } from '../../shared/app-contract';
 
 interface AppRuntimeStartOptions {
   appId: string;
@@ -17,6 +17,10 @@ interface AppWorkerResponse {
   ok: boolean;
   result?: unknown;
   errorMessage?: string;
+}
+
+interface AppWorkerReady {
+  type: 'ready';
 }
 
 interface AppWorkerEvent {
@@ -61,48 +65,134 @@ interface RuntimeRecord {
 
 export interface AppRuntimeManagerOptions {
   createWorker?: (workerData: Record<string, unknown>) => AppRuntimeWorker;
+  startTimeoutMs?: number;
   stopTimeoutMs?: number;
   logger?: Pick<Console, 'error'>;
 }
 
+const DEFAULT_START_TIMEOUT_MS = 10_000;
 const DEFAULT_STOP_TIMEOUT_MS = 5_000;
 
 /**
- * 管理每个应用的独立 backend Worker 和停止握手。
+ * 管理每个应用的独立 backend Worker、可靠启动握手和停止握手。
  *
- * 停止开始后先从可调用集合移除 runtime，并拒绝全部待处理 RPC；同一 appId 的并发停止
- * 共享 stopOperations 中的同一个 Promise。Worker 有固定 5 秒机会完成业务清理并确认，只有
- * 超时才调用 terminate，避免 SQLite 等应用私有资源在异步关闭途中被宿主强行截断。
+ * runtime 状态只在 Worker backend/RPC 真正 ready 后进入 running。启动和停止均按 appId
+ * 共享操作 Promise，异常会保留 failed 状态供应用中心展示；停止开始后先从可调用集合移除
+ * runtime，并拒绝全部待处理 RPC。Worker 有固定 5 秒机会完成业务清理并确认，只有超时才
+ * 调用 terminate，避免 SQLite 等应用私有资源在异步关闭途中被宿主强行截断。
  */
 export class AppRuntimeManager {
   private readonly runtimes = new Map<string, RuntimeRecord>();
+  private readonly states = new Map<string, AppRuntimeState>();
+  private readonly startOperations = new Map<string, Promise<void>>();
   private readonly stopOperations = new Map<string, Promise<void>>();
   private readonly events = new EventEmitter();
   private readonly notifications = new EventEmitter();
 
   public constructor(private readonly options: AppRuntimeManagerOptions = {}) {}
 
-  public async start(startOptions: AppRuntimeStartOptions): Promise<void> {
-    if (this.runtimes.has(startOptions.appId)) return;
+  public getState(appId: string): AppRuntimeState {
+    return this.states.get(appId) ?? 'stopped';
+  }
+
+  public start(startOptions: AppRuntimeStartOptions): Promise<void> {
+    const existing = this.startOperations.get(startOptions.appId);
+    if (existing) return existing;
+    if (this.getState(startOptions.appId) === 'running') return Promise.resolve();
+    const operation = this.startRuntime(startOptions);
+    this.startOperations.set(startOptions.appId, operation);
+    const clear = () => {
+      if (this.startOperations.get(startOptions.appId) === operation) this.startOperations.delete(startOptions.appId);
+    };
+    void operation.then(clear, clear);
+    return operation;
+  }
+
+  private async startRuntime(startOptions: AppRuntimeStartOptions): Promise<void> {
+    this.states.set(startOptions.appId, 'starting');
     if (startOptions.manifest.runtime.kind === 'web') {
       this.runtimes.set(startOptions.appId, { options: startOptions, pending: new Map() });
+      this.states.set(startOptions.appId, 'running');
       return;
     }
-    const worker = (this.options.createWorker ?? createDefaultWorker)({
-      appId: startOptions.appId,
-      backendEntry: join(startOptions.installPath, startOptions.manifest.runtime.backendEntry),
-      dataDirectory: startOptions.dataDirectory,
-      manifest: startOptions.manifest
-    });
+    let worker: AppRuntimeWorker;
+    try {
+      worker = (this.options.createWorker ?? createDefaultWorker)({
+        appId: startOptions.appId,
+        backendEntry: join(startOptions.installPath, startOptions.manifest.runtime.backendEntry),
+        dataDirectory: startOptions.dataDirectory,
+        manifest: startOptions.manifest
+      });
+    } catch (error) {
+      const failure = new Error(`无法创建应用 ${startOptions.appId} Worker：${errorMessage(error)}`);
+      this.markRuntimeFailed(startOptions.appId, failure);
+      throw failure;
+    }
     const runtime: RuntimeRecord = { options: startOptions, worker, pending: new Map() };
     this.runtimes.set(startOptions.appId, runtime);
-    worker.on('message', (message) => this.handleMessage(startOptions.appId, message));
-    worker.once('error', (error) => this.failRuntime(startOptions.appId, new Error(`应用 Worker 异常：${error.message}`)));
-    worker.once('exit', (code) => { if (code !== 0) this.failRuntime(startOptions.appId, new Error(`应用 Worker 异常退出，退出码：${code}`)); });
+
+    const timeoutMs = this.options.startTimeoutMs ?? DEFAULT_START_TIMEOUT_MS;
+    const logger = this.options.logger ?? console;
+    return new Promise<void>((resolve, reject) => {
+      let startupSettled = false;
+      let timeout: NodeJS.Timeout | undefined;
+      const clearTimeoutIfNeeded = () => {
+        if (timeout) clearTimeout(timeout);
+      };
+      const failStartup = (failure: Error, terminate = false) => {
+        if (startupSettled) return;
+        startupSettled = true;
+        clearTimeoutIfNeeded();
+        this.failRuntime(startOptions.appId, failure, runtime);
+        if (terminate) {
+          logger.error(`应用 ${startOptions.appId} 启动超时（${timeoutMs}ms），正在强制终止 Worker。`);
+          void worker.terminate().catch((error) => logger.error(`应用 ${startOptions.appId} 启动超时，强制终止 Worker 失败：${errorMessage(error)}`));
+        }
+        reject(failure);
+      };
+      const onMessage = (message: unknown) => {
+        if (this.runtimes.get(startOptions.appId) !== runtime) return;
+        if (isReadyMessage(message)) {
+          if (startupSettled) return;
+          startupSettled = true;
+          clearTimeoutIfNeeded();
+          if (this.runtimes.get(startOptions.appId) !== runtime) {
+            const failure = new Error(`应用 ${startOptions.appId} 在启动完成前已停止`);
+            this.markRuntimeFailed(startOptions.appId, failure);
+            reject(failure);
+            return;
+          }
+          this.states.set(startOptions.appId, 'running');
+          resolve();
+          return;
+        }
+        this.handleMessage(startOptions.appId, message);
+      };
+      const onError = (error: Error) => {
+        const failure = new Error(`应用 Worker 异常：${error.message}`);
+        if (!startupSettled) failStartup(failure);
+        else this.failRuntime(startOptions.appId, failure, runtime);
+      };
+      const onExit = (code: number) => {
+        if (!startupSettled) {
+          failStartup(new Error(`应用 ${startOptions.appId} 启动前退出，退出码：${code}`));
+        } else if (code !== 0) {
+          this.failRuntime(startOptions.appId, new Error(`应用 Worker 异常退出，退出码：${code}`), runtime);
+        }
+      };
+      worker.on('message', onMessage);
+      worker.once('error', onError);
+      worker.once('exit', onExit);
+      timeout = setTimeout(() => failStartup(new Error(`应用 ${startOptions.appId} 启动超时（${timeoutMs}ms）`), true), timeoutMs);
+    });
   }
 
   public invoke(appId: string, method: string, payload: unknown): Promise<unknown> {
     const runtime = this.runtimes.get(appId);
+    const state = this.getState(appId);
+    if (state !== 'running') {
+      return Promise.reject(new Error(state === 'stopped' || state === 'stopping' ? `应用尚未启动：${appId}` : `应用尚未运行：${appId}`));
+    }
     if (!runtime) return Promise.reject(new Error(`应用尚未启动：${appId}`));
     const worker = runtime.worker;
     if (!worker) return Promise.reject(new Error(`应用不支持 backend：${appId}`));
@@ -119,12 +209,17 @@ export class AppRuntimeManager {
     const runtime = this.runtimes.get(appId);
     if (!runtime) return Promise.resolve();
     this.runtimes.delete(appId);
+    this.states.set(appId, 'stopping');
     this.rejectPending(runtime, new Error(`应用正在停止：${appId}`));
     const operation = runtime.worker ? this.stopWorker(appId, runtime.worker) : Promise.resolve();
-    this.stopOperations.set(appId, operation);
-    const clear = () => { if (this.stopOperations.get(appId) === operation) this.stopOperations.delete(appId); };
-    void operation.then(clear, clear);
-    return operation;
+    const tracked = operation.then(
+      () => { this.states.set(appId, 'stopped'); },
+      (error) => { this.states.set(appId, 'failed'); throw error; }
+    );
+    this.stopOperations.set(appId, tracked);
+    const clear = () => { if (this.stopOperations.get(appId) === tracked) this.stopOperations.delete(appId); };
+    void tracked.then(clear, clear);
+    return tracked;
   }
 
   /** 等待所有已启动或正在停止的 runtime；单个失败不会阻止其余应用收到 stop。 */
@@ -176,11 +271,16 @@ export class AppRuntimeManager {
     if (value.type === 'event' && value.event) this.events.emit('event', { appId, event: value.event, payload: value.payload } satisfies AppHostEvent);
   }
 
-  private failRuntime(appId: string, error: Error): void {
+  private failRuntime(appId: string, error: Error, expectedRuntime?: RuntimeRecord): void {
     const runtime = this.runtimes.get(appId);
-    if (!runtime) return;
+    if (!runtime || (expectedRuntime && runtime !== expectedRuntime)) return;
     this.runtimes.delete(appId);
+    this.markRuntimeFailed(appId, error);
     this.rejectPending(runtime, error);
+  }
+
+  private markRuntimeFailed(appId: string, error: Error): void {
+    this.states.set(appId, 'failed');
     this.events.emit('event', { appId, event: 'runtime.failed', payload: { message: error.message } } satisfies AppHostEvent);
   }
 
@@ -241,6 +341,10 @@ function isStoppedMessage(message: unknown): message is AppWorkerStopped {
   if (!message || typeof message !== 'object') return false;
   const value = message as Partial<AppWorkerStopped>;
   return value.type === 'stopped' && typeof value.ok === 'boolean';
+}
+
+function isReadyMessage(message: unknown): message is AppWorkerReady {
+  return Boolean(message && typeof message === 'object' && (message as Partial<AppWorkerReady>).type === 'ready');
 }
 
 function errorMessage(error: unknown): string {
