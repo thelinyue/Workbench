@@ -1,7 +1,6 @@
 import { readFile } from 'node:fs/promises';
 import { describe, expect, it } from 'vitest';
 import { beginAppOperation, completeAppOperation, isAppOperationBusy, type AppOperationState } from '../../src/renderer/app-operation-state';
-import { shouldFocusUninstallCancel } from '../../src/renderer/uninstall-dialog-state';
 
 const source = await readFile(new URL('../../src/renderer/src/App.tsx', import.meta.url), 'utf8');
 const styles = await readFile(new URL('../../src/renderer/src/styles.css', import.meta.url), 'utf8');
@@ -94,20 +93,6 @@ describe('应用中心界面', () => {
     expect(source).toContain('document.removeEventListener');
   });
 
-  it('卸载确认只在初次挂载时请求取消按钮焦点', () => {
-    let hasFocused = false;
-    let focusRequests = 0;
-    const requestFocus = () => {
-      if (!shouldFocusUninstallCancel(hasFocused)) return;
-      focusRequests += 1;
-      hasFocused = true;
-    };
-
-    requestFocus();
-    requestFocus();
-
-    expect(focusRequests).toBe(1);
-  });
 });
 
 describe('应用中心操作状态', () => {

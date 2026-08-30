@@ -27,7 +27,6 @@ import { HostedAppSurface } from './hosted-app-surface';
 import { WindowControls } from './window-controls';
 import { useWindowMaximizeAnimation } from './window-maximize-animation';
 import { beginAppOperation, completeAppOperation, isAppOperationBusy } from '../app-operation-state';
-import { shouldFocusUninstallCancel } from '../uninstall-dialog-state';
 import type { AppCenterItem } from '../../shared/bridge';
 import type { AppInstallRecord, AppInstallState } from '../../shared/app-contract';
 import {
@@ -769,7 +768,7 @@ function UninstallDialog({ item, deleteData, busy, onDeleteDataChange, onCancel,
   const didFocusCancelRef = useRef(false);
 
   useEffect(() => {
-    if (!shouldFocusUninstallCancel(didFocusCancelRef.current)) return;
+    if (didFocusCancelRef.current) return;
     cancelButtonRef.current?.focus();
     didFocusCancelRef.current = true;
   }, []);
