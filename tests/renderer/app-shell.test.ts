@@ -56,4 +56,28 @@ describe('桌面顶栏', () => {
     expect(appSource).toContain('重新加载开发应用');
     expect(appSource).toContain('appReloadTokens[item.id]');
   });
+
+  it('桌面入口和应用库只显示已安装且已启用的应用', () => {
+    const appSource = readFileSync(resolve(process.cwd(), 'src/renderer/src/App.tsx'), 'utf8');
+
+    expect(appSource).toContain('item.activeVersion && item.enabled');
+    expect(appSource).toContain('registeredApps.some((item) => item.id === id && item.activeVersion && item.enabled)');
+  });
+
+  it('状态广播关闭停用或卸载窗口并归一化保存桌面布局', () => {
+    const appSource = readFileSync(resolve(process.cwd(), 'src/renderer/src/App.tsx'), 'utf8');
+
+    expect(appSource).toContain('window.workbench.onChanged');
+    expect(appSource).toContain('const enabledAppIds = apps.filter((item) => item.activeVersion && item.enabled)');
+    expect(appSource).toContain('setWindows((current) => current.filter((item) => item.id === \'app-center\' || enabledAppIds.includes(item.id)))');
+    expect(appSource).toContain('normalizeDesktopLayout(currentLayout, enabledAppIds)');
+    expect(appSource).toContain('window.workbench.desktop.saveLayout(normalizedLayout)');
+  });
+
+  it('分析中心拖入和通知快照只在应用启用时访问运行时', () => {
+    const appSource = readFileSync(resolve(process.cwd(), 'src/renderer/src/App.tsx'), 'utf8');
+
+    expect(appSource).toContain("item.id === 'analysis-center' && item.activeVersion && item.enabled");
+    expect(appSource).toContain("请先在应用中心启用分析中心");
+  });
 });

@@ -47,11 +47,11 @@ describe('应用中心界面', () => {
     expect(source).toMatch(/const launch = async \(item: AppInstallRecord\)[\s\S]*?await onOpenApp\(item\.id\);/);
   });
 
-  it('应用中心卡片使用应用自己的图标，应用库只显示应用中心和已安装应用', () => {
+  it('应用中心卡片使用应用自己的图标，应用库只显示应用中心和已启用应用', () => {
     expect(source).toContain('<img src={resolveAppIconUrl(item.id)}');
     expect(source).not.toContain('<img src={WORKBENCH_ICON_URL} alt="" aria-hidden="true" /></div><div className="app-card-body">');
     expect(source).toContain("filter((id) => id === 'app-center'");
-    expect(source).toContain("registeredApps.some((item) => item.id === id && item.activeVersion)");
+    expect(source).toContain("registeredApps.some((item) => item.id === id && item.activeVersion && item.enabled)");
   });
 
   it('应用中心页面和卡片使用冷灰蓝亮色表面', () => {
@@ -62,5 +62,27 @@ describe('应用中心界面', () => {
     expect(styles).toContain("html[data-theme='light'] .app-state-incompatible,");
     expect(styles).toContain("html[data-theme='light'] .app-state-broken { color: var(--danger); background: #FFF2F4; }");
     expect(styles).toContain('.primary-button { border-color: var(--primary); color: #FFFFFF; background: var(--primary); }');
+  });
+
+  it('已安装卡片提供启用开关并显示运行时状态', () => {
+    expect(source).toContain('type="checkbox"');
+    expect(source).toContain('aria-label={`启用${item.name}`}');
+    expect(source).toContain('window.workbench.apps.setEnabled(item.id');
+    expect(source).toContain('item.runtimeState');
+    expect(source).toContain('aria-busy={busy}');
+  });
+
+  it('停用应用仍显示卡片但打开操作不可用，并提供启用提示路径', () => {
+    expect(source).toContain('disabled={!item.enabled || busy}');
+    expect(source).toContain('请先在应用中心启用');
+  });
+
+  it('非内置应用提供卸载确认，确认默认不删除数据', () => {
+    expect(source).toContain('window.workbench.apps.uninstall(');
+    expect(source).toContain('builtIn');
+    expect(source).toContain('Trash2');
+    expect(source).toContain('title="卸载应用"');
+    expect(source).toContain('配置、历史记录和报告');
+    expect(source).toContain('const [deleteData, setDeleteData] = useState(false);');
   });
 });

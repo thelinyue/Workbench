@@ -26,6 +26,7 @@ import { launchDesktopApp } from './desktop-app-launch';
 import { HostedAppSurface } from './hosted-app-surface';
 import { WindowControls } from './window-controls';
 import { useWindowMaximizeAnimation } from './window-maximize-animation';
+import type { AppCenterItem } from '../../shared/bridge';
 import type { AppInstallRecord, AppInstallState } from '../../shared/app-contract';
 import {
   formatDetectedAt,
@@ -88,7 +89,7 @@ function hasWorkbenchBridge(): boolean {
 export function App() {
   const [windows, setWindows] = useState<AppWindow[]>([]);
   const [tasks, setTasks] = useState<TaskRecord[]>([]);
-  const [registeredApps, setRegisteredApps] = useState<AppInstallRecord[]>([]);
+  const [registeredApps, setRegisteredApps] = useState<AppCenterItem[]>([]);
   const [appReloadTokens, setAppReloadTokens] = useState<Record<string, number>>({});
   const [drawerOpen, setDrawerOpen] = useState(false);
   // 主窗口状态由 Electron 原生事件同步，覆盖按钮、双击标题栏和系统快捷键等全部路径。
@@ -142,15 +143,6 @@ export function App() {
     appendSystemNotification('notice', '操作已完成', message);
   }, [appendSystemNotification]);
 
-  const refreshAppRegistry = useCallback(async () => {
-    try {
-      if (!hasWorkbenchBridge()) return;
-      setRegisteredApps(await window.workbench.apps.list());
-    } catch (caught) {
-      showError(caught);
-    }
-  }, [showError]);
-
   /**
    * 全局状态变化由主进程统一广播，消息中心在这里比较前后快照，避免每个应用各自维护通知逻辑。
    * 使用队列串行化刷新，防止扫描和应用目录更新同时广播时出现竞态或重复消息。
@@ -159,7 +151,7 @@ export function App() {
     if (!hasWorkbenchBridge()) return;
     const refresh = notificationRefreshQueueRef.current.then(async () => {
       const apps = await window.workbench.apps.list();
-      const analysisApp = apps.find((item) => item.id === 'analysis-center' && item.activeVersion);
+      const analysisApp = apps.find((item) => item.id === 'analysis-center' && item.activeVersion && item.enabled);
       let packages: NotificationSnapshot['packages'] = [];
       if (includePackages && analysisApp) {
         try {
@@ -190,7 +182,7 @@ export function App() {
         const apps = await window.workbench.apps.list();
         if (!active) return;
         setRegisteredApps(apps);
-        const installedAppIds = apps.filter((item) => item.activeVersion).map((item) => item.id);
+        const installedAppIds = apps.filter((item) => item.activeVersion && item.enabled).map((item) => item.id);
         const defaults = Object.entries(getDefaultIconLayout(installedAppIds)).map(([appId, point]) => ({ appId, ...point }));
         const savedLayout = await window.workbench.desktop.initializeLayout(defaults);
         if (!active) return;
@@ -210,7 +202,7 @@ export function App() {
       }
     })();
     return () => { active = false; };
-  }, [refreshAppRegistry, refreshNotificationSnapshot, showError]);
+  }, [refreshNotificationSnapshot, showError]);
 
   useEffect(() => {
     if (!hasWorkbenchBridge()) return;
@@ -222,7 +214,35 @@ export function App() {
     });
   }, [refreshNotificationSnapshot]);
 
-  useEffect(() => hasWorkbenchBridge() ? window.workbench.onChanged(() => { void refreshAppRegistry(); void refreshNotificationSnapshot(); }) : undefined, [refreshAppRegistry, refreshNotificationSnapshot]);
+  /**
+   * 主进程广播是启停和卸载的唯一同步信号：先刷新 registry，再关闭不再可用的虚拟窗口，
+   * 最后以启用应用重新归一化并持久化桌面布局，避免停用入口残留或恢复旧坐标。
+   */
+  const synchronizeAppState = useCallback(async () => {
+    try {
+      if (!hasWorkbenchBridge()) return;
+      const apps = await window.workbench.apps.list();
+      setRegisteredApps(apps);
+      const enabledAppIds = apps.filter((item) => item.activeVersion && item.enabled).map((item) => item.id);
+      setWindows((current) => current.filter((item) => item.id === 'app-center' || enabledAppIds.includes(item.id)));
+      if (!desktopLayoutReady) return;
+      const currentLayout = Object.entries(iconLayoutRef.current).map(([appId, point]) => ({ appId, ...point }));
+      const normalizedLayout = normalizeDesktopLayout(currentLayout, enabledAppIds);
+      const nextLayout = normalizedLayout.reduce<Record<DesktopAppId, { x: number; y: number }>>((next, item) => ({ ...next, [item.appId]: { x: item.x, y: item.y } }), {});
+      const changed = Object.keys(iconLayoutRef.current).length !== Object.keys(nextLayout).length || Object.entries(nextLayout).some(([appId, point]) => {
+        const current = iconLayoutRef.current[appId];
+        return !current || current.x !== point.x || current.y !== point.y;
+      });
+      if (!changed) return;
+      setIconLayout(nextLayout);
+      iconLayoutRef.current = nextLayout;
+      await window.workbench.desktop.saveLayout(normalizedLayout);
+    } catch (caught) {
+      showError(caught);
+    }
+  }, [desktopLayoutReady, showError]);
+
+  useEffect(() => hasWorkbenchBridge() ? window.workbench.onChanged(() => { void synchronizeAppState(); void refreshNotificationSnapshot(); }) : undefined, [refreshNotificationSnapshot, synchronizeAppState]);
 
   useEffect(() => {
     if (!hasWorkbenchBridge()) return;
@@ -268,9 +288,10 @@ export function App() {
 
   const openApp = async (id: string): Promise<void> => {
     const appMeta = APP_META[id as AppId];
-    if (id !== 'app-center' && hasWorkbenchBridge() && !registeredApps.some((app) => app.id === id && app.activeVersion)) {
+    const installedApp = registeredApps.find((app) => app.id === id);
+    if (id !== 'app-center' && hasWorkbenchBridge() && (!installedApp?.activeVersion || !installedApp.enabled)) {
       setWindows((current) => createAppWindow(current, 'app-center', APP_META['app-center'].title));
-      showNotice(`请先在应用中心安装${appMeta?.title ?? id}。`);
+      showNotice(installedApp?.activeVersion ? `请先在应用中心启用${appMeta?.title ?? id}。` : `请先在应用中心安装${appMeta?.title ?? id}。`);
       return;
     }
     if (id === 'app-center') {
@@ -313,7 +334,7 @@ export function App() {
   /** 应用安装或状态变化后同步桌面图标，已保存的用户位置优先保留。 */
   useEffect(() => {
     if (!desktopLayoutReady) return;
-    const installedAppIds = registeredApps.filter((item) => item.activeVersion).map((item) => item.id);
+    const installedAppIds = registeredApps.filter((item) => item.activeVersion && item.enabled).map((item) => item.id);
     const currentLayout = Object.entries(iconLayoutRef.current).map(([appId, point]) => ({ appId, ...point }));
     const normalizedLayout = normalizeDesktopLayout(currentLayout, installedAppIds);
     const nextLayout = normalizedLayout.reduce<Record<DesktopAppId, { x: number; y: number }>>((next, item) => ({ ...next, [item.appId]: { x: item.x, y: item.y } }), {});
@@ -379,6 +400,7 @@ export function App() {
       if (!hasWorkbenchBridge()) throw new Error('工作台接口尚未就绪，无法导入诊断包。');
       const app = registeredApps.find((item) => item.id === 'analysis-center' && item.activeVersion);
       if (!app) throw new Error('请先在应用中心安装分析中心。');
+      if (!app.enabled) throw new Error('请先在应用中心启用分析中心。');
       let embeddedPresentation = false;
       await launchDesktopApp('analysis-center', window.workbench.apps, () => { embeddedPresentation = true; });
       await Promise.all([refreshNotificationSnapshot(true), loadAnalysisTasks()]);
@@ -418,7 +440,7 @@ export function App() {
   const runningCount = tasks.filter((task) => task.status === 'running' || task.status === 'queued').length;
   const clearableTaskCount = tasks.filter(isTaskClearable).length;
   // 应用库是已安装应用的快捷入口；应用中心始终保留，便于安装其他应用。
-  const appLibraryIds = (Object.keys(APP_META) as AppId[]).filter((id) => id === 'app-center' || registeredApps.some((item) => item.id === id && item.activeVersion));
+  const appLibraryIds = (Object.keys(APP_META) as AppId[]).filter((id) => id === 'app-center' || registeredApps.some((item) => item.id === id && item.activeVersion && item.enabled));
 
   return (
     <main ref={desktopShellRef} className="desktop-shell" style={{ '--workbench-wallpaper': `url("${WORKBENCH_WALLPAPER_URL}")` } as CSSProperties} onDragOver={(event) => event.preventDefault()} onDrop={(event) => { event.preventDefault(); void importDroppedFiles(event.dataTransfer.files); }}>
@@ -568,15 +590,25 @@ const APP_STATE_LABELS: Record<AppInstallState, string> = {
   installing: '安装中'
 };
 
+const APP_RUNTIME_STATE_LABELS: Record<AppCenterItem['runtimeState'], string> = {
+  stopped: '已停止',
+  starting: '启动中',
+  running: '运行中',
+  stopping: '停止中',
+  failed: '运行失败'
+};
+
 /**
  * 应用中心只依赖 App Host API 获取目录和安装状态，不把具体应用的业务逻辑写进工作台壳层。
  * 首版保留官方分析中心入口，后续应用可以仅通过目录和安装包加入此页面。
  */
 function AppCenter({ onOpenApp, showError, showNotice }: AppCenterProps) {
-  const [apps, setApps] = useState<AppInstallRecord[]>([]);
+  const [apps, setApps] = useState<AppCenterItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [busyAppId, setBusyAppId] = useState<string | null>(null);
+  const [uninstallTarget, setUninstallTarget] = useState<AppCenterItem | null>(null);
+  const [deleteData, setDeleteData] = useState(false);
 
   const loadApps = useCallback(async () => {
     if (!hasWorkbenchBridge()) {
@@ -614,13 +646,27 @@ function AppCenter({ onOpenApp, showError, showNotice }: AppCenterProps) {
     }
   };
 
-  const install = async (item: AppInstallRecord) => {
+  const install = async (item: AppCenterItem) => {
     if (!hasWorkbenchBridge()) { showError('工作台接口尚未就绪，无法安装应用。'); return; }
     setBusyAppId(item.id);
     try {
       await window.workbench.apps.install(item.id, item.availableVersion);
       setApps(await window.workbench.apps.list());
       showNotice(`${item.name} 已安装完成。`);
+    } catch (caught) {
+      showError(caught);
+    } finally {
+      setBusyAppId(null);
+    }
+  };
+
+  const setEnabled = async (item: AppCenterItem, enabled: boolean) => {
+    if (!hasWorkbenchBridge()) { showError('工作台接口尚未就绪，无法修改应用状态。'); return; }
+    setBusyAppId(item.id);
+    try {
+      const updated = await window.workbench.apps.setEnabled(item.id, enabled);
+      setApps((current) => current.map((candidate) => candidate.id === item.id ? updated : candidate));
+      showNotice(enabled ? `${item.name} 已启用。` : `${item.name} 已停用。`);
     } catch (caught) {
       showError(caught);
     } finally {
@@ -640,21 +686,82 @@ function AppCenter({ onOpenApp, showError, showNotice }: AppCenterProps) {
     }
   };
 
-  const renderAction = (item: AppInstallRecord) => {
+  const requestUninstall = (item: AppCenterItem) => {
+    setDeleteData(false);
+    setUninstallTarget(item);
+  };
+
+  const confirmUninstall = async () => {
+    if (!uninstallTarget || !hasWorkbenchBridge()) return;
+    setBusyAppId(uninstallTarget.id);
+    try {
+      await window.workbench.apps.uninstall(uninstallTarget.id, deleteData);
+      setUninstallTarget(null);
+      setDeleteData(false);
+      setApps(await window.workbench.apps.list());
+      showNotice(`${uninstallTarget.name} 已卸载。`);
+    } catch (caught) {
+      showError(caught);
+    } finally {
+      setBusyAppId(null);
+    }
+  };
+
+  const renderAction = (item: AppCenterItem) => {
     const busy = busyAppId === item.id || item.state === 'installing';
     if (item.state === 'not-installed' || item.state === 'update-available') {
       return <button type="button" className="primary-button" disabled={busy} onClick={() => void install(item)}>{busy ? <LoaderCircle className="spin" size={15} /> : <CloudDownload size={15} />}{item.state === 'not-installed' ? '安装' : '更新'}</button>;
     }
     if (item.state === 'installed') {
-      return <button type="button" className="primary-button" disabled={busy} onClick={() => void launch(item)}>{busy ? <LoaderCircle className="spin" size={15} /> : <Play size={15} />}打开</button>;
+      return <button type="button" className="primary-button" disabled={!item.enabled || busy} onClick={() => void launch(item)}>{busy ? <LoaderCircle className="spin" size={15} /> : <Play size={15} />}打开</button>;
     }
     return null;
   };
 
   return <div className="app-center-view">
     <div className="app-center-toolbar"><button type="button" className="secondary-button" disabled={refreshing} onClick={() => void refreshCatalog()}>{refreshing ? <LoaderCircle className="spin" size={15} /> : <RefreshCw size={15} />}刷新目录</button></div>
-     {loading ? <div className="app-center-empty"><LoaderCircle className="spin" size={24} /><span>正在读取应用目录…</span></div> : apps.length === 0 ? <div className="app-center-empty"><PackageOpen size={28} /><strong>暂无可用应用</strong><span>请刷新目录，或检查应用目录配置。</span></div> : <div className="app-card-grid">{apps.map((item) => <article className="app-card" key={item.id}><div className="app-card-icon"><img src={resolveAppIconUrl(item.id)} alt="" aria-hidden="true" /></div><div className="app-card-body"><div className="app-card-title"><h2>{item.name}</h2><span className={`app-state app-state-${item.state}`}>{APP_STATE_LABELS[item.state]}</span></div><p>{item.description}</p><small>{item.activeVersion ? `当前版本 ${item.activeVersion}` : item.availableVersion ? `可安装版本 ${item.availableVersion}` : '等待目录信息'}</small>{item.errorMessage && <div className="app-card-error"><CircleAlert size={14} />{item.errorMessage}</div>}</div><div className="app-card-actions">{renderAction(item)}</div></article>)}</div>}
-  </div>;
+     {loading ? <div className="app-center-empty"><LoaderCircle className="spin" size={24} /><span>正在读取应用目录…</span></div> : apps.length === 0 ? <div className="app-center-empty"><PackageOpen size={28} /><strong>暂无可用应用</strong><span>请刷新目录，或检查应用目录配置。</span></div> : <div className="app-card-grid">{apps.map((item) => {
+       const busy = busyAppId === item.id || item.state === 'installing';
+       const installed = Boolean(item.activeVersion);
+       return <article className="app-card" key={item.id} aria-busy={busy}>
+         <div className="app-card-icon"><img src={resolveAppIconUrl(item.id)} alt="" aria-hidden="true" /></div>
+         <div className="app-card-body">
+           <div className="app-card-title"><h2>{item.name}</h2><span className={`app-state app-state-${item.state}`}>{APP_STATE_LABELS[item.state]}</span></div>
+           <p>{item.description}</p>
+           <small>{item.activeVersion ? `当前版本 ${item.activeVersion}` : item.availableVersion ? `可安装版本 ${item.availableVersion}` : '等待目录信息'}</small>
+           {installed && <div className="app-card-runtime"><span>运行状态</span><strong data-runtime-state={item.runtimeState}>{APP_RUNTIME_STATE_LABELS[item.runtimeState]}</strong></div>}
+           {item.errorMessage && <div className="app-card-error"><CircleAlert size={14} />{item.errorMessage}</div>}
+         </div>
+         <div className="app-card-actions">
+           {installed && <label className="app-enabled-toggle">
+             <input type="checkbox" checked={item.enabled} disabled={busy} aria-label={`启用${item.name}`} aria-busy={busy} onChange={(event) => void setEnabled(item, event.target.checked)} />
+             <span className="app-enabled-toggle-track" aria-hidden="true" />
+             <span>{item.enabled ? '已启用' : '已停用'}</span>
+           </label>}
+           {installed && (item.builtIn ? <span className="app-built-in">内置</span> : <button type="button" className="app-uninstall-button" title="卸载应用" aria-label={`卸载${item.name}`} disabled={busy} onClick={() => requestUninstall(item)}><Trash2 size={16} /></button>)}
+           {renderAction(item)}
+         </div>
+       </article>;
+     })}</div>}
+     {uninstallTarget && <UninstallDialog item={uninstallTarget} deleteData={deleteData} busy={busyAppId === uninstallTarget.id} onDeleteDataChange={setDeleteData} onCancel={() => { if (!busyAppId) setUninstallTarget(null); }} onConfirm={() => void confirmUninstall()} />}
+   </div>;
+}
+
+/** 卸载确认明确区分保留数据与永久删除，默认只移除应用包和入口。 */
+function UninstallDialog({ item, deleteData, busy, onDeleteDataChange, onCancel, onConfirm }: {
+  item: AppCenterItem;
+  deleteData: boolean;
+  busy: boolean;
+  onDeleteDataChange: (value: boolean) => void;
+  onCancel: () => void;
+  onConfirm: () => void;
+}) {
+  return <div className="modal-backdrop" role="presentation"><section className="confirm-dialog app-uninstall-dialog" role="dialog" aria-modal="true" aria-labelledby="app-uninstall-dialog-title">
+    <div className="dialog-icon"><Trash2 size={22} /></div>
+    <div className="dialog-heading"><span className="eyebrow danger-eyebrow">APP UNINSTALL</span><h2 id="app-uninstall-dialog-title">卸载 {item.name}？</h2><p>默认保留应用数据。确认后将移除应用包和桌面入口，正在运行的应用也会被关闭。</p></div>
+    <label className="confirm-check"><input type="checkbox" checked={deleteData} disabled={busy} aria-label="同时删除应用数据" onChange={(event) => onDeleteDataChange(event.target.checked)} /><span className="custom-checkbox" aria-hidden="true">{deleteData ? '✓' : ''}</span><span>永久删除配置、历史记录和报告，此操作不可恢复。</span></label>
+    <div className="dialog-actions"><button type="button" className="secondary-button" disabled={busy} onClick={onCancel}>取消</button><button type="button" className="danger-button" disabled={busy} onClick={onConfirm}>{busy ? <LoaderCircle className="spin" size={15} /> : <Trash2 size={15} />}卸载</button></div>
+  </section></div>;
 }
 
 interface EmbeddedAppProps { appId: string; name: string; showError: (error: unknown) => void; }

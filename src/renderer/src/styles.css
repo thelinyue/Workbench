@@ -112,7 +112,18 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--focus); out
 .app-state-update-available { color: var(--primary); background: #EDF5FC; }
 .app-state-incompatible, .app-state-broken { color: var(--danger); background: #FFF2F4; }
 .app-card-error { display: flex; margin-top: 8px; align-items: flex-start; gap: 5px; color: var(--danger); font-size: 10px; line-height: 1.4; }
-.app-card-actions { display: flex; flex: 0 0 auto; align-items: flex-end; align-self: stretch; }
+.app-card-actions { display: flex; min-width: 112px; flex: 0 0 auto; align-items: flex-end; align-self: stretch; justify-content: space-between; flex-direction: column; }
+.app-card-runtime { display: flex; margin-top: 10px; align-items: center; gap: 7px; color: var(--faint); font-size: 10px; }
+.app-card-runtime strong { color: var(--muted); font-weight: 600; }
+.app-enabled-toggle { display: inline-flex; min-width: 112px; min-height: 32px; padding: 0 7px; align-items: center; gap: 7px; border: 1px solid var(--line); border-radius: 8px; color: var(--muted); background: var(--surface-soft); cursor: pointer; font-size: 10px; }
+.app-enabled-toggle input { width: 18px; height: 18px; flex: 0 0 auto; margin: 0; accent-color: var(--primary); cursor: pointer; }
+.app-enabled-toggle input:disabled { cursor: not-allowed; }
+.app-enabled-toggle-track { display: none; }
+.app-uninstall-button { display: grid; width: 32px; height: 32px; padding: 0; place-items: center; border: 1px solid #E4A7B2; border-radius: 8px; color: var(--danger); background: #FFF7F8; cursor: pointer; }
+.app-uninstall-button:hover:not(:disabled) { border-color: #D9798B; background: #FFECEF; }
+.app-uninstall-button:disabled { cursor: not-allowed; opacity: .48; }
+.app-built-in { display: inline-flex; min-height: 32px; padding: 0 9px; align-items: center; border: 1px solid var(--line); border-radius: 8px; color: var(--muted); background: var(--surface-soft); font-size: 10px; }
+.app-uninstall-dialog { width: min(480px, 100%); }
 .app-center-empty { display: flex; min-height: 280px; flex-direction: column; align-items: center; justify-content: center; gap: 9px; color: var(--faint); font-size: 12px; }
 .app-center-empty strong { color: var(--text); font-size: 16px; }
 .embedded-app-frame { display: block; width: 100%; height: 100%; min-height: 420px; border: 0; background: transparent; }
@@ -588,6 +599,10 @@ html[data-theme='light'] .app-state-update-available { color: var(--primary); ba
 html[data-theme='light'] .app-state-incompatible,
 html[data-theme='light'] .app-state-broken { color: var(--danger); background: #FFF2F4; }
 html[data-theme='light'] .app-card-error { color: var(--danger); }
+html[data-theme='light'] .app-card-runtime strong { color: var(--text); }
+html[data-theme='light'] .app-enabled-toggle,
+html[data-theme='light'] .app-built-in { border-color: var(--line); color: var(--muted); background: var(--surface-soft); }
+html[data-theme='light'] .app-uninstall-button { border-color: #E4A7B2; color: var(--danger); background: #FFF7F8; }
 
 /* 分析中心和设置页面沿用同一套冷灰蓝信息层级，状态色仍保持独立语义。 */
 html[data-theme='light'] .eyebrow,
