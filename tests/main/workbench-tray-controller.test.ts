@@ -59,6 +59,23 @@ describe('Workbench 托盘控制器', () => {
 
     expect(tray.destroyCalls).toBe(1);
   });
+
+  it('创建托盘失败时报告中文错误并暴露不可用状态', () => {
+    const errors: string[] = [];
+    const controller = new WorkbenchTrayController({
+      createTray: () => { throw new Error('系统托盘不可用'); },
+      buildContextMenu: (template) => template,
+      restoreMainWindow: () => undefined,
+      quit: () => undefined,
+      isPackaged: false,
+      resourcesPath: 'C:/resources',
+      appPath: 'D:/workbench',
+      logger: { error: (message) => errors.push(message) }
+    });
+
+    expect(controller.isAvailable()).toBe(false);
+    expect(errors).toEqual(['创建 Workbench 托盘失败：系统托盘不可用']);
+  });
 });
 
 class FakeTray implements WorkbenchTray {

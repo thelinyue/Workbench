@@ -19,9 +19,8 @@ interface LifecycleApp {
 interface WorkbenchLifecycleOptions {
   app: LifecycleApp;
   createMainWindow(): DesktopMainWindow;
-  getNativeWindowCount?: () => number;
   cleanup(): Promise<void>;
-  platform: NodeJS.Platform;
+  isTrayAvailable?: () => boolean;
   logger?: Pick<Console, 'error'>;
 }
 
@@ -86,6 +85,10 @@ export class WorkbenchLifecycleController {
       // shutdownStarted 表示退出清理已接管窗口；此时普通 close 不得 preventDefault，
       // destroyMainWindowForShutdown() 才是最终收口路径。
       if (this.shutdownStarted || this.shutdownComplete) return;
+      if (!(this.options.isTrayAvailable?.() ?? true)) {
+        this.options.app.quit();
+        return;
+      }
       event.preventDefault();
       window.hide();
     });
@@ -95,6 +98,7 @@ export class WorkbenchLifecycleController {
 
   /** second-instance、activate 与托盘所有恢复入口都调用这里，统一重建、显示和聚焦顺序。 */
   public restoreMainWindow(): void {
+    if (this.shutdownStarted || this.shutdownComplete) return;
     const window = this.mainWindow ?? this.openMainWindow();
     if (window.isMinimized()) window.restore();
     window.show();

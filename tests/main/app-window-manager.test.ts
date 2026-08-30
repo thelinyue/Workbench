@@ -405,9 +405,7 @@ describe('应用窗口管理器', () => {
     new WorkbenchLifecycleController({
       app,
       createMainWindow: () => new FakeDesktopMainWindow(),
-      getNativeWindowCount: () => 1,
       cleanup,
-      platform: 'win32'
     });
     const quitEvent = { preventDefault: vi.fn() };
 

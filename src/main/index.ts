@@ -67,9 +67,8 @@ const cleanup = createOrderedCleanup([
 lifecycle = ownsSingleInstance ? new WorkbenchLifecycleController({
   app,
   createMainWindow: createWindow,
-  getNativeWindowCount: () => BrowserWindow.getAllWindows().length,
   cleanup,
-  platform: process.platform
+  isTrayAvailable: () => trayController?.isAvailable() ?? false
 }) : undefined;
 
 if (ownsSingleInstance) void app.whenReady().then(async () => {

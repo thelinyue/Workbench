@@ -16,13 +16,11 @@ describe('Workbench 原生窗口与进程生命周期', () => {
   it('主窗口普通 close 只隐藏到托盘，不退出进程或触发清理', () => {
     const app = new FakeApp();
     const cleanup = vi.fn(async () => undefined);
-    let nativeWindowCount = 2;
-    const controller = createController(app, () => new FakeWindow(), () => nativeWindowCount, cleanup);
+    const controller = createController(app, () => new FakeWindow(), cleanup);
     const main = controller.openMainWindow() as FakeWindow;
 
     const closeEvent = { preventDefault: vi.fn() };
     main.emit('close', closeEvent);
-    nativeWindowCount = 1;
     app.emit('window-all-closed');
 
     expect(app.quitCalls).toBe(0);
@@ -64,14 +62,45 @@ describe('Workbench 原生窗口与进程生命周期', () => {
     expect(main.events).toEqual(['restore', 'show', 'focus']);
   });
 
+  it('退出清理开始后恢复入口不创建、显示或聚焦主窗口', () => {
+    const app = new FakeApp();
+    const cleanupGate = deferred<void>();
+    const windows: FakeWindow[] = [];
+    const controller = createController(app, () => { const window = new FakeWindow(); windows.push(window); return window; }, () => cleanupGate.promise);
+    const main = controller.openMainWindow() as FakeWindow;
+    const quitEvent = { preventDefault: vi.fn() };
+
+    app.emit('before-quit', quitEvent);
+    controller.restoreMainWindow();
+
+    expect(windows).toHaveLength(1);
+    expect(main.showCalls).toBe(0);
+    expect(main.focusCalls).toBe(0);
+    cleanupGate.resolve();
+  });
+
+  it('托盘不可用时普通 close 不隐藏窗口而请求 app.quit', () => {
+    const app = new FakeApp();
+    const main = new FakeWindow();
+    const controller = createController(app, () => main, async () => undefined, () => false);
+    controller.openMainWindow();
+    const closeEvent = { preventDefault: vi.fn() };
+
+    main.emit('close', closeEvent);
+
+    expect(closeEvent.preventDefault).not.toHaveBeenCalled();
+    expect(main.hideCalls).toBe(0);
+    expect(app.quitCalls).toBe(1);
+  });
+
   it('window-all-closed 在 Windows/Linux 托盘驻留，macOS 也保持应用存活', () => {
     const windowsApp = new FakeApp();
-    createController(windowsApp, () => new FakeWindow(), () => 0);
+    createController(windowsApp, () => new FakeWindow());
     windowsApp.emit('window-all-closed');
     expect(windowsApp.quitCalls).toBe(0);
 
     const macApp = new FakeApp();
-    createController(macApp, () => new FakeWindow(), () => 0, async () => undefined, 'darwin');
+    createController(macApp, () => new FakeWindow());
     macApp.emit('window-all-closed');
     expect(macApp.quitCalls).toBe(0);
   });
@@ -80,7 +109,7 @@ describe('Workbench 原生窗口与进程生命周期', () => {
     const app = new FakeApp();
     const cleanupGate = deferred<void>();
     const cleanup = vi.fn(() => cleanupGate.promise);
-    createController(app, () => new FakeWindow(), () => 0, cleanup);
+    createController(app, () => new FakeWindow(), cleanup);
     const firstEvent = { preventDefault: vi.fn() };
     const repeatedEvent = { preventDefault: vi.fn() };
 
@@ -136,7 +165,7 @@ describe('Workbench 原生窗口与进程生命周期', () => {
     ]);
     const main = new FakeWindow(() => events.push('main-destroyed'));
     main.preventClose = true;
-    controller = createController(app, () => main, () => 1, cleanup);
+    controller = createController(app, () => main, cleanup);
     controller.openMainWindow();
     const quitEvent = { preventDefault: vi.fn() };
 
@@ -189,11 +218,10 @@ describe('Workbench 原生窗口与进程生命周期', () => {
 function createController(
   app: FakeApp,
   createMainWindow: () => DesktopMainWindow,
-  getNativeWindowCount: () => number = () => 1,
   cleanup: () => Promise<void> = async () => undefined,
-  platform: NodeJS.Platform = 'win32'
+  isTrayAvailable: () => boolean = () => true
 ): WorkbenchLifecycleController {
-  return new WorkbenchLifecycleController({ app, createMainWindow, getNativeWindowCount, cleanup, platform });
+  return new WorkbenchLifecycleController({ app, createMainWindow, cleanup, isTrayAvailable });
 }
 
 class FakeApp extends EventEmitter {

@@ -51,6 +51,11 @@ export class WorkbenchTrayController {
     }
   }
 
+  /** 托盘创建失败时返回 false，生命周期可据此避免把主窗口隐藏成不可恢复的后台进程。 */
+  public isAvailable(): boolean {
+    return this.tray !== undefined;
+  }
+
   /**
    * 最终退出时销毁托盘图标。销毁必须幂等，并且不能让托盘异常阻断其他资源的有序收口。
    */
