@@ -32,15 +32,15 @@ npm test -- tests/main/app-center-bridge.test.ts tests/main/app-center-service.t
 
 ### 修复轮 RED/GREEN
 
-因安装流程改为通过 `lifecycleCoordinator.install` 统一串行化，旧的静态断言仍检查 `afterInstall`，先运行：
+为验证新增的安装竞态测试能够捕获修复前行为，先临时将 `apps:install` mutation 为“在协调器队列外执行 `appCenter.install`，完成后再调用 `afterInstall`”，然后运行最小行为测试：
 
 ```text
-npm test -- tests/main/app-center-bridge.test.ts
+npm test -- tests/main/app-launch-ipc.test.ts -t "安装下载未完成时不会让同一应用的停用抢先落库"
 ```
 
-结果：`1 failed / 8 passed`，失败原因为断言仍期待旧入口名称。
+结果：测试在 `tests/main/app-launch-ipc.test.ts:153` 的 `expect(disableSettled).toBe(false)` 处失败，实际值为 `true`；这证明旧实现会在安装 gate 释放前让停用操作完成。该失败路径还因安装 gate 未释放导致清理 hook 超时，随后立即恢复正确实现，未保留 mutation。
 
-更新断言后重新运行同一目标测试，结果为 `1 file passed`、`9 tests passed`；随后全量回归为 `48 files passed`、`271 tests passed`。
+恢复 `lifecycleCoordinator.install` 后重新运行同一命令，结果为 `1 file passed`、目标测试 `1 passed`（同文件其余 4 个测试因 `-t` 跳过）。恢复后的全量回归结果为 `48 files passed`、`271 tests passed`。
 
 最终全量测试：
 
@@ -48,7 +48,7 @@ npm test -- tests/main/app-center-bridge.test.ts
 npm test
 ```
 
-结果：`48 files passed`，`266 tests passed`。
+结果：`48 files passed`，`271 tests passed`。
 
 ## Typecheck
 
@@ -58,9 +58,11 @@ npm test
 
 ## 提交
 
-实现提交 SHA：`878948e`。
+初始实现提交 SHA：`878948e`。
 
-提交信息：`feat(apps): wire lifecycle coordinator and app center bridge`
+修复轮提交 SHA：`91e1f8987f0ba6b9174a58224ec7012a4052ca78`。
+
+提交信息：`fix(apps): serialize install lifecycle`
 
 ## 自审
 
