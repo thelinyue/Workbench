@@ -102,3 +102,23 @@ npm test -- tests/main/app-window-manager.test.ts tests/main/app-lifecycle-coord
 修复内容：`closeApp` 仅在 destroy 成功时清理 mappings，`closeAll` 仍在最终退出时强制清理；停用/卸载分别捕获 close 与 stop 并聚合中文错误；更新严格按 closeApp、stop、解析/start 顺序执行，前两步任一步失败都不启动新 runtime；失败后的 disabled 停用会再次尝试 close/stop。
 
 修复轮 1 实现提交 SHA：`6854cd43137e623984ec5abe31a4129051b1d8b3`。
+
+### 修复轮 1 回归
+
+受影响回归命令：
+
+```text
+npm test -- tests/main/app-runtime-manager.test.ts tests/main/app-registry-repository.test.ts tests/main/app-package-installer.test.ts tests/main/app-center-service.test.ts
+```
+
+结果：`4 files passed`，`29 tests passed`。
+
+全量回归命令：
+
+```text
+npm test
+```
+
+结果：`48 files passed`，`263 tests passed`。
+
+`npm run typecheck` 仍只报告既知的 6 个 Task 3 `enabled` 契约错误，Task 2 修复文件无新增错误。
