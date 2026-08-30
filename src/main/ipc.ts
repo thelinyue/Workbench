@@ -98,7 +98,16 @@ export function registerWorkbenchIpc(userDataPath: string, options: RegisterWork
     catalogUrl: process.env.HEPHAESTUS_ANALYSIS_RULES_CATALOG_URL ?? 'https://raw.githubusercontent.com/thelinyue/Hephaestus-Workbench-Plugins/main/rules/analysis-center-rules/catalog.json',
     trustedKeys
   });
-  const notifyRenderer = () => BrowserWindow.getAllWindows().forEach((window) => window.webContents.send('workbench:changed'));
+  const notifyRenderer = () => {
+    // 窗口可能在广播期间并发销毁；单个窗口失败不能阻断其他窗口，也不能覆盖调用方原始异常。
+    BrowserWindow.getAllWindows().forEach((window) => {
+      try {
+        window.webContents.send('workbench:changed');
+      } catch (error) {
+        console.error(`向渲染器广播工作台变更失败：${error instanceof Error ? error.message : String(error)}`);
+      }
+    });
+  };
   const updateDevelopmentOverrideState = () => {
     const enabled = Boolean(developmentOverride && appRegistry.get(developmentOverride.appId)?.enabled && appRegistry.get(developmentOverride.appId)?.activeVersion);
     options.onDevelopmentOverrideStateChange?.(enabled);

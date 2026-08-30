@@ -164,6 +164,41 @@ describe('应用启动 IPC 协调', () => {
     expect(renderer.webContents.send).toHaveBeenCalledWith('workbench:changed');
   });
 
+  it('停用关闭窗口失败且单个 renderer 广播失败时保留生命周期错误并继续通知其他窗口', async () => {
+    const root = await createRegisteredApp(true);
+    const stateChanges: boolean[] = [];
+    const firstRenderer = createRendererWindow();
+    const secondRenderer = createRendererWindow();
+    electronMock.BrowserWindow.getAllWindows.mockReturnValue([firstRenderer, secondRenderer]);
+    firstRenderer.webContents.send.mockImplementation(() => { throw new Error('窗口已销毁'); });
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    try {
+      cleanups.push(registerWorkbenchIpc(root, {
+        developmentOverride: createDevelopmentOverride(root),
+        onDevelopmentOverrideStateChange: (enabled) => stateChanges.push(enabled),
+        closeAppWindow: async () => { throw new Error('窗口关闭失败'); }
+      }));
+      const list = electronMock.handlers.get('apps:list')!;
+      const setEnabled = electronMock.handlers.get('apps:set-enabled')!;
+
+      await list({});
+      stateChanges.length = 0;
+      firstRenderer.webContents.send.mockClear();
+      secondRenderer.webContents.send.mockClear();
+
+      const failure = setEnabled({}, { appId: 'demo-app', enabled: false });
+      await expect(failure).rejects.toThrow('停用应用失败（demo-app）');
+      await expect(failure).rejects.not.toThrow('窗口已销毁');
+
+      expect(stateChanges).toEqual([false]);
+      expect(secondRenderer.webContents.send).toHaveBeenCalledWith('workbench:changed');
+      expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining('向渲染器广播工作台变更失败'));
+      expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining('窗口已销毁'));
+    } finally {
+      errorSpy.mockRestore();
+    }
+  });
+
   it('卸载收口失败但已禁用应用时仍刷新覆盖状态并广播 renderer', async () => {
     const root = await createRegisteredApp(true);
     const stateChanges: boolean[] = [];
