@@ -15,6 +15,8 @@
   - 增加启用状态、运行状态、内置标识、卸载图标按钮和卸载弹窗样式；控件保持稳定尺寸并兼容已有亮/暗主题。
 - `tests/renderer/app-center.test.ts`、`tests/renderer/app-shell.test.ts`
   - 增加启停、运行态、卸载确认、入口过滤、广播同步和禁用拖入/通知路径的源码契约测试。
+- `src/renderer/uninstall-dialog-state.ts`
+  - 提供卸载确认框首次聚焦判定，避免状态更新重复抢占焦点。
 - `src/renderer/desktop-layout.ts`
   - 未修改；现有 helper 已能接收调用方过滤后的应用 ID。
 
@@ -62,13 +64,27 @@ npm test -- tests/renderer/app-center.test.ts
 
 随后实现不可覆盖的 `beginAppOperation`/`completeAppOperation` 状态 helper，并补齐对话框焦点与监听生命周期。修复后同一命令结果为：`1 file passed`，`14 tests passed`。
 
+### 第二轮审查回归
+
+审查发现初始聚焦与 Escape 监听共用 `[busy, onCancel]` effect；父组件内联 `onCancel` 或删除数据状态变化会重复执行聚焦，抢回用户当前焦点。
+
+先增加“重复执行聚焦请求只生效一次”的纯行为测试，再运行定向测试：
+
+```text
+npm test -- tests/renderer/app-center.test.ts
+```
+
+结果：测试按预期 RED，因 `uninstall-dialog-state` helper 尚不存在而无法加载测试模块。
+
+随后抽取 `shouldFocusUninstallCancel` 判定，将首次聚焦 effect 固定为 `[]` 并使用 ref 防止重复执行，同时保留带最新 `[busy, onCancel]` 依赖的独立 Escape 监听。修复后结果为：`1 file passed`，`15 tests passed`。
+
 ## 验证结果
 
 ```text
 npm test -- tests/renderer
 ```
 
-结果：`16 files passed`，`91 tests passed`。
+结果：`16 files passed`，`92 tests passed`。
 
 ```text
 npm run typecheck
@@ -80,7 +96,7 @@ npm run typecheck
 npm test
 ```
 
-结果：`48 files passed`，`279 tests passed`。既有测试会输出少量内置核心应用资源缺失的中文 stderr，这是测试环境跳过种子安装的既有提示，不影响结果。
+结果：`48 files passed`，`280 tests passed`。既有测试会输出少量内置核心应用资源缺失的中文 stderr，这是测试环境跳过种子安装的既有提示，不影响结果。
 
 `git diff --check` 无实际错误。
 
@@ -90,6 +106,8 @@ npm test
 - 初始实现提交信息：`feat(renderer): sync app lifecycle controls`
 - 本轮审查修复与回归测试提交 SHA：`08a003034534886a8a13a7f0be3a4fa3e2168c55`
 - 本轮提交信息：`fix(renderer): harden app center operation locking`
+- 第二轮审查修复与回归测试提交 SHA：`8cd8aae876aac36c20651957c6c4ecd701089923`
+- 第二轮提交信息：`fix(renderer): keep uninstall dialog focus stable`
 - 本报告随后作为独立文档提交，提交号以报告提交后的 `git rev-parse HEAD` 为准。
 
 ## 自审
@@ -99,6 +117,7 @@ npm test
 - 启停和卸载失败会保留应用中心当前状态和卸载对话框，按钮在请求完成前不可重复触发。
 - 卸载默认 `deleteData=false`，内置应用没有卸载操作；删除数据复选项使用明确的破坏性中文文案。
 - 卸载确认框打开后将焦点放到“取消”；Escape 仅在非忙碌时关闭，忙碌期间保留确认框，并在组件卸载时清理全局键盘监听。
+- 初始聚焦只在对话框挂载时执行一次；busy/onCancel 更新只刷新 Escape 监听，不会抢回用户当前焦点。
 - 未新增依赖，图标均来自现有 `lucide-react`。
 
 ## 关注点
