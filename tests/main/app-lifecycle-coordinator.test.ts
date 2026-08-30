@@ -63,6 +63,24 @@ describe('应用生命周期协调器', () => {
     expect(fixture.events).toEqual(['enabled:demo-app:false', 'close:demo-app', 'stop:demo-app']);
   });
 
+  it('停用关闭失败仍继续停止 runtime，且失败后第二次停用仍会重试', async () => {
+    let closeAttempts = 0;
+    const fixture = createFixture(record('demo-app', true), {
+      windowClose: async (appId) => {
+        fixture.events.push(`close:${appId}`);
+        closeAttempts += 1;
+        if (closeAttempts === 1) throw new Error('窗口关闭失败');
+      }
+    });
+
+    await expect(fixture.coordinator.setEnabled('demo-app', false)).rejects.toThrow('停用应用失败（demo-app）');
+    expect(fixture.events).toEqual(['enabled:demo-app:false', 'close:demo-app', 'stop:demo-app', 'upsert:demo-app']);
+
+    fixture.events.length = 0;
+    await expect(fixture.coordinator.setEnabled('demo-app', false)).resolves.toMatchObject({ enabled: false });
+    expect(fixture.events).toEqual(['enabled:demo-app:false', 'close:demo-app', 'stop:demo-app']);
+  });
+
   it('同一应用的 runEnabled 与停用串行，不同应用仍可并行', async () => {
     const operationGate = deferred<void>();
     const fixture = createFixture(record('demo-app', true), {
@@ -95,7 +113,32 @@ describe('应用生命周期协调器', () => {
 
     await fixture.coordinator.afterInstall('demo-app', true);
 
-    expect(fixture.events).toEqual(['stop:demo-app', 'resolve:demo-app', 'start:demo-app', 'upsert:demo-app']);
+    expect(fixture.events).toEqual(['close:demo-app', 'stop:demo-app', 'resolve:demo-app', 'start:demo-app', 'upsert:demo-app']);
+  });
+
+  it('更新启用应用时先关闭窗口再停止 runtime，然后才解析并启动新应用', async () => {
+    const fixture = createFixture(record('demo-app', true));
+
+    await fixture.coordinator.afterInstall('demo-app', true);
+
+    expect(fixture.events).toEqual(['close:demo-app', 'stop:demo-app', 'resolve:demo-app', 'start:demo-app', 'upsert:demo-app']);
+  });
+
+  it('更新关闭或停止失败时不解析也不启动新 runtime', async () => {
+    const closeFixture = createFixture(record('demo-app', true), {
+      windowClose: async (appId) => {
+        closeFixture.events.push(`close:${appId}`);
+        throw new Error('窗口关闭失败');
+      }
+    });
+    await expect(closeFixture.coordinator.afterInstall('demo-app', true)).rejects.toThrow('安装后启动应用失败（demo-app）');
+    expect(closeFixture.events).toEqual(['close:demo-app', 'stop:demo-app', 'upsert:demo-app']);
+
+    const stopFixture = createFixture(record('demo-app', true), {
+      runtimeStop: async () => { throw new Error('runtime 停止失败'); }
+    });
+    await expect(stopFixture.coordinator.afterInstall('demo-app', true)).rejects.toThrow('安装后启动应用失败（demo-app）');
+    expect(stopFixture.events).toEqual(['close:demo-app', 'stop:demo-app', 'upsert:demo-app']);
   });
 
   it('卸载成功时先禁用、关闭窗口、停止 runtime、删除文件，最后移除注册记录', async () => {
@@ -107,6 +150,19 @@ describe('应用生命周期协调器', () => {
       'enabled:demo-app:false', 'close:demo-app', 'stop:demo-app', 'delete:demo-app:false', 'remove:demo-app'
     ]);
     expect(fixture.registry.get('demo-app')).toBeUndefined();
+  });
+
+  it('卸载关闭失败仍停止 runtime，但中止删除文件和移除注册记录', async () => {
+    const fixture = createFixture(record('demo-app', true), {
+      windowClose: async (appId) => {
+        fixture.events.push(`close:${appId}`);
+        throw new Error('窗口关闭失败');
+      }
+    });
+
+    await expect(fixture.coordinator.uninstall('demo-app', true)).rejects.toThrow('卸载应用失败（demo-app）');
+    expect(fixture.events).toEqual(['enabled:demo-app:false', 'close:demo-app', 'stop:demo-app', 'upsert:demo-app']);
+    expect(fixture.registry.get('demo-app')).toMatchObject({ enabled: false, state: 'broken' });
   });
 
   it('种子应用在任何 runtime 或文件副作用前拒绝卸载', async () => {
@@ -153,6 +209,7 @@ function createFixture(initial: AppInstallRecord, overrides: {
   resolveApp?: (appId: string) => Promise<AppResolvedApp>;
   runtimeStart?: (app: AppResolvedApp) => Promise<void>;
   runtimeStop?: (appId: string) => Promise<void>;
+  windowClose?: (appId: string) => Promise<void>;
   operation?: (app: AppResolvedApp) => Promise<unknown>;
   seedAppIds?: ReadonlySet<string> | readonly string[];
   isSeedApp?: (appId: string) => boolean;
@@ -184,7 +241,10 @@ function createFixture(initial: AppInstallRecord, overrides: {
     },
     stop: async (appId: string) => { events.push(`stop:${appId}`); await (overrides.runtimeStop ?? (async () => undefined))(appId); }
   };
-  const windows = { closeApp: async (appId: string) => { events.push(`close:${appId}`); } };
+  const windows = { closeApp: async (appId: string) => {
+    if (overrides.windowClose) await overrides.windowClose(appId);
+    else events.push(`close:${appId}`);
+  } };
   const uninstaller = { uninstall: async (appId: string, deleteData: boolean) => { events.push(`delete:${appId}:${String(deleteData)}`); } };
   const options = { operation: overrides.operation };
   const coordinator = new AppLifecycleCoordinator({

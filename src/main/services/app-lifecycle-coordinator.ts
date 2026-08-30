@@ -70,7 +70,9 @@ export class AppLifecycleCoordinator {
   public async setEnabled(appId: string, enabled: boolean): Promise<AppInstallRecord> {
     return this.enqueue(appId, async () => {
       const record = this.requireRecord(appId);
-      if (record.enabled === enabled && (!enabled || this.options.runtimeManager.getState(appId) === 'running')) {
+      if (record.enabled === enabled && (enabled
+        ? this.options.runtimeManager.getState(appId) === 'running'
+        : record.state !== 'broken')) {
         return record;
       }
 
@@ -89,8 +91,18 @@ export class AppLifecycleCoordinator {
       this.options.repository.setEnabled(appId, false);
       const disabled = { ...record, enabled: false };
       try {
-        await this.options.windowManager.closeApp(appId);
-        await this.options.runtimeManager.stop(appId);
+        const failures: string[] = [];
+        try {
+          await this.options.windowManager.closeApp(appId);
+        } catch (error) {
+          failures.push(`关闭应用窗口失败：${errorMessage(error)}`);
+        }
+        try {
+          await this.options.runtimeManager.stop(appId);
+        } catch (error) {
+          failures.push(`停止应用运行时失败：${errorMessage(error)}`);
+        }
+        if (failures.length > 0) throw new Error(failures.join('；'));
         return this.options.repository.get(appId) ?? disabled;
       } catch (error) {
         this.recordFailure(appId, disabled, '停用应用失败', error, false);
@@ -109,13 +121,26 @@ export class AppLifecycleCoordinator {
     });
   }
 
-  /** 安装完成后复用同一应用队列；更新时先停止旧 runtime，再解析并启动新目录。 */
+  /** 安装完成后复用同一应用队列；更新时先关闭窗口、停止旧 runtime，再解析并启动新目录。 */
   public async afterInstall(appId: string, wasUpdate: boolean): Promise<void> {
     await this.enqueue(appId, async () => {
       const record = this.requireRecord(appId);
       if (!record.enabled) return;
       try {
-        if (wasUpdate) await this.options.runtimeManager.stop(appId);
+        if (wasUpdate) {
+          const failures: string[] = [];
+          try {
+            await this.options.windowManager.closeApp(appId);
+          } catch (error) {
+            failures.push(`关闭应用窗口失败：${errorMessage(error)}`);
+          }
+          try {
+            await this.options.runtimeManager.stop(appId);
+          } catch (error) {
+            failures.push(`停止应用运行时失败：${errorMessage(error)}`);
+          }
+          if (failures.length > 0) throw new Error(failures.join('；'));
+        }
         await this.startResolved(appId);
       } catch (error) {
         this.recordFailure(appId, record, '安装后启动应用失败', error, true);
@@ -136,8 +161,18 @@ export class AppLifecycleCoordinator {
       this.options.repository.setEnabled(appId, false);
       const disabled = { ...record, enabled: false };
       try {
-        await this.options.windowManager.closeApp(appId);
-        await this.options.runtimeManager.stop(appId);
+        const failures: string[] = [];
+        try {
+          await this.options.windowManager.closeApp(appId);
+        } catch (error) {
+          failures.push(`关闭应用窗口失败：${errorMessage(error)}`);
+        }
+        try {
+          await this.options.runtimeManager.stop(appId);
+        } catch (error) {
+          failures.push(`停止应用运行时失败：${errorMessage(error)}`);
+        }
+        if (failures.length > 0) throw new Error(failures.join('；'));
         await this.options.uninstaller.uninstall(appId, deleteData);
         this.options.repository.remove(appId);
       } catch (error) {

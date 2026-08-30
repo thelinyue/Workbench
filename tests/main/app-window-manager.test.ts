@@ -372,6 +372,20 @@ describe('应用窗口管理器', () => {
     expect(fixture.manager.resolveWebContents(other.webContents.id)).toEqual({ appId: 'other-app', windowKey: 'main' });
   });
 
+  it('closeApp 销毁失败时保留目标映射，下一次 closeApp 可再次尝试并成功收口', async () => {
+    const fixture = createFixture();
+    const window = await fixture.manager.open({ appId: 'target-app', name: '目标应用', window: windowManifest }) as FakeWindow;
+    window.destroyError = new Error('窗口暂时无法销毁');
+
+    await expect(fixture.manager.closeApp('target-app')).rejects.toThrow('窗口暂时无法销毁');
+    expect(fixture.manager.resolveWebContents(window.webContentsId)).toEqual({ appId: 'target-app', windowKey: 'main' });
+
+    window.destroyError = undefined;
+    await expect(fixture.manager.closeApp('target-app')).resolves.toBeUndefined();
+    expect(fixture.manager.resolveWebContents(window.webContentsId)).toBeUndefined();
+    expect(window.destroyCalls).toBe(2);
+  });
+
   it('退出时先关闭 App Window 并保存状态，再关闭仓储，最终 quit 不会关库后写入', async () => {
     const events: string[] = [];
     let repositoryClosed = false;

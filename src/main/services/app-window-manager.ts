@@ -222,7 +222,7 @@ export class AppWindowManager {
     if (this.closeOperation) return this.closeOperation;
     this.closing = true;
     this.closeOperation = Promise.resolve().then(() => {
-      return this.closeWindows(() => true);
+      return this.closeWindows(() => true, false);
     });
     return this.closeOperation;
   }
@@ -236,10 +236,10 @@ export class AppWindowManager {
       .filter(([mapKey]) => mapKeyAppId(mapKey) === appId)
       .map(([, opening]) => opening);
     await Promise.allSettled(openings);
-    await this.closeWindows((mapKey) => mapKeyAppId(mapKey) === appId);
+    await this.closeWindows((mapKey) => mapKeyAppId(mapKey) === appId, true);
   }
 
-  private closeWindows(shouldClose: (mapKey: string) => boolean): void {
+  private closeWindows(shouldClose: (mapKey: string) => boolean, preserveMappingsOnDestroyFailure: boolean): void {
     const targets = [...this.windows.entries()].filter(([mapKey]) => shouldClose(mapKey));
     const failures: string[] = [];
 
@@ -258,12 +258,16 @@ export class AppWindowManager {
         failures.push(`保存应用窗口状态失败（${label}）：${errorMessage(error)}`);
       }
 
+      let destroyed = false;
       try {
         window.destroy();
+        destroyed = true;
       } catch (error) {
         failures.push(`强制销毁应用窗口失败（${label}）：${errorMessage(error)}`);
       } finally {
-        this.removeWindowMappings(mapKey, window, webContentsId);
+        // 单应用收口失败时保留身份和窗口映射，调用方才能修复后再次 closeApp；最终退出
+        // 则必须清理映射，避免仓储关闭后幸存窗口继续触发普通 close listener。
+        if (destroyed || !preserveMappingsOnDestroyFailure) this.removeWindowMappings(mapKey, window, webContentsId);
       }
     }
 
