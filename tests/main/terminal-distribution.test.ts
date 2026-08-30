@@ -4,9 +4,9 @@ import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 describe('终端核心分发', () => {
-  it('将包含剪贴板 Host API 的桌面安装包准备为 0.1.10', () => {
+  it('将包含剪贴板 Host API 的桌面安装包准备为 0.1.11', () => {
     const packageJson = JSON.parse(readFileSync(resolve(process.cwd(), 'package.json'), 'utf8'));
-    expect(packageJson.version).toBe('0.1.10');
+    expect(packageJson.version).toBe('0.1.11');
   });
 
   it('保留 Apps 仓库独立发布职责，并把签名终端种子包放入 Workbench 安装包', () => {
