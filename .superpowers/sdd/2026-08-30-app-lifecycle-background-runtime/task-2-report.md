@@ -76,3 +76,29 @@ Task 2 新增和修改文件无 typecheck 错误；未越界修复上述 Task 3 
 
 - Task 3 仍需把 Electron IPC 的启动、RPC、安装后处理和卸载入口接入协调器，并补齐 6 个 `enabled` 契约错误。
 - `AppRuntimeManager` 内部仍保留 `failed` 状态；按 Task 1 ruling，Task 3 对 disabled 应用向外映射为 `stopped`。
+
+## 修复轮 1
+
+### RED
+
+新增四组回归用例后运行：
+
+```text
+npm test -- tests/main/app-window-manager.test.ts tests/main/app-lifecycle-coordinator.test.ts tests/main/app-package-uninstaller.test.ts
+```
+
+结果：`2 files failed`，`5 failed / 39 passed`。失败分别证明：`closeApp` 销毁失败会错误移除映射；停用和卸载在关窗失败后不会继续 stop；更新没有先关窗；更新关闭失败仍会继续启动新 runtime。
+
+### GREEN
+
+修复后运行同一命令：
+
+```text
+npm test -- tests/main/app-window-manager.test.ts tests/main/app-lifecycle-coordinator.test.ts tests/main/app-package-uninstaller.test.ts
+```
+
+结果：`3 files passed`，`44 tests passed`。
+
+修复内容：`closeApp` 仅在 destroy 成功时清理 mappings，`closeAll` 仍在最终退出时强制清理；停用/卸载分别捕获 close 与 stop 并聚合中文错误；更新严格按 closeApp、stop、解析/start 顺序执行，前两步任一步失败都不启动新 runtime；失败后的 disabled 停用会再次尝试 close/stop。
+
+修复轮 1 实现提交 SHA：`6854cd43137e623984ec5abe31a4129051b1d8b3`。
