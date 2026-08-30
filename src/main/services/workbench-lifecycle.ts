@@ -2,8 +2,10 @@ export interface DesktopMainWindow {
   isMinimized(): boolean;
   restore(): void;
   show(): void;
+  hide(): void;
   focus(): void;
   destroy(): void;
+  on(event: 'close', listener: (event: { preventDefault(): void }) => void): this;
   once(event: 'closed', listener: () => void): this;
 }
 
@@ -17,7 +19,7 @@ interface LifecycleApp {
 interface WorkbenchLifecycleOptions {
   app: LifecycleApp;
   createMainWindow(): DesktopMainWindow;
-  getNativeWindowCount(): number;
+  getNativeWindowCount?: () => number;
   cleanup(): Promise<void>;
   platform: NodeJS.Platform;
   logger?: Pick<Console, 'error'>;
@@ -65,13 +67,14 @@ export class WorkbenchLifecycleController {
   private mainWindow: DesktopMainWindow | undefined;
   private cleanupOperation: Promise<void> | undefined;
   private shutdownComplete = false;
+  private shutdownStarted = false;
 
   public constructor(private readonly options: WorkbenchLifecycleOptions) {
-    options.app.on('second-instance', () => { this.restoreOrCreateMainWindow(); });
-    options.app.on('activate', () => { this.restoreOrCreateMainWindow(); });
-    options.app.on('window-all-closed', () => {
-      if (options.platform !== 'darwin' && options.getNativeWindowCount() === 0) options.app.quit();
-    });
+    options.app.on('second-instance', () => { this.restoreMainWindow(); });
+    options.app.on('activate', () => { this.restoreMainWindow(); });
+    // Windows/Linux 在托盘驻留时即使没有可见 BrowserWindow 也必须继续运行；显式退出只
+    // 通过托盘菜单 app.quit() 进入下面的异步 before-quit gate。
+    options.app.on('window-all-closed', () => undefined);
     options.app.on('before-quit', (event) => { this.beforeQuit(event); });
   }
 
@@ -79,8 +82,23 @@ export class WorkbenchLifecycleController {
     if (this.mainWindow) return this.mainWindow;
     const window = this.options.createMainWindow();
     this.mainWindow = window;
+    window.on('close', (event) => {
+      // shutdownStarted 表示退出清理已接管窗口；此时普通 close 不得 preventDefault，
+      // destroyMainWindowForShutdown() 才是最终收口路径。
+      if (this.shutdownStarted || this.shutdownComplete) return;
+      event.preventDefault();
+      window.hide();
+    });
     window.once('closed', () => { if (this.mainWindow === window) this.mainWindow = undefined; });
     return window;
+  }
+
+  /** second-instance、activate 与托盘所有恢复入口都调用这里，统一重建、显示和聚焦顺序。 */
+  public restoreMainWindow(): void {
+    const window = this.mainWindow ?? this.openMainWindow();
+    if (window.isMinimized()) window.restore();
+    window.show();
+    window.focus();
   }
 
   /**
@@ -88,22 +106,17 @@ export class WorkbenchLifecycleController {
    * 取消普通 close 后留下一个已经失去 runtime、IPC 和协议资源的进程。
    */
   public destroyMainWindowForShutdown(): void {
+    this.shutdownStarted = true;
     const window = this.mainWindow;
     if (!window) return;
     this.mainWindow = undefined;
     window.destroy();
   }
 
-  private restoreOrCreateMainWindow(): void {
-    if (!this.mainWindow) { this.openMainWindow(); return; }
-    if (this.mainWindow.isMinimized()) this.mainWindow.restore();
-    this.mainWindow.show();
-    this.mainWindow.focus();
-  }
-
   private beforeQuit(event: { preventDefault(): void }): void {
     if (this.shutdownComplete) return;
     event.preventDefault();
+    this.shutdownStarted = true;
     if (this.cleanupOperation) return;
     try {
       this.cleanupOperation = this.options.cleanup();

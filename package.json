@@ -78,6 +78,10 @@
       {
         "from": "src/main/config/app-trusted-keys.json",
         "to": "app-trusted-keys.json"
+      },
+      {
+        "from": "assets/app-icon.ico",
+        "to": "tray/app-icon.ico"
       }
     ],
     "win": {

@@ -556,6 +556,7 @@ class FakeDesktopMainWindow extends EventEmitter implements DesktopMainWindow {
   public isMinimized(): boolean { return false; }
   public restore(): void {}
   public show(): void {}
+  public hide(): void {}
   public focus(): void {}
   public destroy(): void { this.emit('closed'); }
 }

@@ -1,4 +1,4 @@
-import { app, BrowserWindow, Menu, screen } from 'electron';
+import { app, BrowserWindow, Menu, screen, Tray } from 'electron';
 import { join } from 'node:path';
 import { registerWorkbenchIpc } from './ipc';
 import { AppWindowStateRepository } from './data/app-window-state-repository';
@@ -7,6 +7,7 @@ import { AppWindowManager } from './services/app-window-manager';
 import { installHostNavigationGuard, resolveWorkbenchRendererUrl } from './services/host-navigation-guard';
 import { registerAppProtocolScheme, registerAppResourceProtocol } from './services/app-resource-protocol';
 import { WorkbenchLifecycleController, acquireSingleInstance, createOrderedCleanup } from './services/workbench-lifecycle';
+import { WorkbenchTrayController } from './services/workbench-tray-controller';
 import { createMainWindowOptions } from './main-window-options';
 
 // 自定义协议必须在 app.whenReady() 之前声明，否则 iframe 中的 CSS 和 ES module 资源无法按标准方式加载。
@@ -16,6 +17,7 @@ let closeWorkbench: (() => Promise<void>) | undefined;
 let unregisterAppProtocol: (() => void) | undefined;
 let closeAppWindows: (() => Promise<void>) | undefined;
 let closeAppWindowState: (() => void) | undefined;
+let trayController: WorkbenchTrayController | undefined;
 
 /**
  * 创建 Workbench 桌面主窗口。
@@ -58,6 +60,7 @@ const cleanup = createOrderedCleanup([
   { name: 'Workbench IPC 与应用运行时', close: () => closeWorkbench?.() },
   { name: 'Workbench 主窗口', close: () => lifecycle?.destroyMainWindowForShutdown() },
   { name: '应用窗口', close: () => closeAppWindows?.() },
+  { name: 'Workbench 托盘', close: () => trayController?.destroy() },
   { name: '应用资源协议', close: () => unregisterAppProtocol?.() },
   { name: '应用窗口状态仓储', close: () => closeAppWindowState?.() }
 ]);
@@ -101,7 +104,17 @@ if (ownsSingleInstance) void app.whenReady().then(async () => {
     openAppWindow: async (options) => { await appWindowManager.open(options); },
     resolveAppWindow: (webContentsId) => appWindowManager.resolveWebContents(webContentsId),
     markAppWindowEventSurfaceReady: (webContentsId) => appWindowManager.markEventSurfaceReady(webContentsId),
-    deliverAppWindowEvent: (appId, windowKey, event) => appWindowManager.deliverEvent(appId, windowKey, event)
+    deliverAppWindowEvent: (appId, windowKey, event) => appWindowManager.deliverEvent(appId, windowKey, event),
+    closeAppWindow: (appId) => appWindowManager.closeApp(appId)
+  });
+  trayController = new WorkbenchTrayController({
+    createTray: (iconPath) => new Tray(iconPath),
+    buildContextMenu: (template) => Menu.buildFromTemplate(template.map(({ label, type, click }) => ({ label, type, click }))),
+    restoreMainWindow: () => lifecycle?.restoreMainWindow(),
+    quit: () => app.quit(),
+    isPackaged: app.isPackaged,
+    resourcesPath: process.resourcesPath,
+    appPath: app.getAppPath()
   });
   lifecycle?.openMainWindow();
 });

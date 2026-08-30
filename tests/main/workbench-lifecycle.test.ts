@@ -13,19 +13,23 @@ describe('Workbench 原生窗口与进程生命周期', () => {
     expect(primary.quitCalls).toBe(0);
   });
 
-  it('主窗口关闭但 App Window 仍存在时不退出进程或触发清理', () => {
+  it('主窗口普通 close 只隐藏到托盘，不退出进程或触发清理', () => {
     const app = new FakeApp();
     const cleanup = vi.fn(async () => undefined);
     let nativeWindowCount = 2;
     const controller = createController(app, () => new FakeWindow(), () => nativeWindowCount, cleanup);
     const main = controller.openMainWindow() as FakeWindow;
 
-    main.emit('closed');
+    const closeEvent = { preventDefault: vi.fn() };
+    main.emit('close', closeEvent);
     nativeWindowCount = 1;
     app.emit('window-all-closed');
 
     expect(app.quitCalls).toBe(0);
     expect(cleanup).not.toHaveBeenCalled();
+    expect(closeEvent.preventDefault).toHaveBeenCalledOnce();
+    expect(main.hideCalls).toBe(1);
+    expect(main.closed).toBe(false);
   });
 
   it('second-instance 和 activate 会聚焦现有主窗口，关闭后则重建主窗口', () => {
@@ -60,11 +64,11 @@ describe('Workbench 原生窗口与进程生命周期', () => {
     expect(main.events).toEqual(['restore', 'show', 'focus']);
   });
 
-  it('非 macOS 最后一个原生窗口关闭时请求完整退出，macOS 保持应用存活', () => {
+  it('window-all-closed 在 Windows/Linux 托盘驻留，macOS 也保持应用存活', () => {
     const windowsApp = new FakeApp();
     createController(windowsApp, () => new FakeWindow(), () => 0);
     windowsApp.emit('window-all-closed');
-    expect(windowsApp.quitCalls).toBe(1);
+    expect(windowsApp.quitCalls).toBe(0);
 
     const macApp = new FakeApp();
     createController(macApp, () => new FakeWindow(), () => 0, async () => undefined, 'darwin');
@@ -206,16 +210,18 @@ class FakeWindow extends EventEmitter implements DesktopMainWindow {
   public destroyCalls = 0;
   public minimized = false;
   public showCalls = 0;
+  public hideCalls = 0;
   public focusCalls = 0;
   public readonly events: string[] = [];
   public constructor(private readonly onDestroy: () => void = () => undefined) { super(); }
   public isMinimized(): boolean { return this.minimized; }
   public restore(): void { this.minimized = false; this.events.push('restore'); }
   public show(): void { this.showCalls += 1; this.events.push('show'); }
+  public hide(): void { this.hideCalls += 1; this.events.push('hide'); }
   public focus(): void { this.focusCalls += 1; this.events.push('focus'); }
   public close(): void {
     this.closeCalls += 1;
-    this.emit('close');
+    this.emit('close', { preventDefault: vi.fn() });
     if (this.preventClose) return;
     this.closed = true;
     this.emit('closed');

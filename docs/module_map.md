@@ -15,6 +15,9 @@ Electron 主进程
  ├── RulesService ──> rules.* Host API
  └── Seed App Fetcher ──> Workbench-Apps 分析中心正式 Release
 
+Electron 生命周期 ──> WorkbenchLifecycleController ──> WorkbenchTrayController
+                 └──> 托盘驻留、主窗口恢复和异步退出清理
+
 Preload ──> contextBridge ──> Renderer React Desktop Shell / App Window Host
 Renderer ──> window.workbench ──> IPC / App Host RPC
 electron-builder ──> Windows NSIS 安装包
@@ -25,6 +28,7 @@ electron-builder ──> Windows NSIS 安装包
 | 模块 | 主要路径 | 职责 |
 | --- | --- | --- |
 | Electron 主进程 | `src/main/index.ts` | 创建桌面与原生应用窗口、加载 renderer、管理应用生命周期 |
+| 生命周期与托盘 | `src/main/services/workbench-lifecycle.ts`、`src/main/services/workbench-tray-controller.ts` | 主窗口隐藏/恢复、托盘驻留、统一退出清理和打包图标装配 |
 | IPC | `src/main/ipc.ts` | 校验输入，暴露桌面、应用中心、Host API 和规则接口 |
 | 宿主界面状态 | `src/main/data/desktop-layout-repository.ts`、`src/main/data/app-window-state-repository.ts` | 保存桌面图标布局及原生应用窗口边界/最大化状态 |
 | 应用窗口宿主 | `src/main/services/app-window-manager.ts`、`src/renderer/src/app-window-host.tsx` | 管理原生窗口身份、状态恢复和通用 renderer 表面 |
