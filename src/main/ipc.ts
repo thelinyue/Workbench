@@ -316,28 +316,39 @@ export function registerWorkbenchIpc(userDataPath: string, options: RegisterWork
   ipcMain.handle('apps:install', ipcBoundary.handler('apps:install', async (_event, input) => {
     await initialization;
     const value = appInstallSchema.parse(input);
-    const result = await lifecycleCoordinator.install(value.appId, async () => {
-      const wasUpdate = Boolean(appRegistry.get(value.appId)?.activeVersion);
-      const installed = await appCenter.install(value.appId, value.version);
-      return { result: installed, wasUpdate };
-    });
-    updateDevelopmentOverrideState();
-    notifyRenderer();
-    return appCenter.getItem(value.appId) ?? result;
+    try {
+      const result = await lifecycleCoordinator.install(value.appId, async () => {
+        const wasUpdate = Boolean(appRegistry.get(value.appId)?.activeVersion);
+        const installed = await appCenter.install(value.appId, value.version);
+        return { result: installed, wasUpdate };
+      });
+      return appCenter.getItem(value.appId) ?? result;
+    } finally {
+      updateDevelopmentOverrideState();
+      notifyRenderer();
+    }
   }));
   ipcMain.handle('apps:set-enabled', ipcBoundary.handler('apps:set-enabled', async (_event, input) => {
     await initialization;
     const value = appEnabledSchema.parse(input);
-    const result = await lifecycleCoordinator.setEnabled(value.appId, value.enabled);
-    notifyRenderer();
-    return appCenter.getItem(value.appId) ?? result;
+    try {
+      const result = await lifecycleCoordinator.setEnabled(value.appId, value.enabled);
+      return appCenter.getItem(value.appId) ?? result;
+    } finally {
+      updateDevelopmentOverrideState();
+      notifyRenderer();
+    }
   }));
   ipcMain.handle('apps:uninstall', ipcBoundary.handler('apps:uninstall', async (_event, input) => {
     const value = appUninstallSchema.parse(input);
     if (CORE_SEED_APPS.some((seed) => seed.id === value.appId)) throw new Error(`内置种子应用不可卸载：${value.appId}`);
     await initialization;
-    await lifecycleCoordinator.uninstall(value.appId, value.deleteData);
-    notifyRenderer();
+    try {
+      await lifecycleCoordinator.uninstall(value.appId, value.deleteData);
+    } finally {
+      updateDevelopmentOverrideState();
+      notifyRenderer();
+    }
   }));
   ipcMain.handle('apps:launch', ipcBoundary.handler('apps:launch', async (_event, input) => { await initialization; return launchInstalledApp(input); }));
   ipcMain.handle('apps:get-entry-url', ipcBoundary.handler('apps:get-entry-url', async (_event, input) => {

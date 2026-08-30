@@ -5,13 +5,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { launchAppFromIpc } from '../../src/main/services/app-launch-coordinator';
 import { AppCenterService, type AppCenterItem } from '../../src/main/services/app-center-service';
 import type { AppManifestV1 } from '../../src/shared/app-contract';
+import type { DevelopmentAppOverride } from '../../src/main/services/app-development-override';
 
 const electronMock = vi.hoisted(() => {
   const handlers = new Map<string, (...args: any[]) => unknown>();
   return {
     handlers,
     app: { getVersion: vi.fn(() => '0.1.6'), on: vi.fn(), off: vi.fn() },
-    BrowserWindow: { getAllWindows: vi.fn(() => []), fromWebContents: vi.fn(() => undefined) },
+    BrowserWindow: { getAllWindows: vi.fn(() => [] as any[]), fromWebContents: vi.fn(() => undefined) },
     dialog: { showOpenDialog: vi.fn(), showSaveDialog: vi.fn() },
     clipboard: { readText: vi.fn(), writeText: vi.fn() },
     ipcMain: {
@@ -35,6 +36,8 @@ const cleanups: Array<() => Promise<void>> = [];
 beforeEach(() => {
   Object.defineProperty(process, 'resourcesPath', { configurable: true, value: process.cwd() });
   electronMock.handlers.clear();
+  electronMock.BrowserWindow.getAllWindows.mockReset();
+  electronMock.BrowserWindow.getAllWindows.mockReturnValue([]);
 });
 
 afterEach(async () => {
@@ -118,6 +121,71 @@ describe('应用启动 IPC 协调', () => {
     await expect(access(join(root, 'Workbench', 'apps', 'demo-app'))).rejects.toMatchObject({ code: 'ENOENT' });
   });
 
+  it('开发覆盖应用停用后刷新覆盖状态为 false 并广播 renderer', async () => {
+    const root = await createRegisteredApp(true);
+    const stateChanges: boolean[] = [];
+    const renderer = createRendererWindow();
+    cleanups.push(registerWorkbenchIpc(root, {
+      developmentOverride: createDevelopmentOverride(root),
+      onDevelopmentOverrideStateChange: (enabled) => stateChanges.push(enabled)
+    }));
+    const list = electronMock.handlers.get('apps:list')!;
+    const setEnabled = electronMock.handlers.get('apps:set-enabled')!;
+
+    await list({});
+    stateChanges.length = 0;
+    renderer.webContents.send.mockClear();
+
+    await expect(setEnabled({}, { appId: 'demo-app', enabled: false })).resolves.toMatchObject({ enabled: false });
+
+    expect(stateChanges).toEqual([false]);
+    expect(renderer.webContents.send).toHaveBeenCalledWith('workbench:changed');
+  });
+
+  it('停用关闭窗口失败但 enabled 已落库时仍刷新覆盖状态并广播 renderer', async () => {
+    const root = await createRegisteredApp(true);
+    const stateChanges: boolean[] = [];
+    const renderer = createRendererWindow();
+    cleanups.push(registerWorkbenchIpc(root, {
+      developmentOverride: createDevelopmentOverride(root),
+      onDevelopmentOverrideStateChange: (enabled) => stateChanges.push(enabled),
+      closeAppWindow: async () => { throw new Error('窗口关闭失败'); }
+    }));
+    const list = electronMock.handlers.get('apps:list')!;
+    const setEnabled = electronMock.handlers.get('apps:set-enabled')!;
+
+    await list({});
+    stateChanges.length = 0;
+    renderer.webContents.send.mockClear();
+
+    await expect(setEnabled({}, { appId: 'demo-app', enabled: false })).rejects.toThrow('停用应用失败（demo-app）');
+
+    expect(stateChanges).toEqual([false]);
+    expect(renderer.webContents.send).toHaveBeenCalledWith('workbench:changed');
+  });
+
+  it('卸载收口失败但已禁用应用时仍刷新覆盖状态并广播 renderer', async () => {
+    const root = await createRegisteredApp(true);
+    const stateChanges: boolean[] = [];
+    const renderer = createRendererWindow();
+    cleanups.push(registerWorkbenchIpc(root, {
+      developmentOverride: createDevelopmentOverride(root),
+      onDevelopmentOverrideStateChange: (enabled) => stateChanges.push(enabled),
+      closeAppWindow: async () => { throw new Error('窗口关闭失败'); }
+    }));
+    const list = electronMock.handlers.get('apps:list')!;
+    const uninstall = electronMock.handlers.get('apps:uninstall')!;
+
+    await list({});
+    stateChanges.length = 0;
+    renderer.webContents.send.mockClear();
+
+    await expect(uninstall({}, { appId: 'demo-app', deleteData: false })).rejects.toThrow('卸载应用失败（demo-app）');
+
+    expect(stateChanges).toEqual([false]);
+    expect(renderer.webContents.send).toHaveBeenCalledWith('workbench:changed');
+  });
+
   it('安装下载未完成时不会让同一应用的停用抢先落库', async () => {
     const root = await createRegisteredApp(true);
     const installGate = deferred<void>();
@@ -197,4 +265,35 @@ async function createRegisteredApp(enabled: boolean): Promise<string> {
   });
   repository.close();
   return root;
+}
+
+function createDevelopmentOverride(root: string): DevelopmentAppOverride {
+  return {
+    appId: 'demo-app',
+    installPath: join(root, 'Workbench', 'apps', 'demo-app', '1.0.0'),
+    manifest: {
+      schemaVersion: 1,
+      id: 'demo-app',
+      name: '演示应用',
+      description: '测试应用',
+      publisherId: 'test',
+      version: '1.0.0',
+      hostApiVersion: '1.0',
+      minWorkbenchVersion: '0.1.0',
+      runtime: { kind: 'web', rendererEntry: 'renderer/index.html', icon: 'renderer/icon.png' },
+      capabilities: []
+    }
+  };
+}
+
+function createRendererWindow() {
+  const renderer = {
+    webContents: { send: vi.fn(), isDestroyed: vi.fn(() => false) },
+    on: vi.fn().mockReturnThis(),
+    once: vi.fn().mockReturnThis(),
+    off: vi.fn().mockReturnThis(),
+    isMaximized: vi.fn(() => false)
+  };
+  electronMock.BrowserWindow.getAllWindows.mockReturnValue([renderer]);
+  return renderer;
 }

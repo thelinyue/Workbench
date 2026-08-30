@@ -76,11 +76,54 @@ describe('Workbench 托盘控制器', () => {
     expect(controller.isAvailable()).toBe(false);
     expect(errors).toEqual(['创建 Workbench 托盘失败：系统托盘不可用']);
   });
+
+  it('托盘创建成功但后续初始化失败时销毁托盘并报告中文错误', () => {
+    const tray = new FakeTray();
+    const errors: string[] = [];
+    const controller = new WorkbenchTrayController({
+      createTray: () => tray,
+      buildContextMenu: () => { throw new Error('菜单构建失败'); },
+      restoreMainWindow: () => undefined,
+      quit: () => undefined,
+      isPackaged: false,
+      resourcesPath: 'C:/resources',
+      appPath: 'D:/workbench',
+      logger: { error: (message) => errors.push(message) }
+    });
+
+    expect(controller.isAvailable()).toBe(false);
+    expect(tray.destroyCalls).toBe(1);
+    expect(errors).toEqual(['创建 Workbench 托盘失败：菜单构建失败']);
+  });
+
+  it('初始化失败后的托盘清理失败时记录中文错误且不掩盖原始错误', () => {
+    const tray = new FakeTray();
+    tray.destroyError = new Error('托盘销毁失败');
+    const errors: string[] = [];
+
+    const controller = new WorkbenchTrayController({
+      createTray: () => tray,
+      buildContextMenu: () => { throw new Error('菜单构建失败'); },
+      restoreMainWindow: () => undefined,
+      quit: () => undefined,
+      isPackaged: false,
+      resourcesPath: 'C:/resources',
+      appPath: 'D:/workbench',
+      logger: { error: (message) => errors.push(message) }
+    });
+
+    expect(controller.isAvailable()).toBe(false);
+    expect(errors).toEqual([
+      '清理 Workbench 托盘失败：托盘销毁失败',
+      '创建 Workbench 托盘失败：菜单构建失败'
+    ]);
+  });
 });
 
 class FakeTray implements WorkbenchTray {
   public tooltip?: string;
   public destroyCalls = 0;
+  public destroyError?: Error;
   private clickHandler?: () => void;
 
   public on(event: 'click', listener: () => void): this {
@@ -90,6 +133,9 @@ class FakeTray implements WorkbenchTray {
 
   public setContextMenu(_menu: unknown): void {}
   public setToolTip(tooltip: string): void { this.tooltip = tooltip; }
-  public destroy(): void { this.destroyCalls += 1; }
+  public destroy(): void {
+    this.destroyCalls += 1;
+    if (this.destroyError) throw this.destroyError;
+  }
   public click(): void { this.clickHandler?.(); }
 }

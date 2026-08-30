@@ -111,11 +111,8 @@ describe('应用生命周期协调器', () => {
   it('安装本体与同一应用的停用共享队列，停用不会插入下载/落库临界区', async () => {
     const installGate = deferred<void>();
     const fixture = createFixture(record('demo-app', true));
-    const coordinator = fixture.coordinator as unknown as {
-      install<T>(appId: string, operation: () => Promise<{ result: T; wasUpdate: boolean }>): Promise<T>;
-    };
 
-    const installing = coordinator.install('demo-app', async () => {
+    const installing = fixture.coordinator.install('demo-app', async () => {
       fixture.events.push('install-start');
       await installGate.promise;
       fixture.events.push('install-committed');
@@ -129,14 +126,6 @@ describe('应用生命周期协调器', () => {
     await expect(installing).resolves.toBe('installed');
     await disabling;
     expect(fixture.events.indexOf('enabled:demo-app:false')).toBeGreaterThan(fixture.events.indexOf('install-committed'));
-  });
-
-  it('更新已启用应用时在同一队列中停止旧 runtime 后启动新应用', async () => {
-    const fixture = createFixture(record('demo-app', true));
-
-    await fixture.coordinator.afterInstall('demo-app', true);
-
-    expect(fixture.events).toEqual(['close:demo-app', 'stop:demo-app', 'resolve:demo-app', 'start:demo-app', 'upsert:demo-app']);
   });
 
   it('更新启用应用时先关闭窗口再停止 runtime，然后才解析并启动新应用', async () => {

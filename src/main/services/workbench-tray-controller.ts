@@ -46,7 +46,13 @@ export class WorkbenchTrayController {
         { label: '退出', click: options.quit }
       ]));
     } catch (error) {
+      // 托盘创建成功后，后续初始化失败仍需释放局部资源；清理异常只能记录，不能覆盖原始错误。
+      const tray = this.tray;
       this.tray = undefined;
+      if (tray) {
+        try { tray.destroy(); }
+        catch (cleanupError) { (options.logger ?? console).error(`清理 Workbench 托盘失败：${errorMessage(cleanupError)}`); }
+      }
       (options.logger ?? console).error(`创建 Workbench 托盘失败：${errorMessage(error)}`);
     }
   }
