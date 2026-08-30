@@ -15,8 +15,6 @@
   - 增加启用状态、运行状态、内置标识、卸载图标按钮和卸载弹窗样式；控件保持稳定尺寸并兼容已有亮/暗主题。
 - `tests/renderer/app-center.test.ts`、`tests/renderer/app-shell.test.ts`
   - 增加启停、运行态、卸载确认、入口过滤、广播同步和禁用拖入/通知路径的源码契约测试。
-- `src/renderer/uninstall-dialog-state.ts`
-  - 提供卸载确认框首次聚焦判定，避免状态更新重复抢占焦点。
 - `src/renderer/desktop-layout.ts`
   - 未修改；现有 helper 已能接收调用方过滤后的应用 ID。
 
@@ -68,15 +66,9 @@ npm test -- tests/renderer/app-center.test.ts
 
 审查发现初始聚焦与 Escape 监听共用 `[busy, onCancel]` effect；父组件内联 `onCancel` 或删除数据状态变化会重复执行聚焦，抢回用户当前焦点。
 
-先增加“重复执行聚焦请求只生效一次”的纯行为测试，再运行定向测试：
+此前为快速覆盖该问题曾抽取 `uninstall-dialog-state` 纯 helper 并添加布尔行为测试，但该测试只能验证取反逻辑，无法验证 React effect 或真实 DOM 聚焦。本轮代码质量回修已删除该一次性 helper、import 和伪行为测试。
 
-```text
-npm test -- tests/renderer/app-center.test.ts
-```
-
-结果：测试按预期 RED，因 `uninstall-dialog-state` helper 尚不存在而无法加载测试模块。
-
-随后抽取 `shouldFocusUninstallCancel` 判定，将首次聚焦 effect 固定为 `[]` 并使用 ref 防止重复执行，同时保留带最新 `[busy, onCancel]` 依赖的独立 Escape 监听。修复后结果为：`1 file passed`，`15 tests passed`。
+生产代码保留最小实现：`UninstallDialog` 使用 `useRef` 记录是否完成首次聚焦，直接在依赖为 `[]` 的 effect 中判定；Escape 监听继续独立使用 `[busy, onCancel]` 读取最新状态并清理监听。本轮没有新增行为，也不伪造 RED 测试。
 
 ## 验证结果
 
@@ -84,7 +76,7 @@ npm test -- tests/renderer/app-center.test.ts
 npm test -- tests/renderer
 ```
 
-结果：`16 files passed`，`92 tests passed`。
+结果：`16 files passed`，`91 tests passed`。
 
 ```text
 npm run typecheck
@@ -96,7 +88,7 @@ npm run typecheck
 npm test
 ```
 
-结果：`48 files passed`，`280 tests passed`。既有测试会输出少量内置核心应用资源缺失的中文 stderr，这是测试环境跳过种子安装的既有提示，不影响结果。
+结果：`48 files passed`，`279 tests passed`。既有测试会输出少量内置核心应用资源缺失的中文 stderr，这是测试环境跳过种子安装的既有提示，不影响结果。
 
 `git diff --check` 无实际错误。
 
@@ -108,6 +100,8 @@ npm test
 - 本轮提交信息：`fix(renderer): harden app center operation locking`
 - 第二轮审查修复与回归测试提交 SHA：`8cd8aae876aac36c20651957c6c4ecd701089923`
 - 第二轮提交信息：`fix(renderer): keep uninstall dialog focus stable`
+- 第三轮代码质量回修提交 SHA：`a8ad20bc53e44685b2384d07c15efc2528e9bdca`
+- 第三轮提交信息：`refactor(renderer): remove focus test abstraction`
 - 本报告随后作为独立文档提交，提交号以报告提交后的 `git rev-parse HEAD` 为准。
 
 ## 自审
@@ -123,5 +117,5 @@ npm test
 ## 关注点
 
 - 当前 renderer 测试基础设施使用 Node 环境下的源码契约测试，没有 DOM 级 Electron 交互测试；真实 IPC 生命周期由主进程测试覆盖，控件结构和关键字符串由本任务测试覆盖。
-- 因此焦点转移和 Escape 的实际浏览器事件分发仍未由 DOM 测试覆盖，当前回归测试只约束实现中的 ref、条件和监听清理。
+- 因此焦点转移和 Escape 的实际浏览器事件分发仍未由 DOM 测试覆盖，当前回归测试只约束源码中的 ref、条件和监听清理，未声称验证真实 React effect 或 DOM 聚焦。
 - `workbench:changed` 期间会额外读取一次应用目录以获得原子状态快照；这是关闭窗口和归一化布局所需的同步边界。
