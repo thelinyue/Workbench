@@ -141,4 +141,3 @@
 - 托盘 controller、关闭转驻留与最终退出顺序使用中文设计注释；错误日志可读。
 
 **验证：** 先写 lifecycle/tray 失败用例，再实现；运行目标测试、全量 `npm test`、`npm run typecheck`、`npm run build`，最后运行 Workbench-Apps 的 `npm run test:analysis-center` 与 `npm run typecheck:analysis-center`。
-
