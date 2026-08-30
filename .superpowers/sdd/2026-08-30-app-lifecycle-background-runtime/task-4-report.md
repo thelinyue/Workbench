@@ -48,13 +48,27 @@ npm test -- tests/renderer/app-center.test.ts tests/renderer/app-shell.test.ts t
 
 结果：`3 files passed`，`33 tests passed`。
 
+### 本轮审查回归
+
+审查发现单值 `busyAppId` 在 A 操作期间可能被 B 操作覆盖，导致 A 结束时提前解锁；同时补充了暗色主题卸载按钮和卸载确认框键盘交互的回归约束。
+
+先补充交错操作状态以及卸载对话框焦点/Escape 断言，再运行定向测试：
+
+```text
+npm test -- tests/renderer/app-center.test.ts
+```
+
+结果：新增断言在实现前按预期失败，分别暴露出操作状态模块缺失，以及取消按钮初始聚焦、非忙碌 Escape 关闭和监听清理尚未实现。
+
+随后实现不可覆盖的 `beginAppOperation`/`completeAppOperation` 状态 helper，并补齐对话框焦点与监听生命周期。修复后同一命令结果为：`1 file passed`，`14 tests passed`。
+
 ## 验证结果
 
 ```text
 npm test -- tests/renderer
 ```
 
-结果：`16 files passed`，`89 tests passed`。
+结果：`16 files passed`，`91 tests passed`。
 
 ```text
 npm run typecheck
@@ -66,14 +80,16 @@ npm run typecheck
 npm test
 ```
 
-结果：`48 files passed`，`277 tests passed`。既有测试会输出少量内置核心应用资源缺失的中文 stderr，这是测试环境跳过种子安装的既有提示，不影响结果。
+结果：`48 files passed`，`279 tests passed`。既有测试会输出少量内置核心应用资源缺失的中文 stderr，这是测试环境跳过种子安装的既有提示，不影响结果。
 
 `git diff --check` 无实际错误。
 
 ## 提交
 
 - 实现与测试提交 SHA：`3446f9b3617fe9445511be6bcb07ef18191679b5`
-- 提交信息：`feat(renderer): sync app lifecycle controls`
+- 初始实现提交信息：`feat(renderer): sync app lifecycle controls`
+- 本轮审查修复与回归测试提交 SHA：`08a003034534886a8a13a7f0be3a4fa3e2168c55`
+- 本轮提交信息：`fix(renderer): harden app center operation locking`
 - 本报告随后作为独立文档提交，提交号以报告提交后的 `git rev-parse HEAD` 为准。
 
 ## 自审
@@ -82,9 +98,11 @@ npm test
 - 状态广播同步使用最新 `apps:list` 结果关闭虚拟窗口，并在布局实际需要变更时保存归一化结果；已保存的可用应用位置继续优先保留。
 - 启停和卸载失败会保留应用中心当前状态和卸载对话框，按钮在请求完成前不可重复触发。
 - 卸载默认 `deleteData=false`，内置应用没有卸载操作；删除数据复选项使用明确的破坏性中文文案。
+- 卸载确认框打开后将焦点放到“取消”；Escape 仅在非忙碌时关闭，忙碌期间保留确认框，并在组件卸载时清理全局键盘监听。
 - 未新增依赖，图标均来自现有 `lucide-react`。
 
 ## 关注点
 
 - 当前 renderer 测试基础设施使用 Node 环境下的源码契约测试，没有 DOM 级 Electron 交互测试；真实 IPC 生命周期由主进程测试覆盖，控件结构和关键字符串由本任务测试覆盖。
+- 因此焦点转移和 Escape 的实际浏览器事件分发仍未由 DOM 测试覆盖，当前回归测试只约束实现中的 ref、条件和监听清理。
 - `workbench:changed` 期间会额外读取一次应用目录以获得原子状态快照；这是关闭窗口和归一化布局所需的同步边界。
