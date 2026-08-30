@@ -119,8 +119,8 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--focus); out
 .app-enabled-toggle input { width: 18px; height: 18px; flex: 0 0 auto; margin: 0; accent-color: var(--primary); cursor: pointer; }
 .app-enabled-toggle input:disabled { cursor: not-allowed; }
 .app-enabled-toggle-track { display: none; }
-.app-uninstall-button { display: grid; width: 32px; height: 32px; padding: 0; place-items: center; border: 1px solid #E4A7B2; border-radius: 8px; color: var(--danger); background: #FFF7F8; cursor: pointer; }
-.app-uninstall-button:hover:not(:disabled) { border-color: #D9798B; background: #FFECEF; }
+.app-uninstall-button { display: grid; width: 32px; height: 32px; padding: 0; place-items: center; border: 1px solid rgba(232, 111, 137, .38); border-radius: 8px; color: #FFACBC; background: rgba(207, 72, 108, .12); cursor: pointer; }
+.app-uninstall-button:hover:not(:disabled) { border-color: rgba(239, 124, 149, .64); background: rgba(207, 72, 108, .21); }
 .app-uninstall-button:disabled { cursor: not-allowed; opacity: .48; }
 .app-built-in { display: inline-flex; min-height: 32px; padding: 0 9px; align-items: center; border: 1px solid var(--line); border-radius: 8px; color: var(--muted); background: var(--surface-soft); font-size: 10px; }
 .app-uninstall-dialog { width: min(480px, 100%); }

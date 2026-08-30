@@ -1,5 +1,6 @@
 import { readFile } from 'node:fs/promises';
 import { describe, expect, it } from 'vitest';
+import { beginAppOperation, completeAppOperation, isAppOperationBusy, type AppOperationState } from '../../src/renderer/app-operation-state';
 
 const source = await readFile(new URL('../../src/renderer/src/App.tsx', import.meta.url), 'utf8');
 const styles = await readFile(new URL('../../src/renderer/src/styles.css', import.meta.url), 'utf8');
@@ -84,5 +85,27 @@ describe('应用中心界面', () => {
     expect(source).toContain('title="卸载应用"');
     expect(source).toContain('配置、历史记录和报告');
     expect(source).toContain('const [deleteData, setDeleteData] = useState(false);');
+  });
+
+  it('卸载确认打开后聚焦取消，Escape 仅在非忙碌时关闭并清理监听', () => {
+    expect(source).toContain('cancelButtonRef.current?.focus()');
+    expect(source).toContain("event.key === 'Escape' && !busy");
+    expect(source).toContain('document.removeEventListener');
+  });
+});
+
+describe('应用中心操作状态', () => {
+  it('A 操作未完成时 B 不能覆盖 busy 状态并让 A 提前解锁', () => {
+    let state: AppOperationState = { activeAppId: null };
+    state = beginAppOperation(state, 'app-a');
+    expect(isAppOperationBusy(state)).toBe(true);
+
+    state = beginAppOperation(state, 'app-b');
+    expect(state.activeAppId).toBe('app-a');
+
+    state = completeAppOperation(state, 'app-b');
+    expect(isAppOperationBusy(state)).toBe(true);
+    state = completeAppOperation(state, 'app-a');
+    expect(isAppOperationBusy(state)).toBe(false);
   });
 });

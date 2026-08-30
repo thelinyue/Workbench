@@ -26,6 +26,7 @@ import { launchDesktopApp } from './desktop-app-launch';
 import { HostedAppSurface } from './hosted-app-surface';
 import { WindowControls } from './window-controls';
 import { useWindowMaximizeAnimation } from './window-maximize-animation';
+import { beginAppOperation, completeAppOperation, isAppOperationBusy } from '../app-operation-state';
 import type { AppCenterItem } from '../../shared/bridge';
 import type { AppInstallRecord, AppInstallState } from '../../shared/app-contract';
 import {
@@ -610,6 +611,9 @@ function AppCenter({ onOpenApp, showError, showNotice }: AppCenterProps) {
   const [uninstallTarget, setUninstallTarget] = useState<AppCenterItem | null>(null);
   const [deleteData, setDeleteData] = useState(false);
 
+  const beginBusy = (appId: string) => setBusyAppId((current) => beginAppOperation({ activeAppId: current }, appId).activeAppId);
+  const finishBusy = (appId: string) => setBusyAppId((current) => completeAppOperation({ activeAppId: current }, appId).activeAppId);
+
   const loadApps = useCallback(async () => {
     if (!hasWorkbenchBridge()) {
       setApps([]);
@@ -648,7 +652,8 @@ function AppCenter({ onOpenApp, showError, showNotice }: AppCenterProps) {
 
   const install = async (item: AppCenterItem) => {
     if (!hasWorkbenchBridge()) { showError('工作台接口尚未就绪，无法安装应用。'); return; }
-    setBusyAppId(item.id);
+    if (busyAppId) return;
+    beginBusy(item.id);
     try {
       await window.workbench.apps.install(item.id, item.availableVersion);
       setApps(await window.workbench.apps.list());
@@ -656,13 +661,14 @@ function AppCenter({ onOpenApp, showError, showNotice }: AppCenterProps) {
     } catch (caught) {
       showError(caught);
     } finally {
-      setBusyAppId(null);
+      finishBusy(item.id);
     }
   };
 
   const setEnabled = async (item: AppCenterItem, enabled: boolean) => {
     if (!hasWorkbenchBridge()) { showError('工作台接口尚未就绪，无法修改应用状态。'); return; }
-    setBusyAppId(item.id);
+    if (busyAppId) return;
+    beginBusy(item.id);
     try {
       const updated = await window.workbench.apps.setEnabled(item.id, enabled);
       setApps((current) => current.map((candidate) => candidate.id === item.id ? updated : candidate));
@@ -670,19 +676,20 @@ function AppCenter({ onOpenApp, showError, showNotice }: AppCenterProps) {
     } catch (caught) {
       showError(caught);
     } finally {
-      setBusyAppId(null);
+      finishBusy(item.id);
     }
   };
 
   const launch = async (item: AppInstallRecord) => {
     if (!hasWorkbenchBridge()) { showError('工作台接口尚未就绪，无法启动应用。'); return; }
-    setBusyAppId(item.id);
+    if (busyAppId) return;
+    beginBusy(item.id);
     try {
       await onOpenApp(item.id);
     } catch (caught) {
       showError(caught);
     } finally {
-      setBusyAppId(null);
+      finishBusy(item.id);
     }
   };
 
@@ -692,23 +699,24 @@ function AppCenter({ onOpenApp, showError, showNotice }: AppCenterProps) {
   };
 
   const confirmUninstall = async () => {
-    if (!uninstallTarget || !hasWorkbenchBridge()) return;
-    setBusyAppId(uninstallTarget.id);
+    if (!uninstallTarget || !hasWorkbenchBridge() || busyAppId) return;
+    const target = uninstallTarget;
+    beginBusy(target.id);
     try {
-      await window.workbench.apps.uninstall(uninstallTarget.id, deleteData);
+      await window.workbench.apps.uninstall(target.id, deleteData);
       setUninstallTarget(null);
       setDeleteData(false);
       setApps(await window.workbench.apps.list());
-      showNotice(`${uninstallTarget.name} 已卸载。`);
+      showNotice(`${target.name} 已卸载。`);
     } catch (caught) {
       showError(caught);
     } finally {
-      setBusyAppId(null);
+      finishBusy(target.id);
     }
   };
 
   const renderAction = (item: AppCenterItem) => {
-    const busy = busyAppId === item.id || item.state === 'installing';
+    const busy = isAppOperationBusy({ activeAppId: busyAppId }) || item.state === 'installing';
     if (item.state === 'not-installed' || item.state === 'update-available') {
       return <button type="button" className="primary-button" disabled={busy} onClick={() => void install(item)}>{busy ? <LoaderCircle className="spin" size={15} /> : <CloudDownload size={15} />}{item.state === 'not-installed' ? '安装' : '更新'}</button>;
     }
@@ -721,7 +729,7 @@ function AppCenter({ onOpenApp, showError, showNotice }: AppCenterProps) {
   return <div className="app-center-view">
     <div className="app-center-toolbar"><button type="button" className="secondary-button" disabled={refreshing} onClick={() => void refreshCatalog()}>{refreshing ? <LoaderCircle className="spin" size={15} /> : <RefreshCw size={15} />}刷新目录</button></div>
      {loading ? <div className="app-center-empty"><LoaderCircle className="spin" size={24} /><span>正在读取应用目录…</span></div> : apps.length === 0 ? <div className="app-center-empty"><PackageOpen size={28} /><strong>暂无可用应用</strong><span>请刷新目录，或检查应用目录配置。</span></div> : <div className="app-card-grid">{apps.map((item) => {
-       const busy = busyAppId === item.id || item.state === 'installing';
+       const busy = isAppOperationBusy({ activeAppId: busyAppId }) || item.state === 'installing';
        const installed = Boolean(item.activeVersion);
        return <article className="app-card" key={item.id} aria-busy={busy}>
          <div className="app-card-icon"><img src={resolveAppIconUrl(item.id)} alt="" aria-hidden="true" /></div>
@@ -743,7 +751,7 @@ function AppCenter({ onOpenApp, showError, showNotice }: AppCenterProps) {
          </div>
        </article>;
      })}</div>}
-     {uninstallTarget && <UninstallDialog item={uninstallTarget} deleteData={deleteData} busy={busyAppId === uninstallTarget.id} onDeleteDataChange={setDeleteData} onCancel={() => { if (!busyAppId) setUninstallTarget(null); }} onConfirm={() => void confirmUninstall()} />}
+     {uninstallTarget && <UninstallDialog item={uninstallTarget} deleteData={deleteData} busy={isAppOperationBusy({ activeAppId: busyAppId })} onDeleteDataChange={setDeleteData} onCancel={() => { if (!busyAppId) setUninstallTarget(null); }} onConfirm={() => void confirmUninstall()} />}
    </div>;
 }
 
@@ -756,11 +764,24 @@ function UninstallDialog({ item, deleteData, busy, onDeleteDataChange, onCancel,
   onCancel: () => void;
   onConfirm: () => void;
 }) {
+  const cancelButtonRef = useRef<HTMLButtonElement>(null);
+
+  useEffect(() => {
+    cancelButtonRef.current?.focus();
+
+    // 忙碌时必须保持卸载确认框，Escape 监听只在组件存在期间生效并在卸载时清理。
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape' && !busy) onCancel();
+    };
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, [busy, onCancel]);
+
   return <div className="modal-backdrop" role="presentation"><section className="confirm-dialog app-uninstall-dialog" role="dialog" aria-modal="true" aria-labelledby="app-uninstall-dialog-title">
     <div className="dialog-icon"><Trash2 size={22} /></div>
     <div className="dialog-heading"><span className="eyebrow danger-eyebrow">APP UNINSTALL</span><h2 id="app-uninstall-dialog-title">卸载 {item.name}？</h2><p>默认保留应用数据。确认后将移除应用包和桌面入口，正在运行的应用也会被关闭。</p></div>
     <label className="confirm-check"><input type="checkbox" checked={deleteData} disabled={busy} aria-label="同时删除应用数据" onChange={(event) => onDeleteDataChange(event.target.checked)} /><span className="custom-checkbox" aria-hidden="true">{deleteData ? '✓' : ''}</span><span>永久删除配置、历史记录和报告，此操作不可恢复。</span></label>
-    <div className="dialog-actions"><button type="button" className="secondary-button" disabled={busy} onClick={onCancel}>取消</button><button type="button" className="danger-button" disabled={busy} onClick={onConfirm}>{busy ? <LoaderCircle className="spin" size={15} /> : <Trash2 size={15} />}卸载</button></div>
+    <div className="dialog-actions"><button ref={cancelButtonRef} type="button" className="secondary-button" disabled={busy} onClick={onCancel}>取消</button><button type="button" className="danger-button" disabled={busy} onClick={onConfirm}>{busy ? <LoaderCircle className="spin" size={15} /> : <Trash2 size={15} />}卸载</button></div>
   </section></div>;
 }
 
