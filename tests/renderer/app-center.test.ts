@@ -65,12 +65,26 @@ describe('应用中心界面', () => {
     expect(styles).toContain('.primary-button { border-color: var(--primary); color: #FFFFFF; background: var(--primary); }');
   });
 
-  it('已安装卡片提供启用开关并显示运行时状态', () => {
-    expect(source).toContain('type="checkbox"');
-    expect(source).toContain('aria-label={`启用${item.name}`}');
+  it('已安装卡片提供切换状态按钮并显示运行时状态', () => {
+    expect(source).toContain('className="app-card-action-button app-status-button"');
+    expect(source).toContain('aria-pressed={item.enabled}');
+    expect(source).toContain('aria-label={`${item.enabled ? \'停用\' : \'启用\'}${item.name}`}');
+    expect(source).toContain('onClick={() => void setEnabled(item, !item.enabled)}');
+    expect(source).not.toContain('<input type="checkbox" checked={item.enabled}');
     expect(source).toContain('window.workbench.apps.setEnabled(item.id');
     expect(source).toContain('item.runtimeState');
     expect(source).toContain('aria-busy={busy}');
+  });
+
+  it('应用卡片的安装、更新、打开、状态和卸载操作统一尺寸并右侧对齐', () => {
+    expect(source).toContain('className="app-card-action-button primary-button"');
+    expect(source).toContain('className="app-card-action-button app-uninstall-button"');
+    expect(source).toContain('onClick={() => requestUninstall(item)}>卸载</button>');
+    expect(source).not.toContain('onClick={() => requestUninstall(item)}><Trash2 size={16} />');
+    expect(styles).toContain('.app-card-action-button { width: 112px; min-height: 34px;');
+    expect(styles).toContain('.app-status-button { display: inline-flex; min-height: 34px;');
+    expect(styles).toContain('.app-card-actions { display: flex; min-width: 112px;');
+    expect(styles).toContain('align-items: flex-end;');
   });
 
   it('停用应用仍显示卡片但打开操作不可用，并提供启用提示路径', () => {
@@ -82,7 +96,7 @@ describe('应用中心界面', () => {
     expect(source).toContain('window.workbench.apps.uninstall(');
     expect(source).toContain('builtIn');
     expect(source).toContain('Trash2');
-    expect(source).toContain('title="卸载应用"');
+    expect(source).toContain('aria-label={`卸载${item.name}`}');
     expect(source).toContain('配置、历史记录和报告');
     expect(source).toContain('const [deleteData, setDeleteData] = useState(false);');
   });

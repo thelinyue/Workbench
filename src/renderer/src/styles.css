@@ -113,16 +113,17 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--focus); out
 .app-state-incompatible, .app-state-broken { color: var(--danger); background: #FFF2F4; }
 .app-card-error { display: flex; margin-top: 8px; align-items: flex-start; gap: 5px; color: var(--danger); font-size: 10px; line-height: 1.4; }
 .app-card-actions { display: flex; min-width: 112px; flex: 0 0 auto; align-items: flex-end; align-self: stretch; justify-content: space-between; flex-direction: column; }
+.app-card-action-button { width: 112px; min-height: 34px; flex: 0 0 auto; }
 .app-card-runtime { display: flex; margin-top: 10px; align-items: center; gap: 7px; color: var(--faint); font-size: 10px; }
 .app-card-runtime strong { color: var(--muted); font-weight: 600; }
-.app-enabled-toggle { display: inline-flex; min-width: 112px; min-height: 32px; padding: 0 7px; align-items: center; gap: 7px; border: 1px solid var(--line); border-radius: 8px; color: var(--muted); background: var(--surface-soft); cursor: pointer; font-size: 10px; }
-.app-enabled-toggle input { width: 18px; height: 18px; flex: 0 0 auto; margin: 0; accent-color: var(--primary); cursor: pointer; }
-.app-enabled-toggle input:disabled { cursor: not-allowed; }
-.app-enabled-toggle-track { display: none; }
-.app-uninstall-button { display: grid; width: 32px; height: 32px; padding: 0; place-items: center; border: 1px solid rgba(232, 111, 137, .38); border-radius: 8px; color: #FFACBC; background: rgba(207, 72, 108, .12); cursor: pointer; }
+.app-status-button { display: inline-flex; min-height: 34px; padding: 0 11px; align-items: center; justify-content: center; border: 1px solid #B5DFC9; border-radius: 8px; color: var(--success); background: #EAF7F0; cursor: pointer; font-size: 11px; }
+.app-status-button:hover:not(:disabled) { border-color: #88C9AB; background: #D9F2E4; }
+.app-status-button[aria-pressed='true'] { border-color: #E4A7B2; color: var(--danger); background: #FFF2F4; }
+.app-status-button[aria-pressed='true']:hover:not(:disabled) { border-color: #D9798B; background: #FFE4E9; }
+.app-uninstall-button { display: inline-flex; min-height: 34px; padding: 0 11px; align-items: center; justify-content: center; border: 1px solid rgba(232, 111, 137, .38); border-radius: 8px; color: #FFACBC; background: rgba(207, 72, 108, .12); cursor: pointer; font-size: 11px; }
 .app-uninstall-button:hover:not(:disabled) { border-color: rgba(239, 124, 149, .64); background: rgba(207, 72, 108, .21); }
 .app-uninstall-button:disabled { cursor: not-allowed; opacity: .48; }
-.app-built-in { display: inline-flex; min-height: 32px; padding: 0 9px; align-items: center; border: 1px solid var(--line); border-radius: 8px; color: var(--muted); background: var(--surface-soft); font-size: 10px; }
+.app-built-in { display: inline-flex; width: 112px; min-height: 34px; padding: 0 9px; align-items: center; justify-content: center; border: 1px solid var(--line); border-radius: 8px; color: var(--muted); background: var(--surface-soft); font-size: 10px; }
 .app-uninstall-dialog { width: min(480px, 100%); }
 .app-center-empty { display: flex; min-height: 280px; flex-direction: column; align-items: center; justify-content: center; gap: 9px; color: var(--faint); font-size: 12px; }
 .app-center-empty strong { color: var(--text); font-size: 16px; }
@@ -600,7 +601,10 @@ html[data-theme='light'] .app-state-incompatible,
 html[data-theme='light'] .app-state-broken { color: var(--danger); background: #FFF2F4; }
 html[data-theme='light'] .app-card-error { color: var(--danger); }
 html[data-theme='light'] .app-card-runtime strong { color: var(--text); }
-html[data-theme='light'] .app-enabled-toggle,
+html[data-theme='light'] .app-status-button { border-color: #B5DFC9; color: var(--success); background: #EAF7F0; }
+html[data-theme='light'] .app-status-button:hover:not(:disabled) { border-color: #88C9AB; background: #D9F2E4; }
+html[data-theme='light'] .app-status-button[aria-pressed='true'] { border-color: #E4A7B2; color: var(--danger); background: #FFF2F4; }
+html[data-theme='light'] .app-status-button[aria-pressed='true']:hover:not(:disabled) { border-color: #D9798B; background: #FFE4E9; }
 html[data-theme='light'] .app-built-in { border-color: var(--line); color: var(--muted); background: var(--surface-soft); }
 html[data-theme='light'] .app-uninstall-button { border-color: #E4A7B2; color: var(--danger); background: #FFF7F8; }
 

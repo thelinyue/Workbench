@@ -718,10 +718,10 @@ function AppCenter({ onOpenApp, showError, showNotice }: AppCenterProps) {
   const renderAction = (item: AppCenterItem) => {
     const busy = isAppOperationBusy({ activeAppId: busyAppId }) || item.state === 'installing';
     if (item.state === 'not-installed' || item.state === 'update-available') {
-      return <button type="button" className="primary-button" disabled={busy} onClick={() => void install(item)}>{busy ? <LoaderCircle className="spin" size={15} /> : <CloudDownload size={15} />}{item.state === 'not-installed' ? '安装' : '更新'}</button>;
+      return <button type="button" className="app-card-action-button primary-button" disabled={busy} onClick={() => void install(item)}>{busy ? <LoaderCircle className="spin" size={15} /> : <CloudDownload size={15} />}{item.state === 'not-installed' ? '安装' : '更新'}</button>;
     }
     if (item.state === 'installed') {
-      return <button type="button" className="primary-button" disabled={!item.enabled || busy} onClick={() => void launch(item)}>{busy ? <LoaderCircle className="spin" size={15} /> : <Play size={15} />}打开</button>;
+      return <button type="button" className="app-card-action-button primary-button" disabled={!item.enabled || busy} onClick={() => void launch(item)}>{busy ? <LoaderCircle className="spin" size={15} /> : <Play size={15} />}打开</button>;
     }
     return null;
   };
@@ -741,12 +741,9 @@ function AppCenter({ onOpenApp, showError, showNotice }: AppCenterProps) {
            {item.errorMessage && <div className="app-card-error"><CircleAlert size={14} />{item.errorMessage}</div>}
          </div>
          <div className="app-card-actions">
-           {installed && <label className="app-enabled-toggle">
-             <input type="checkbox" checked={item.enabled} disabled={busy} aria-label={`启用${item.name}`} aria-busy={busy} onChange={(event) => void setEnabled(item, event.target.checked)} />
-             <span className="app-enabled-toggle-track" aria-hidden="true" />
-             <span>{item.enabled ? '已启用' : '已停用'}</span>
-           </label>}
-           {installed && (item.builtIn ? <span className="app-built-in">内置</span> : <button type="button" className="app-uninstall-button" title="卸载应用" aria-label={`卸载${item.name}`} disabled={busy} onClick={() => requestUninstall(item)}><Trash2 size={16} /></button>)}
+           {/* 状态按钮显示下一步动作，并用 aria-pressed 保留应用当前启用状态语义。 */}
+           {installed && <button type="button" className="app-card-action-button app-status-button" disabled={busy} aria-pressed={item.enabled} aria-label={`${item.enabled ? '停用' : '启用'}${item.name}`} aria-busy={busy} onClick={() => void setEnabled(item, !item.enabled)}>{item.enabled ? '停用' : '启用'}</button>}
+           {installed && (item.builtIn ? <span className="app-built-in">内置</span> : <button type="button" className="app-card-action-button app-uninstall-button" title="卸载应用" aria-label={`卸载${item.name}`} disabled={busy} onClick={() => requestUninstall(item)}>卸载</button>)}
            {renderAction(item)}
          </div>
        </article>;
