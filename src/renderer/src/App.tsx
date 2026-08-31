@@ -607,12 +607,12 @@ function AppCenter({ onOpenApp, showError, showNotice }: AppCenterProps) {
   const [apps, setApps] = useState<AppCenterItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [busyAppId, setBusyAppId] = useState<string | null>(null);
+  const [busyAppIds, setBusyAppIds] = useState<readonly string[]>([]);
   const [uninstallTarget, setUninstallTarget] = useState<AppCenterItem | null>(null);
   const [deleteData, setDeleteData] = useState(false);
 
-  const beginBusy = (appId: string) => setBusyAppId((current) => beginAppOperation({ activeAppId: current }, appId).activeAppId);
-  const finishBusy = (appId: string) => setBusyAppId((current) => completeAppOperation({ activeAppId: current }, appId).activeAppId);
+  const beginBusy = (appId: string) => setBusyAppIds((current) => beginAppOperation({ activeAppIds: current }, appId).activeAppIds);
+  const finishBusy = (appId: string) => setBusyAppIds((current) => completeAppOperation({ activeAppIds: current }, appId).activeAppIds);
 
   const loadApps = useCallback(async () => {
     if (!hasWorkbenchBridge()) {
@@ -652,7 +652,7 @@ function AppCenter({ onOpenApp, showError, showNotice }: AppCenterProps) {
 
   const install = async (item: AppCenterItem) => {
     if (!hasWorkbenchBridge()) { showError('工作台接口尚未就绪，无法安装应用。'); return; }
-    if (busyAppId) return;
+    if (isAppOperationBusy({ activeAppIds: busyAppIds }, item.id)) return;
     beginBusy(item.id);
     try {
       await window.workbench.apps.install(item.id, item.availableVersion);
@@ -667,7 +667,7 @@ function AppCenter({ onOpenApp, showError, showNotice }: AppCenterProps) {
 
   const setEnabled = async (item: AppCenterItem, enabled: boolean) => {
     if (!hasWorkbenchBridge()) { showError('工作台接口尚未就绪，无法修改应用状态。'); return; }
-    if (busyAppId) return;
+    if (isAppOperationBusy({ activeAppIds: busyAppIds }, item.id)) return;
     beginBusy(item.id);
     try {
       const updated = await window.workbench.apps.setEnabled(item.id, enabled);
@@ -682,7 +682,7 @@ function AppCenter({ onOpenApp, showError, showNotice }: AppCenterProps) {
 
   const launch = async (item: AppInstallRecord) => {
     if (!hasWorkbenchBridge()) { showError('工作台接口尚未就绪，无法启动应用。'); return; }
-    if (busyAppId) return;
+    if (isAppOperationBusy({ activeAppIds: busyAppIds }, item.id)) return;
     beginBusy(item.id);
     try {
       await onOpenApp(item.id);
@@ -699,7 +699,7 @@ function AppCenter({ onOpenApp, showError, showNotice }: AppCenterProps) {
   };
 
   const confirmUninstall = async () => {
-    if (!uninstallTarget || !hasWorkbenchBridge() || busyAppId) return;
+    if (!uninstallTarget || !hasWorkbenchBridge() || isAppOperationBusy({ activeAppIds: busyAppIds }, uninstallTarget.id)) return;
     const target = uninstallTarget;
     beginBusy(target.id);
     try {
@@ -716,7 +716,7 @@ function AppCenter({ onOpenApp, showError, showNotice }: AppCenterProps) {
   };
 
   const renderAction = (item: AppCenterItem) => {
-    const busy = isAppOperationBusy({ activeAppId: busyAppId }) || item.state === 'installing';
+    const busy = isAppOperationBusy({ activeAppIds: busyAppIds }, item.id) || item.state === 'installing';
     if (item.state === 'not-installed' || item.state === 'update-available') {
       return <button type="button" className="app-card-action-button primary-button" disabled={busy} onClick={() => void install(item)}>{busy ? <LoaderCircle className="spin" size={15} /> : <CloudDownload size={15} />}{item.state === 'not-installed' ? '安装' : '更新'}</button>;
     }
@@ -729,7 +729,7 @@ function AppCenter({ onOpenApp, showError, showNotice }: AppCenterProps) {
   return <div className="app-center-view">
     <div className="app-center-toolbar"><button type="button" className="secondary-button" disabled={refreshing} onClick={() => void refreshCatalog()}>{refreshing ? <LoaderCircle className="spin" size={15} /> : <RefreshCw size={15} />}刷新目录</button></div>
      {loading ? <div className="app-center-empty"><LoaderCircle className="spin" size={24} /><span>正在读取应用目录…</span></div> : apps.length === 0 ? <div className="app-center-empty"><PackageOpen size={28} /><strong>暂无可用应用</strong><span>请刷新目录，或检查应用目录配置。</span></div> : <div className="app-card-grid">{apps.map((item) => {
-       const busy = isAppOperationBusy({ activeAppId: busyAppId }) || item.state === 'installing';
+       const busy = isAppOperationBusy({ activeAppIds: busyAppIds }, item.id) || item.state === 'installing';
        const installed = Boolean(item.activeVersion);
        return <article className="app-card" key={item.id} aria-busy={busy}>
          <div className="app-card-icon"><img src={resolveAppIconUrl(item.id)} alt="" aria-hidden="true" /></div>
@@ -748,7 +748,7 @@ function AppCenter({ onOpenApp, showError, showNotice }: AppCenterProps) {
          </div>
        </article>;
      })}</div>}
-     {uninstallTarget && <UninstallDialog item={uninstallTarget} deleteData={deleteData} busy={isAppOperationBusy({ activeAppId: busyAppId })} onDeleteDataChange={setDeleteData} onCancel={() => { if (!busyAppId) setUninstallTarget(null); }} onConfirm={() => void confirmUninstall()} />}
+     {uninstallTarget && <UninstallDialog item={uninstallTarget} deleteData={deleteData} busy={isAppOperationBusy({ activeAppIds: busyAppIds }, uninstallTarget.id)} onDeleteDataChange={setDeleteData} onCancel={() => { if (!isAppOperationBusy({ activeAppIds: busyAppIds }, uninstallTarget.id)) setUninstallTarget(null); }} onConfirm={() => void confirmUninstall()} />}
    </div>;
 }
 

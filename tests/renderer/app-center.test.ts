@@ -92,6 +92,12 @@ describe('应用中心界面', () => {
     expect(source).toContain('请先在应用中心启用');
   });
 
+  it('每张应用卡片只根据自己的应用 ID 显示忙碌状态', () => {
+    expect(source).toContain('const [busyAppIds, setBusyAppIds]');
+    expect(source).toContain('isAppOperationBusy({ activeAppIds: busyAppIds }, item.id)');
+    expect(source).not.toContain('isAppOperationBusy({ activeAppId: busyAppId })');
+  });
+
   it('非内置应用提供卸载确认，确认默认不删除数据', () => {
     expect(source).toContain('window.workbench.apps.uninstall(');
     expect(source).toContain('builtIn');
@@ -110,17 +116,19 @@ describe('应用中心界面', () => {
 });
 
 describe('应用中心操作状态', () => {
-  it('A 操作未完成时 B 不能覆盖 busy 状态并让 A 提前解锁', () => {
-    let state: AppOperationState = { activeAppId: null };
+  it('A 和 B 可以同时操作，完成 A 不会清除 B 的 busy 状态', () => {
+    let state: AppOperationState = { activeAppIds: [] };
     state = beginAppOperation(state, 'app-a');
-    expect(isAppOperationBusy(state)).toBe(true);
-
     state = beginAppOperation(state, 'app-b');
-    expect(state.activeAppId).toBe('app-a');
+    expect(state.activeAppIds).toEqual(['app-a', 'app-b']);
+    expect(isAppOperationBusy(state, 'app-a')).toBe(true);
+    expect(isAppOperationBusy(state, 'app-b')).toBe(true);
+
+    state = completeAppOperation(state, 'app-a');
+    expect(isAppOperationBusy(state, 'app-a')).toBe(false);
+    expect(isAppOperationBusy(state, 'app-b')).toBe(true);
 
     state = completeAppOperation(state, 'app-b');
-    expect(isAppOperationBusy(state)).toBe(true);
-    state = completeAppOperation(state, 'app-a');
-    expect(isAppOperationBusy(state)).toBe(false);
+    expect(isAppOperationBusy(state, 'app-b')).toBe(false);
   });
 });

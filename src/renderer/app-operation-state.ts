@@ -1,19 +1,21 @@
 /**
- * 应用中心操作锁的最小不可变状态：同一时间只允许首个应用操作持有锁，
- * 后续应用不能覆盖 activeAppId，避免前一个请求尚未结束时提前恢复控件。
+ * 应用中心操作状态按 appId 隔离：同一应用只允许一个操作进行，
+ * 不同应用可以并行，避免一个应用的请求影响其他应用卡片。
  */
 export interface AppOperationState {
-  activeAppId: string | null;
+  activeAppIds: readonly string[];
 }
 
 export function beginAppOperation(state: AppOperationState, appId: string): AppOperationState {
-  return state.activeAppId === null ? { activeAppId: appId } : state;
+  return state.activeAppIds.includes(appId) ? state : { activeAppIds: [...state.activeAppIds, appId] };
 }
 
 export function completeAppOperation(state: AppOperationState, appId: string): AppOperationState {
-  return state.activeAppId === appId ? { activeAppId: null } : state;
+  return state.activeAppIds.includes(appId)
+    ? { activeAppIds: state.activeAppIds.filter((activeAppId) => activeAppId !== appId) }
+    : state;
 }
 
-export function isAppOperationBusy(state: AppOperationState): boolean {
-  return state.activeAppId !== null;
+export function isAppOperationBusy(state: AppOperationState, appId: string): boolean {
+  return state.activeAppIds.includes(appId);
 }
