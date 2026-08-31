@@ -108,6 +108,8 @@ export class AppWindowManager {
       if (existing.isMinimized()) existing.restore();
       existing.show();
       existing.focus();
+      // 桌面、开始菜单和系统通知都可能复用已有窗口；通知应用窗口已重新激活，应用应重新读取持久化状态。
+      this.deliverEvent(identity.appId, identity.windowKey, { appId: identity.appId, event: 'host.window.activated', payload: undefined });
       return Promise.resolve(existing);
     }
 

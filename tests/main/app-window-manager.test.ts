@@ -23,6 +23,19 @@ describe('应用窗口管理器', () => {
     expect(fixture.manager.resolveWebContents(fixture.windows[0]!.webContents.id)).toEqual({ appId: 'analysis-center', windowKey: 'main' });
   });
 
+  it('复用已就绪窗口时投递窗口激活事件，供应用刷新持久化状态', async () => {
+    const fixture = createFixture();
+    const window = await fixture.manager.open({ appId: 'analysis-center', name: '分析中心', window: windowManifest }) as FakeWindow;
+    fixture.manager.markEventSurfaceReady(window.webContents.id);
+
+    await fixture.manager.open({ appId: 'analysis-center', name: '分析中心', window: windowManifest });
+
+    expect(window.sent).toEqual([{
+      channel: 'workbench:app-event',
+      value: { appId: 'analysis-center', event: 'host.window.activated', payload: undefined }
+    }]);
+  });
+
   it('同一应用的不同 windowKey 创建独立窗口', async () => {
     const fixture = createFixture();
 
