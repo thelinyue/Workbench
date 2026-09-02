@@ -54,4 +54,30 @@ describe('应用窗口状态仓储', () => {
     expect(repository.load('analysis-center', 'evidence')?.x).toBe(100);
     repository.close();
   });
+
+  it('一次性迁移只删除 analysis-center/main，重启后不会删除后续写入的状态', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'workbench-app-window-state-migration-'));
+    temporaryDirectories.push(root);
+    const databasePath = join(root, 'workbench.db');
+    const migrationId = 'analysis-center-window-state-reset-v1';
+    const repository = new AppWindowStateRepository(databasePath);
+    repository.upsert({ appId: 'analysis-center', windowKey: 'main', x: 10, y: 20, width: 1500, height: 900, maximized: true });
+    repository.upsert({ appId: 'analysis-center', windowKey: 'evidence', x: 30, y: 40, width: 900, height: 600, maximized: false });
+    repository.upsert({ appId: 'other-app', windowKey: 'main', x: 50, y: 60, width: 1000, height: 700, maximized: false });
+
+    repository.resetStateOnce(migrationId, 'analysis-center', 'main');
+
+    expect(repository.load('analysis-center', 'main')).toBeUndefined();
+    expect(repository.load('analysis-center', 'evidence')).toMatchObject({ x: 30, y: 40, width: 900, height: 600 });
+    expect(repository.load('other-app', 'main')).toMatchObject({ x: 50, y: 60, width: 1000, height: 700 });
+    repository.upsert({ appId: 'analysis-center', windowKey: 'main', x: 70, y: 80, width: 800, height: 560, maximized: false });
+    repository.close();
+
+    const reopenedRepository = new AppWindowStateRepository(databasePath);
+    reopenedRepository.resetStateOnce(migrationId, 'analysis-center', 'main');
+
+    expect(reopenedRepository.load('analysis-center', 'main')).toMatchObject({ x: 70, y: 80, width: 800, height: 560 });
+    expect(reopenedRepository.load('analysis-center', 'evidence')).toMatchObject({ x: 30, y: 40, width: 900, height: 600 });
+    reopenedRepository.close();
+  });
 });

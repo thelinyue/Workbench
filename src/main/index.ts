@@ -19,6 +19,9 @@ let closeAppWindows: (() => Promise<void>) | undefined;
 let closeAppWindowState: (() => void) | undefined;
 let trayController: WorkbenchTrayController | undefined;
 
+// 只清理一次历史上被通用 resize 事件污染的分析中心主窗口状态，不能影响分析业务数据。
+const ANALYSIS_CENTER_WINDOW_STATE_RESET_MIGRATION = 'analysis-center-window-state-reset-v1';
+
 /**
  * 创建 Workbench 桌面主窗口。
  *
@@ -86,6 +89,11 @@ if (ownsSingleInstance) void app.whenReady().then(async () => {
   const dataDirectory = join(app.getPath('userData'), 'Workbench');
   unregisterAppProtocol = registerAppResourceProtocol(join(app.getPath('userData'), 'Workbench', 'apps'), developmentOverride, () => developmentOverrideEnabled);
   const appWindowState = new AppWindowStateRepository(join(dataDirectory, 'workbench.db'));
+  try {
+    appWindowState.resetStateOnce(ANALYSIS_CENTER_WINDOW_STATE_RESET_MIGRATION, 'analysis-center', 'main');
+  } catch (error) {
+    console.error(`迁移分析中心窗口状态失败：${error instanceof Error ? error.message : String(error)}`);
+  }
   closeAppWindowState = () => appWindowState.close();
   const appWindowManager = new AppWindowManager({
     stateStore: appWindowState,

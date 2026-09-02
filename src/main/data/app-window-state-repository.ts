@@ -35,6 +35,9 @@ export class AppWindowStateRepository {
         maximized INTEGER NOT NULL,
         PRIMARY KEY (app_id, window_key)
       );
+      CREATE TABLE IF NOT EXISTS app_window_state_migrations (
+        migration_id TEXT PRIMARY KEY
+      );
     `);
   }
 
@@ -54,6 +57,32 @@ export class AppWindowStateRepository {
         x = excluded.x, y = excluded.y, width = excluded.width,
         height = excluded.height, maximized = excluded.maximized
     `).run(state.appId, state.windowKey, state.x, state.y, state.width, state.height, state.maximized ? 1 : 0);
+  }
+
+  /**
+   * 只执行一次窗口状态迁移，并保证迁移标记和目标记录删除处于同一事务中。
+   *
+   * 迁移仅作用于宿主展示状态表；调用方必须传入明确的复合键，不能借此删除应用业务数据。
+   */
+  public resetStateOnce(migrationId: string, appId: string, windowKey: string): void {
+    this.database.exec('BEGIN IMMEDIATE');
+    try {
+      const migrated = this.database.prepare(`
+        SELECT migration_id FROM app_window_state_migrations WHERE migration_id = ?
+      `).get(migrationId);
+      if (!migrated) {
+        this.database.prepare('DELETE FROM app_window_state WHERE app_id = ? AND window_key = ?').run(appId, windowKey);
+        this.database.prepare('INSERT INTO app_window_state_migrations (migration_id) VALUES (?)').run(migrationId);
+      }
+      this.database.exec('COMMIT');
+    } catch (error) {
+      try {
+        this.database.exec('ROLLBACK');
+      } catch {
+        // 原始异常更能说明迁移失败原因，回滚失败不覆盖它。
+      }
+      throw error;
+    }
   }
 
   public close(): void { this.database.close(); }

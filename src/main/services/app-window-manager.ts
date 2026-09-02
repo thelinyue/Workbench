@@ -1,3 +1,4 @@
+import type { Event as ElectronEvent, WillResizeDetails } from 'electron';
 import type { AppHostEvent, AppWindowManifest } from '../../shared/app-contract';
 import type { AppWindowState } from '../data/app-window-state-repository';
 import { installHostNavigationGuard, resolveWorkbenchRendererUrl, type HostNavigationWebContents } from './host-navigation-guard';
@@ -20,8 +21,12 @@ export interface AppWindowHost {
   destroy(): void;
   loadURL(url: string): Promise<void>;
   loadFile(path: string, options?: { query?: Record<string, string> }): Promise<void>;
-  on(event: 'close' | 'resize', listener: () => void): this;
-  removeListener(event: 'close' | 'resize', listener: () => void): this;
+  on(event: 'close', listener: () => void): this;
+  on(event: 'will-move', listener: (event: ElectronEvent, newBounds: Rectangle) => void): this;
+  on(event: 'will-resize', listener: (event: ElectronEvent, newBounds: Rectangle, details: WillResizeDetails) => void): this;
+  removeListener(event: 'close', listener: () => void): this;
+  removeListener(event: 'will-move', listener: (event: ElectronEvent, newBounds: Rectangle) => void): this;
+  removeListener(event: 'will-resize', listener: (event: ElectronEvent, newBounds: Rectangle, details: WillResizeDetails) => void): this;
   once(event: 'close' | 'closed' | 'ready-to-show', listener: () => void): this;
 }
 
@@ -89,6 +94,7 @@ export class AppWindowManager {
   private readonly identities = new Map<number, Readonly<AppWindowIdentity>>();
   private readonly openings = new Map<string, Promise<AppWindowHost>>();
   private readonly exitManagedWindows = new WeakSet<AppWindowHost>();
+  private readonly lastUserBounds = new WeakMap<AppWindowHost, Rectangle>();
   private readonly eventReadyKeys = new Set<string>();
   private readonly pendingEvents = new Map<string, AppHostEvent[]>();
   private closing = false;
@@ -144,24 +150,34 @@ export class AppWindowManager {
     this.windows.set(mapKey, window);
     this.webContentsIds.set(mapKey, webContentsId);
     this.identities.set(webContentsId, identity);
+    this.lastUserBounds.set(window, { ...bounds });
     let persistState = true;
 
     window.once('ready-to-show', () => window.show());
+    // will-resize/will-move 只由用户直接拖动原生窗口触发，系统布局调整不会污染用户边界。
+    const rememberMovedBounds = (_event: unknown, nextBounds: Rectangle) => {
+      const previous = this.lastUserBounds.get(window) ?? window.getNormalBounds();
+      this.lastUserBounds.set(window, { ...previous, x: nextBounds.x, y: nextBounds.y });
+    };
+    const rememberResizedBounds = (_event: unknown, nextBounds: Rectangle) => {
+      this.lastUserBounds.set(window, { ...nextBounds });
+    };
     const persistWindowState = () => {
       if (!persistState || this.exitManagedWindows.has(window)) return;
       try {
-        const normal = window.getNormalBounds();
+        const normal = this.lastUserBounds.get(window) ?? window.getNormalBounds();
         this.options.stateStore.upsert({ ...identity, ...normal, maximized: window.isMaximized() });
       } catch (error) {
         (this.options.logger ?? console).error(`保存应用窗口状态失败（${identity.appId}/${identity.windowKey}）：${errorMessage(error)}`);
       }
     };
     window.on('close', persistWindowState);
-    // 原生窗口调整尺寸后立即保存普通边界，确保下次创建不会回退到 manifest 默认尺寸。
-    window.on('resize', persistWindowState);
+    window.on('will-move', rememberMovedBounds);
+    window.on('will-resize', rememberResizedBounds);
     window.once('closed', () => {
       window.removeListener('close', persistWindowState);
-      window.removeListener('resize', persistWindowState);
+      window.removeListener('will-move', rememberMovedBounds);
+      window.removeListener('will-resize', rememberResizedBounds);
       this.removeWindowMappings(mapKey, window, webContentsId);
     });
 
@@ -257,7 +273,7 @@ export class AppWindowManager {
       const label = identity ? `${identity.appId}/${identity.windowKey}` : `webContents#${String(webContentsId)}`;
       try {
         if (!identity) throw new Error('缺少应用窗口身份');
-        const normal = window.getNormalBounds();
+        const normal = this.lastUserBounds.get(window) ?? window.getNormalBounds();
         this.options.stateStore.upsert({ ...identity, ...normal, maximized: window.isMaximized() });
       } catch (error) {
         failures.push(`保存应用窗口状态失败（${label}）：${errorMessage(error)}`);
@@ -296,6 +312,7 @@ export class AppWindowManager {
       this.pendingEvents.delete(mapKey);
     }
     if (webContentsId !== undefined) this.identities.delete(webContentsId);
+    this.lastUserBounds.delete(window);
   }
 }
 

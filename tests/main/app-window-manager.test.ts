@@ -103,7 +103,9 @@ describe('应用窗口管理器', () => {
     const fixture = createFixture();
     const window = await fixture.manager.open({ appId: 'analysis-center', name: '分析中心', window: windowManifest }) as FakeWindow;
     const webContentsId = window.webContents.id;
-    window.normalBounds = { x: 140, y: 90, width: 1180, height: 760 };
+    const userBounds = { x: 140, y: 90, width: 1180, height: 760 };
+    window.emit('will-resize', {}, userBounds, { edge: 'bottom-right' });
+    window.normalBounds = userBounds;
     window.maximized = true;
 
     window.close();
@@ -118,34 +120,66 @@ describe('应用窗口管理器', () => {
     expect(fixture.windows).toHaveLength(2);
   });
 
-  it('调整窗口尺寸后立即保存，下一次打开恢复最近的普通尺寸', async () => {
+  it('用户手动调整尺寸和移动后，下一次打开恢复最近的普通边界', async () => {
     const fixture = createFixture();
     const window = await fixture.manager.open({ appId: 'analysis-center', name: '分析中心', window: windowManifest }) as FakeWindow;
-    window.normalBounds = { x: 220, y: 140, width: 1100, height: 720 };
+    const resizedBounds = { x: 220, y: 140, width: 1100, height: 720 };
+    window.emit('will-resize', {}, resizedBounds, { edge: 'bottom-right' });
+    window.normalBounds = resizedBounds;
+    const movedBounds = { x: 280, y: 180, width: 1100, height: 720 };
+    window.emit('will-move', {}, movedBounds);
+    window.normalBounds = movedBounds;
 
     window.emit('resize');
+    expect(fixture.savedStates).toEqual([]);
+
+    window.close();
 
     expect(fixture.savedStates).toEqual([{
-      appId: 'analysis-center', windowKey: 'main', x: 220, y: 140, width: 1100, height: 720, maximized: false
+      appId: 'analysis-center', windowKey: 'main', x: 280, y: 180, width: 1100, height: 720, maximized: false
     }]);
 
     const restoredFixture = createFixture(fixture.savedStates[0]);
     await restoredFixture.manager.open({ appId: 'analysis-center', name: '分析中心', window: windowManifest });
 
-    expect(restoredFixture.createdOptions[0]).toMatchObject({ x: 220, y: 140, width: 1100, height: 720 });
+    expect(restoredFixture.createdOptions[0]).toMatchObject({ x: 280, y: 180, width: 1100, height: 720 });
+  });
+
+  it('系统 resize 不持久化，连续三轮关闭重开保持 manifest 默认尺寸', async () => {
+    const fixture = createFixture();
+    const defaultWindowManifest: AppWindowManifest = {
+      defaultSize: { width: 800, height: 560 },
+      minSize: { width: 800, height: 560 }
+    };
+
+    for (let cycle = 0; cycle < 3; cycle += 1) {
+      const window = await fixture.manager.open({ appId: 'analysis-center', name: '分析中心', window: defaultWindowManifest }) as FakeWindow;
+      expect(fixture.createdOptions[cycle]).toMatchObject({ width: 800, height: 560 });
+
+      window.normalBounds = { x: 40 + cycle, y: 60 + cycle, width: 1200 + cycle, height: 800 + cycle };
+      window.emit('resize');
+      expect(fixture.savedStates).toHaveLength(cycle);
+
+      window.close();
+      expect(fixture.savedStates.at(-1)).toMatchObject({ width: 800, height: 560 });
+    }
   });
 
   it('第一次 close 被取消后，后续真实 close 仍保存最新状态并移除监听', async () => {
     const fixture = createFixture();
     const window = await fixture.manager.open({ appId: 'analysis-center', name: '分析中心', window: windowManifest }) as FakeWindow;
     window.preventClose = true;
-    window.normalBounds = { x: 10, y: 20, width: 1000, height: 700 };
+    const firstBounds = { x: 10, y: 20, width: 1000, height: 700 };
+    window.emit('will-resize', {}, firstBounds, { edge: 'bottom-right' });
+    window.normalBounds = firstBounds;
 
     window.close();
     expect(window.closed).toBe(false);
 
     window.preventClose = false;
-    window.normalBounds = { x: 30, y: 40, width: 1100, height: 720 };
+    const secondBounds = { x: 30, y: 40, width: 1100, height: 720 };
+    window.emit('will-resize', {}, secondBounds, { edge: 'bottom-right' });
+    window.normalBounds = secondBounds;
     window.close();
 
     expect(fixture.savedStates).toEqual([
@@ -154,6 +188,8 @@ describe('应用窗口管理器', () => {
     ]);
     expect(window.listenerCount('close')).toBe(0);
     expect(window.listenerCount('resize')).toBe(0);
+    expect(window.listenerCount('will-move')).toBe(0);
+    expect(window.listenerCount('will-resize')).toBe(0);
   });
 
   it('普通 close 的状态仓储异常记录中文错误且不阻断窗口关闭', async () => {
@@ -323,7 +359,9 @@ describe('应用窗口管理器', () => {
   it('最终退出显式保存一次状态并抑制普通 close listener 重复写入', async () => {
     const fixture = createFixture();
     const window = await fixture.manager.open({ appId: 'analysis-center', name: '分析中心', window: windowManifest }) as FakeWindow;
-    window.normalBounds = { x: 140, y: 90, width: 1180, height: 760 };
+    const userBounds = { x: 140, y: 90, width: 1180, height: 760 };
+    window.emit('will-resize', {}, userBounds, { edge: 'bottom-right' });
+    window.normalBounds = userBounds;
     window.maximized = true;
 
     await fixture.manager.closeAll();
