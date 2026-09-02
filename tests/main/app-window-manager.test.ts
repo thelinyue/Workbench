@@ -10,6 +10,18 @@ const windowManifest: AppWindowManifest = {
 };
 
 describe('应用窗口管理器', () => {
+  it('无历史状态时使用 manifest 默认尺寸创建窗口', async () => {
+    const fixture = createFixture();
+
+    await fixture.manager.open({
+      appId: 'analysis-center',
+      name: '分析中心',
+      window: { defaultSize: { width: 800, height: 560 }, minSize: { width: 800, height: 560 } }
+    });
+
+    expect(fixture.createdOptions[0]).toMatchObject({ width: 800, height: 560, minWidth: 800, minHeight: 560 });
+  });
+
   it('相同应用和默认 main 键复用窗口并聚焦', async () => {
     const fixture = createFixture();
 
@@ -106,6 +118,23 @@ describe('应用窗口管理器', () => {
     expect(fixture.windows).toHaveLength(2);
   });
 
+  it('调整窗口尺寸后立即保存，下一次打开恢复最近的普通尺寸', async () => {
+    const fixture = createFixture();
+    const window = await fixture.manager.open({ appId: 'analysis-center', name: '分析中心', window: windowManifest }) as FakeWindow;
+    window.normalBounds = { x: 220, y: 140, width: 1100, height: 720 };
+
+    window.emit('resize');
+
+    expect(fixture.savedStates).toEqual([{
+      appId: 'analysis-center', windowKey: 'main', x: 220, y: 140, width: 1100, height: 720, maximized: false
+    }]);
+
+    const restoredFixture = createFixture(fixture.savedStates[0]);
+    await restoredFixture.manager.open({ appId: 'analysis-center', name: '分析中心', window: windowManifest });
+
+    expect(restoredFixture.createdOptions[0]).toMatchObject({ x: 220, y: 140, width: 1100, height: 720 });
+  });
+
   it('第一次 close 被取消后，后续真实 close 仍保存最新状态并移除监听', async () => {
     const fixture = createFixture();
     const window = await fixture.manager.open({ appId: 'analysis-center', name: '分析中心', window: windowManifest }) as FakeWindow;
@@ -124,6 +153,7 @@ describe('应用窗口管理器', () => {
       { appId: 'analysis-center', windowKey: 'main', x: 30, y: 40, width: 1100, height: 720, maximized: false }
     ]);
     expect(window.listenerCount('close')).toBe(0);
+    expect(window.listenerCount('resize')).toBe(0);
   });
 
   it('普通 close 的状态仓储异常记录中文错误且不阻断窗口关闭', async () => {

@@ -20,8 +20,8 @@ export interface AppWindowHost {
   destroy(): void;
   loadURL(url: string): Promise<void>;
   loadFile(path: string, options?: { query?: Record<string, string> }): Promise<void>;
-  on(event: 'close', listener: () => void): this;
-  removeListener(event: 'close', listener: () => void): this;
+  on(event: 'close' | 'resize', listener: () => void): this;
+  removeListener(event: 'close' | 'resize', listener: () => void): this;
   once(event: 'close' | 'closed' | 'ready-to-show', listener: () => void): this;
 }
 
@@ -157,8 +157,11 @@ export class AppWindowManager {
       }
     };
     window.on('close', persistWindowState);
+    // 原生窗口调整尺寸后立即保存普通边界，确保下次创建不会回退到 manifest 默认尺寸。
+    window.on('resize', persistWindowState);
     window.once('closed', () => {
       window.removeListener('close', persistWindowState);
+      window.removeListener('resize', persistWindowState);
       this.removeWindowMappings(mapKey, window, webContentsId);
     });
 
